@@ -108,6 +108,8 @@ final class Engine {
     private boolean dressOpen = false;
     private String dressSel = "";
     private String dressTab = "hat";
+    private JSONArray quests = new JSONArray();
+    private String questTab = "c";
     private String drawKey = "", drawJson = "";
     private int viewDp = 0;                 // 화면 높이(dp) — 장면 높이를 고정으로 정할 때만 쓴다(줄 수가 바뀌어도 장면이 다시 만들어지지 않게)
 
@@ -190,6 +192,11 @@ final class Engine {
         } catch (Exception e) {
             chat = new JSONArray();
         }
+        try {
+            quests = new JSONArray(store.get("quests", "[]"));
+        } catch (Exception e) {
+            quests = new JSONArray();
+        }
     }
 
     private void save() {
@@ -230,6 +237,7 @@ final class Engine {
             o.put("fr", a);
             store.put("state", o.toString());
             store.put("chat", chat.toString());
+            store.put("quests", quests.toString());
         } catch (Exception e) {
             // 다음 기회에 다시 저장
         }
@@ -495,6 +503,7 @@ final class Engine {
                 .append(store.get("cp", "0")).append(store.get("cc", "0")).append(loc ? 1 : 0)
                 .append('|').append(sel).append('|').append(pairCode).append('|').append(chat.length());
         if ("settings".equals(tab)) sb.append('|').append(lastFixT / 60000L);
+        if ("quest".equals(tab)) sb.append('|').append(questTab).append(quests.toString().hashCode());
         if ("home".equals(tab)) sb.append('|').append(sceneGotT / 1000L).append(Double.isNaN(lat) ? 'n' : 'y').append(viewDp).append(Poke.shown());
         for (int i = 0; i < fs.size(); i++) {
             F f = fs.get(i);
@@ -606,7 +615,7 @@ final class Engine {
                 {"chat", "가족대화", "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"},
                 {"map", "노선도", "M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"},
                 {"home", "홈", "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"},
-                {"decor", "꾸미기", "M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"},
+                {"quest", "퀘스트", "M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm-2 14l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"},
                 {"settings", "설정", "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"}
             };
             for (int i = 0; i < T.length; i++) {
@@ -627,7 +636,7 @@ final class Engine {
             if (!consented()) return homeScreen();
             if ("chat".equals(t)) return chatScreen();
             if ("map".equals(t)) return wrap("map", new JSONArray());
-            if ("decor".equals(t)) return decorScreen();
+            if ("quest".equals(t)) return questScreen();
             if ("settings".equals(t)) return settingsScreen();
             return homeScreen();
         } catch (Exception e) {
@@ -640,12 +649,38 @@ final class Engine {
         return consented() ? "" : consentScreen();
     }
 
-    private String decorScreen() {
+    /** 퀘스트: 왼쪽 자녀 미션(부모님이 보낸 것) · 오른쪽 부모님 미션(내가 부모님께 보낸 것). 길동무와 연결되기 전에는 이 기기에만 저장한다. */
+    private String questScreen() {
+        boolean kid = !"p".equals(questTab);
+        int nc = 0, np = 0;
+        for (int i = 0; i < quests.length(); i++) {
+            JSONObject q = quests.optJSONObject(i);
+            if (q == null) continue;
+            if ("p".equals(q.optString("k"))) np++;
+            else nc++;
+        }
         JSONArray a = new JSONArray();
-        a.put(b("head", "text", "꾸미기"));
-        a.put(b("text", "text", "길동무 친구들을 예쁘게 꾸며 줄 수 있게 준비하고 있어요 ✨", "sub", "1"));
-        a.put(b("card", "title", "옷 입히기", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
-        a.put(b("card", "title", "마을 꾸미기", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
+        a.put(b("head", "text", "퀘스트"));
+        JSONArray chips = new JSONArray();
+        chips.put(item("자녀 미션 " + nc, "quest.tab:c", kid ? "1" : "0"));
+        chips.put(item("부모님 미션 " + np, "quest.tab:p", kid ? "0" : "1"));
+        JSONObject c = b("chips");
+        put(c, "items", chips);
+        a.put(c);
+        a.put(b("text", "text", kid ? "부모님이 길동무 앱에서 보내 주신 미션이에요. 해냈으면 눌러서 알려요." : "내가 부모님께 보내는 미션이에요. 부모님이 해내면 여기에 표시돼요.", "sub", "1"));
+        if (!kid) a.put(b("input", "hint", "부모님께 보낼 미션을 적어요", "act", "quest.send"));
+        int shown = 0;
+        for (int i = quests.length() - 1; i >= 0; i--) {
+            JSONObject q = quests.optJSONObject(i);
+            if (q == null || "p".equals(q.optString("k")) == kid) continue;
+            boolean done = q.optInt("s", 0) == 1;
+            String st = kid ? (done ? "✅ 해냈어요" : "눌러서 해냈다고 알려요") : (done ? "✅ 부모님이 해냈어요" : "⏳ 부모님을 기다리는 중이에요");
+            a.put(b("card", "title", q.optString("x"), "text", st, "thumb", "", "act", kid && !done ? "quest.done:" + q.optString("i") : "", "tone", done ? "0" : "1"));
+            shown++;
+        }
+        if (shown == 0) {
+            a.put(b("card", "title", kid ? "아직 받은 미션이 없어요" : "아직 보낸 미션이 없어요", "text", kid ? "부모님이 길동무 앱에서 미션을 보내면 여기에 나타나요" : "위 칸에 적어서 부모님께 보내 보세요", "thumb", "", "act", ""));
+        }
         return wrap("scroll", a);
     }
 
@@ -995,6 +1030,29 @@ final class Engine {
                     // 무시
                 }
             }
+        } else if (v.startsWith("quest.tab:")) {
+            questTab = v.substring(10).equals("p") ? "p" : "c";
+        } else if (v.startsWith("quest.done:")) {
+            String qi = v.substring(11);
+            for (int i = 0; i < quests.length(); i++) {
+                JSONObject q = quests.optJSONObject(i);
+                if (q != null && qi.equals(q.optString("i")) && !"p".equals(q.optString("k"))) {
+                    put(q, "s", 1);
+                    put(q, "dt", now);
+                }
+            }
+        } else if (v.equals("quest.send")) {
+            String s = arg == null ? "" : arg.trim();
+            if (s.length() > 100) s = s.substring(0, 100);
+            if (!s.isEmpty() && quests.length() < 200) {
+                JSONObject q = new JSONObject();
+                put(q, "i", "q" + now);
+                put(q, "k", "p");
+                put(q, "x", s);
+                put(q, "s", 0);
+                put(q, "t", now);
+                quests.put(q);
+            }
         } else if (v.equals("kid.dress")) {
             dressOpen = true;
             if (dressSel.isEmpty() && !fs.isEmpty()) dressSel = fs.get(0).id;
@@ -1116,7 +1174,7 @@ final class Engine {
         JSONArray m = new JSONArray();
         for (int i = 0; i < l.size(); i++) m.put(l.get(i));
         JSONArray body = new JSONArray();
-        body.put(nd("marq", "h", 26, "pad", pad(8, 8, 8, 9), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
+        body.put(nd("marq", "h", 26, "pad", pad(8, 4, 8, 5), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);
