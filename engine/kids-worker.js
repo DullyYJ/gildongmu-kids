@@ -2,7 +2,10 @@
 // 길동무 엔진(route-v2)과 따로 돌아간다. 자녀 앱은 화면을 받아 그리기만 하고, 계산·저장·판단은 모두 여기서 한다.
 // 인증: 요청 머리글 x-id / x-sec (기기가 처음 정한 아이디와 비밀. 서버에는 SHA-256 만 저장).
 // 자녀 앱 = 역할 c, 부모(길동무 앱) = 역할 p.
-const DAY = 86400000, CHAT_KEEP = 7 * DAY, PAIR_TTL = 10 * 60000, MAX_PARENTS = 4, MAX_TXT = 300, MAX_CHAT = 300, MAX_QUEST = 100;
+// 미션: k='c' 는 부모가 자녀에게 주는 미션(자녀 미션), k='p' 는 자녀가 부모에게 주는 미션(부모님 미션).
+//   자녀 미션 s: 0 대기 -> 1 자녀가 해냈다고 알림(부모 확인 대기) -> 2 부모가 확인(스타포인트 지급)
+//   부모님 미션 s: 0 대기 -> 1 부모가 해냈다고 표시 (스타포인트 없음)
+const DAY = 86400000, CHAT_KEEP = 7 * DAY, PAIR_TTL = 10 * 60000, MAX_PARENTS = 4, MAX_TXT = 300, MAX_CHAT = 300, MAX_QUEST = 100, MAX_PT = 5;
 const KEYS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const J = (o, s) => new Response(JSON.stringify(o), { status: s || 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
@@ -20,7 +23,13 @@ async function init(DB) {
     DB.prepare('CREATE INDEX IF NOT EXISTS chat_c ON chat(cid, t)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS quests(id TEXT PRIMARY KEY, cid TEXT NOT NULL, k TEXT NOT NULL, x TEXT NOT NULL, s INTEGER NOT NULL DEFAULT 0, t INTEGER NOT NULL)'),
     DB.prepare('CREATE INDEX IF NOT EXISTS quests_c ON quests(cid, t)'),
+    DB.prepare('CREATE TABLE IF NOT EXISTS stars(cid TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)'),
   ]);
+  // 옛 표에는 스타포인트 열(pt)이 없다 — 한 번만 덧붙인다
+  const cols = (await DB.prepare('PRAGMA table_info(quests)').all()).results || [];
+  if (!cols.some((c) => c.name === 'pt')) {
+    try { await DB.prepare('ALTER TABLE quests ADD COLUMN pt INTEGER NOT NULL DEFAULT 1').run(); } catch (e) { /* 다른 요청이 먼저 덧붙였다 */ }
+  }
   ready = true;
 }
 
@@ -32,6 +41,7 @@ const okId = (s) => typeof s === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(s);
 const okSec = (s) => typeof s === 'string' && s.length >= 16 && s.length <= 128;
 const txt = (s) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, MAX_TXT) : '');
 const rid = () => [...crypto.getRandomValues(new Uint8Array(9))].map((x) => x.toString(36).padStart(2, '0')).join('').slice(0, 12);
+const pts = (v) => { const n = Math.round(Number(v)); return n >= 1 && n <= MAX_PT ? n : 1; };
 
 async function auth(req, DB, role) {
   const id = req.headers.get('x-id'), sec = req.headers.get('x-sec');
@@ -47,6 +57,10 @@ async function linkedCount(DB, cid) {
 }
 async function isLinked(DB, cid, pid) {
   return !!(await DB.prepare('SELECT 1 x FROM links WHERE cid=? AND pid=?').bind(cid, pid).first());
+}
+async function starsOf(DB, cid) {
+  const r = await DB.prepare('SELECT n FROM stars WHERE cid=?').bind(cid).first();
+  return r ? r.n : 0;
 }
 
 async function prune(DB, cid, now) {
@@ -78,20 +92,30 @@ async function chatScreen(DB, cid, now) {
   return { mode: 'scroll', bottom: '1', blocks: a };
 }
 
+// 퀘스트 화면: 위(제목 · 스타포인트 · 칸 두 개)는 그대로 있고, 칸 아래 목록만 좌우로 밀려 돈다(앱이 칸 아래를 한 덩어리로 민다).
 async function questScreen(DB, cid, tab) {
-  const rows = (await DB.prepare('SELECT id,k,x,s FROM quests WHERE cid=? ORDER BY t DESC LIMIT ?').bind(cid, MAX_QUEST).all()).results || [];
+  const rows = (await DB.prepare('SELECT id,k,x,s,pt FROM quests WHERE cid=? ORDER BY t DESC LIMIT ?').bind(cid, MAX_QUEST).all()).results || [];
+  const star = await starsOf(DB, cid);
   const kid = tab !== 'p';
   const nc = rows.filter((q) => q.k !== 'p').length, np = rows.length - nc;
+  const wait = rows.filter((q) => q.k !== 'p' && q.s === 1).length;
   const a = [b('head', { text: '퀘스트' })];
+  a.push(b('stars', { n: star, label: '스타포인트', sub: wait > 0 ? '부모님 확인을 기다리는 미션 ' + wait + '개' : '' }));
   a.push(b('chips', { eq: '1', loop: '1', items: [item('자녀 미션 ' + nc, 'quest.tab:c', kid ? '1' : '0'), item('부모님 미션 ' + np, 'quest.tab:p', kid ? '0' : '1')] }));
-  a.push(b('text', { text: kid ? '부모님이 길동무 앱에서 보내 주신 미션이에요. 해냈으면 눌러서 알려요.' : '내가 부모님께 보내는 미션이에요. 부모님이 해내면 여기에 표시돼요.', sub: '1' }));
+  a.push(b('text', { text: kid ? '부모님이 길동무 앱에서 보내 주신 미션이에요. 해냈으면 눌러서 알려요. 부모님이 확인하면 스타포인트가 올라가요.' : '내가 부모님께 보내는 미션이에요. 부모님이 해내면 여기에 표시돼요.', sub: '1' }));
   if (!kid) a.push(b('input', { hint: '부모님께 보낼 미션을 적어요', act: 'quest.send' }));
   let shown = 0;
   for (const q of rows) {
     if ((q.k === 'p') === kid) continue;
-    const done = q.s === 1;
-    const st = kid ? (done ? '✅ 해냈어요' : '눌러서 해냈다고 알려요') : (done ? '✅ 부모님이 해냈어요' : '⏳ 부모님을 기다리는 중이에요');
-    a.push(b('card', { title: q.x, text: st, thumb: '', act: kid && !done ? 'quest.done:' + q.id : '', tone: done ? '0' : '1' }));
+    const p = q.pt || 1;
+    let st, tone = '0', act = '';
+    if (kid) {
+      if (q.s === 0) { st = '눌러서 해냈다고 알려요 · 스타 +' + p; tone = '1'; act = 'quest.done:' + q.id; }
+      else if (q.s === 1) st = '부모님 확인을 기다려요 · 스타 +' + p;
+      else st = '스타 +' + p + ' 받았어요';
+    } else st = q.s === 1 ? '부모님이 해냈어요' : '부모님을 기다리는 중이에요';
+    if (!kid && q.s !== 1) tone = '1';
+    a.push(b('card', { title: q.x, text: st, thumb: '', act, tone }));
     shown++;
   }
   if (!shown) a.push(b('card', { title: kid ? '아직 받은 미션이 없어요' : '아직 보낸 미션이 없어요', text: kid ? '부모님이 길동무 앱에서 미션을 보내면 여기에 나타나요' : '위 칸에 적어서 부모님께 보내 보세요', thumb: '', act: '' }));
@@ -142,7 +166,7 @@ async function handle(req, env, url) {
       await DB.batch([DB.prepare('DELETE FROM links WHERE cid=?').bind(cid), DB.prepare('DELETE FROM loc WHERE cid=?').bind(cid), DB.prepare('DELETE FROM codes WHERE cid=?').bind(cid)]);
       return J({ ok: true });
     }
-    if (p === '/c/state' && m === 'GET') return J({ ok: true, linked: await linkedCount(DB, cid) });
+    if (p === '/c/state' && m === 'GET') return J({ ok: true, linked: await linkedCount(DB, cid), stars: await starsOf(DB, cid) });
     if (p === '/c/screen' && m === 'GET') {
       const s = await screenOf(DB, cid, url.searchParams.get('tab'), url.searchParams.get('qt'), now);
       return s ? J({ ok: true, screen: s, linked: await linkedCount(DB, cid) }) : bad('없는 화면이에요', 404);
@@ -153,9 +177,9 @@ async function handle(req, env, url) {
       if (v === 'chat.send' && arg) {
         await DB.prepare('INSERT INTO chat(cid,f,x,t) VALUES(?,?,?,?)').bind(cid, 'c', arg, now).run();
       } else if (v === 'quest.send' && arg) {
-        await DB.prepare('INSERT INTO quests(id,cid,k,x,s,t) VALUES(?,?,?,?,0,?)').bind(rid(), cid, 'p', arg, now).run();
-      } else if (v.startsWith('quest.done:')) {
-        await DB.prepare("UPDATE quests SET s=1 WHERE id=? AND cid=? AND k='c'").bind(v.slice(11), cid).run();
+        await DB.prepare('INSERT INTO quests(id,cid,k,x,s,t,pt) VALUES(?,?,?,?,0,?,1)').bind(rid(), cid, 'p', arg, now).run();
+      } else if (v.startsWith('quest.done:')) {   // 자녀가 해냈다고 알린다 — 부모가 길동무에서 확인해야 스타포인트가 오른다
+        await DB.prepare("UPDATE quests SET s=1 WHERE id=? AND cid=? AND k='c' AND s=0").bind(v.slice(11), cid).run();
       }
       const s = await screenOf(DB, cid, tab, qt, now);
       return J({ ok: true, screen: s, linked: await linkedCount(DB, cid) });
@@ -177,7 +201,7 @@ async function handle(req, env, url) {
     const pid = await auth(req, DB, 'p');
     if (!pid) return bad('인증이 필요해요', 401);
     if (p === '/p/children' && m === 'GET') {
-      const rows = (await DB.prepare('SELECT l.cid cid, o.la la, o.lo lo, o.acc acc, o.t t FROM links l LEFT JOIN loc o ON o.cid=l.cid WHERE l.pid=?').bind(pid).all()).results || [];
+      const rows = (await DB.prepare('SELECT l.cid cid, o.la la, o.lo lo, o.acc acc, o.t t, COALESCE(s.n,0) stars FROM links l LEFT JOIN loc o ON o.cid=l.cid LEFT JOIN stars s ON s.cid=l.cid WHERE l.pid=?').bind(pid).all()).results || [];
       return J({ ok: true, children: rows });
     }
     const cid = body.cid || url.searchParams.get('cid');
@@ -197,15 +221,29 @@ async function handle(req, env, url) {
       await DB.prepare('INSERT INTO chat(cid,f,x,t) VALUES(?,?,?,?)').bind(cid, 'p', x, now).run();
       return J({ ok: true });
     }
-    if (p === '/p/quests' && m === 'GET') {
-      const rows = (await DB.prepare('SELECT id,k,x,s,t FROM quests WHERE cid=? ORDER BY t DESC LIMIT ?').bind(cid, MAX_QUEST).all()).results || [];
-      return J({ ok: true, quests: rows });
+    if (p === '/p/quests' && m === 'GET') {       // s: 자녀 미션(k=c) 0 대기 · 1 자녀가 해냈다고 알림(확인 필요) · 2 확인함 / 부모님 미션(k=p) 0 대기 · 1 부모가 해냈다고 표시
+      const rows = (await DB.prepare('SELECT id,k,x,s,pt,t FROM quests WHERE cid=? ORDER BY t DESC LIMIT ?').bind(cid, MAX_QUEST).all()).results || [];
+      return J({ ok: true, quests: rows, stars: await starsOf(DB, cid) });
     }
-    if (p === '/p/quest' && m === 'POST') {       // 부모가 자녀에게 미션 보내기 (자녀 미션 칸에 나타난다)
+    if (p === '/p/stars' && m === 'GET') return J({ ok: true, stars: await starsOf(DB, cid) });
+    if (p === '/p/quest' && m === 'POST') {       // 부모가 자녀에게 미션 보내기 (자녀 미션 칸에 나타난다). pt = 해냈을 때 올라갈 스타포인트(1~5, 기본 1)
       const x = txt(body.x);
       if (!x) return bad('내용이 없어요');
       await prune(DB, cid, now);
-      await DB.prepare('INSERT INTO quests(id,cid,k,x,s,t) VALUES(?,?,?,?,0,?)').bind(rid(), cid, 'c', x, now).run();
+      await DB.prepare('INSERT INTO quests(id,cid,k,x,s,t,pt) VALUES(?,?,?,?,0,?,?)').bind(rid(), cid, 'c', x, now, pts(body.pt)).run();
+      return J({ ok: true });
+    }
+    if (p === '/p/quest/confirm' && m === 'POST') { // 자녀가 해냈다고 알린 미션을 부모가 확인 — 그때 스타포인트가 올라간다(두 번 눌러도 한 번만)
+      const id = String(body.id || '');
+      const q = await DB.prepare("SELECT pt FROM quests WHERE id=? AND cid=? AND k='c' AND s=1").bind(id, cid).first();
+      if (!q) return bad('확인할 수 있는 미션이 아니에요', 409);
+      const r = await DB.prepare("UPDATE quests SET s=2 WHERE id=? AND cid=? AND k='c' AND s=1").bind(id, cid).run();
+      const got = r && r.meta ? r.meta.changes : 0;
+      if (got > 0) await DB.prepare('INSERT INTO stars(cid,n) VALUES(?,?) ON CONFLICT(cid) DO UPDATE SET n=n+excluded.n').bind(cid, q.pt || 1).run();
+      return J({ ok: true, added: got > 0 ? q.pt || 1 : 0, stars: await starsOf(DB, cid) });
+    }
+    if (p === '/p/quest/redo' && m === 'POST') {  // 아직 안 했다고 보고 자녀에게 다시 하게 돌려보낸다(스타포인트 없음)
+      await DB.prepare("UPDATE quests SET s=0 WHERE id=? AND cid=? AND k='c' AND s=1").bind(String(body.id || ''), cid).run();
       return J({ ok: true });
     }
     if (p === '/p/quest/done' && m === 'POST') {  // 자녀가 보낸 미션(부모님 미션)을 부모가 해냈다고 표시
