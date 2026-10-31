@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.location.Location;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -17,6 +18,12 @@ import android.widget.LinearLayout;
 
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.Priority;
+import com.google.android.gms.tasks.CancellationTokenSource;
+import com.google.android.gms.tasks.OnSuccessListener;
 
 import com.dullyyj.subway.ScreenCore;
 import com.dullyyj.subway.ScreenView;
@@ -45,6 +52,8 @@ public class MainActivity extends Activity {
     private String lastTab = "";
     private String lastTheme = "";
     private String lastHdr = "";
+    private String lastSheet = "";
+    private long lastQuick = 0L;
 
     private final Runnable loop = new Runnable() {
         @Override
@@ -82,10 +91,23 @@ public class MainActivity extends Activity {
                 });
             }
         });
+        // 장면에서 공부 중인 친구를 건드리면 엔진에 알린다(화내는 동작은 장면이 바로 그린다)
+        Poke.setSink(new Poke.Sink() {
+            @Override
+            public void angry(final String id) {
+                eh.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        Core.engine.angered(id, System.currentTimeMillis());
+                        step();
+                    }
+                });
+            }
+        });
         tabbar = new TabBar(this);
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        // 맨 위 흐르는 응원 문구(길동무와 같은 그리개 · 높이 43dp) — 동의 뒤에만 보인다
+        // 맨 위 흐르는 응원 문구(길동무와 같은 그리개 · 높이 43dp)
         hdrView = SvHost.make(this, null);
         hdrView.setVisibility(View.GONE);
         root.addView(hdrView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(43f * getResources().getDisplayMetrics().density)));
@@ -108,6 +130,7 @@ public class MainActivity extends Activity {
             eh.post(loop);
         }
         if (Core.engine.locOn() && hasLocPerm()) startLoc();
+        quickFix();
     }
 
     @Override
@@ -120,6 +143,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         running = false;
+        Poke.setSink(null);
         if (renderer != null) renderer.destroy();
         if (ht != null) ht.quitSafely();
         super.onDestroy();
@@ -146,7 +170,7 @@ public class MainActivity extends Activity {
         int rev = en.rev();
         final String vil = en.village();
         final boolean cons = en.consented();
-        final String hd = cons ? en.hdr() : "";
+        final String hd = en.hdr();
         if (!hd.equals(lastHdr)) {
             lastHdr = hd;
             final ScreenCore.Screen hs = SvHost.parse(hd);
@@ -163,7 +187,7 @@ public class MainActivity extends Activity {
             lastTheme = theme;
             final String scr = en.screen(tab);
             final String bar = en.tabbar(tab);
-            final ScreenCore.Screen pre = cons && "home".equals(tab) ? SvHost.parse(scr) : null;
+            final ScreenCore.Screen pre = !cons || "home".equals(tab) ? SvHost.parse(scr) : null;
             ui.post(new Runnable() {
                 @Override
                 public void run() {
@@ -178,11 +202,22 @@ public class MainActivity extends Activity {
                 }
             });
         }
+        // 처음 켰을 때의 동의 창은 홈 화면 위로 올라온다(동의하면 내려간다)
+        final String sheet = cons ? "" : en.consentSheet();
+        if (!sheet.equals(lastSheet)) {
+            lastSheet = sheet;
+            ui.post(new Runnable() {
+                @Override
+                public void run() {
+                    renderer.consent(sheet);
+                }
+            });
+        }
     }
 
     /** 장면(해변 친구들)과 날씨는 길동무 서버가 정한 값을 받아 올 뿐이다 — 뒤 스레드에서 받아 엔진에 넘긴다. */
     private void askScene(Engine en, long now) {
-        if (!en.consented() || !en.sceneDue(now)) return;
+        if (!en.sceneDue(now)) return;
         en.sceneAsked(now);
         final String body = en.sceneBody(now);
         Wire.EX.execute(new Runnable() {
@@ -290,6 +325,7 @@ public class MainActivity extends Activity {
         }
         if (need.isEmpty()) {
             if (Core.engine.locOn()) startLoc();
+            quickFix();
             return;
         }
         requestPermissions(need.toArray(new String[0]), REQ_PERM);
@@ -301,9 +337,53 @@ public class MainActivity extends Activity {
         if (code != REQ_PERM) return;
         if (hasLocPerm()) {
             if (Core.engine.locOn()) startLoc();
+            quickFix();
         } else {
             act("loc.denied", "");
         }
+    }
+
+    /** 날씨를 맞추려고 마지막으로 알려진 위치(없으면 새로 한 번)를 빨리 잡아 엔진에 넘긴다 — 부모에게 알리는 것과는 별개다. */
+    private void quickFix() {
+        if (!hasLocPerm()) return;
+        long n = System.currentTimeMillis();
+        if (n - lastQuick < 120000L) return;
+        lastQuick = n;
+        try {
+            final FusedLocationProviderClient c = LocationServices.getFusedLocationProviderClient(this);
+            c.getLastLocation().addOnSuccessListener(new OnSuccessListener<Location>() {
+                @Override
+                public void onSuccess(Location l) {
+                    if (l != null) {
+                        seen(l.getLatitude(), l.getLongitude());
+                        return;
+                    }
+                    try {
+                        CancellationTokenSource cts = new CancellationTokenSource();
+                        c.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, cts.getToken()).addOnSuccessListener(new OnSuccessListener<Location>() {
+                            @Override
+                            public void onSuccess(Location l2) {
+                                if (l2 != null) seen(l2.getLatitude(), l2.getLongitude());
+                            }
+                        });
+                    } catch (Throwable t) {
+                        // 위치를 못 잡아도 앱은 계속 쓴다
+                    }
+                }
+            });
+        } catch (Throwable t) {
+            // 위치를 못 잡아도 앱은 계속 쓴다
+        }
+    }
+
+    private void seen(final double la, final double lo) {
+        eh.post(new Runnable() {
+            @Override
+            public void run() {
+                Core.engine.seenFix(la, lo);
+                step();
+            }
+        });
     }
 
     private void startLoc() {

@@ -1,16 +1,24 @@
 package com.dullyyj.kids;
 
+import android.app.Activity;
+import android.app.Dialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -48,6 +56,9 @@ final class Renderer {
     private Runnable refresh;
     private String draft = "";
     private String lastHead = "";
+    private Dialog sheet;
+    private ScrollView sheetScroll;
+    private LinearLayout sheetCol;
 
     Renderer(Context c, Cb cb) {
         this.ctx = c;
@@ -87,7 +98,108 @@ final class Renderer {
     }
 
     void destroy() {
+        closeConsent();
         if (mapPane != null) mapPane.destroy();
+    }
+
+    // ───────── 처음 켰을 때 홈 위로 올라오는 동의 창 ─────────
+    /** 동의 창 내용(블록 목록 JSON)을 보여 준다. 빈 글이면 창을 내린다. */
+    void consent(String json) {
+        if (json == null || json.isEmpty()) {
+            closeConsent();
+            return;
+        }
+        JSONObject o;
+        try {
+            o = new JSONObject(json);
+        } catch (Exception e) {
+            return;
+        }
+        if (sheet == null) openConsent();
+        if (sheet == null || sheetCol == null) return;
+        final int sy = sheetScroll.getScrollY();
+        sheetCol.removeAllViews();
+        JSONArray bl = o.optJSONArray("blocks");
+        if (bl != null) {
+            for (int i = 0; i < bl.length(); i++) {
+                JSONObject b = bl.optJSONObject(i);
+                if (b == null) continue;
+                View v = block(b);
+                if (v != null) sheetCol.addView(v);
+            }
+        }
+        sheetScroll.post(new Runnable() {
+            @Override
+            public void run() {
+                sheetScroll.scrollTo(0, sy);
+            }
+        });
+    }
+
+    private void openConsent() {
+        try {
+            final Dialog d = new Dialog(ctx, android.R.style.Theme_Material_Light_Dialog_NoActionBar);
+            LinearLayout box = new LinearLayout(ctx);
+            box.setOrientation(LinearLayout.VERTICAL);
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(Pal.c(Pal.BG));
+            float r = Ui.dpi(ctx, 24);
+            g.setCornerRadii(new float[] {r, r, r, r, 0f, 0f, 0f, 0f});
+            box.setBackground(g);
+            View grip = new View(ctx);
+            grip.setBackground(Ui.box(ctx, Pal.c(Pal.BORDER2), 3, 0));
+            LinearLayout.LayoutParams gl = new LinearLayout.LayoutParams(Ui.dpi(ctx, 40), Ui.dpi(ctx, 5));
+            gl.gravity = Gravity.CENTER_HORIZONTAL;
+            gl.topMargin = Ui.dpi(ctx, 10);
+            box.addView(grip, gl);
+            sheetScroll = new ScrollView(ctx);
+            sheetScroll.setVerticalScrollBarEnabled(false);
+            sheetCol = new LinearLayout(ctx);
+            sheetCol.setOrientation(LinearLayout.VERTICAL);
+            int pad = Ui.dpi(ctx, 16);
+            sheetCol.setPadding(pad, Ui.dpi(ctx, 6), pad, Ui.dpi(ctx, 24));
+            sheetScroll.addView(sheetCol, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            box.addView(sheetScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            d.setContentView(box);
+            d.setCancelable(false);
+            d.setCanceledOnTouchOutside(false);
+            d.setOnKeyListener(new DialogInterface.OnKeyListener() {
+                @Override
+                public boolean onKey(DialogInterface di, int code, KeyEvent e) {
+                    if (code == KeyEvent.KEYCODE_BACK && e.getAction() == KeyEvent.ACTION_UP) {
+                        if (ctx instanceof Activity) ((Activity) ctx).finish();
+                        return true;
+                    }
+                    return false;
+                }
+            });
+            Window w = d.getWindow();
+            int hpx = Math.round(ctx.getResources().getDisplayMetrics().heightPixels * 0.8f);
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, hpx);
+            w.setGravity(Gravity.BOTTOM);
+            w.setBackgroundDrawable(new ColorDrawable(0));
+            w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            w.setDimAmount(0.45f);
+            w.setWindowAnimations(android.R.style.Animation_InputMethod);
+            sheet = d;
+            d.show();
+        } catch (Throwable t) {
+            sheet = null;
+        }
+    }
+
+    private void closeConsent() {
+        Dialog d = sheet;
+        sheet = null;
+        sheetCol = null;
+        sheetScroll = null;
+        if (d != null) {
+            try {
+                d.dismiss();
+            } catch (Throwable t) {
+                // 이미 닫힘
+            }
+        }
     }
 
     // ───────── 화면 한 장 ─────────

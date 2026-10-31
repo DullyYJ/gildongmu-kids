@@ -32,21 +32,24 @@ final class Engine {
     static final long PAIR_TTL_MS = 10L * 60L * 1000L;  // 연결 비밀키 유효 시간
     static final int CHAT_MAX_LEN = 500;
 
-    static final String[] MOODS = {"idle", "beg", "eat", "sulk", "sick", "poop", "play", "sleep"};
+    static final String[] MOODS = {"idle", "beg", "eat", "sulk", "sick", "poop", "play", "sleep", "study"};
+    static final long STUDY_MS = 5L * 60L * 1000L;      // 공부하기는 5분 동안 이어진다
+    static final long SLEEP_MS = 3L * 60L * 1000L;      // 잠자기는 3분 동안 이어진다
+    static final long ANGRY_MS = 10000L;                // 공부 중에 건드리면 화를 내는 시간
     // 동작 시트(_act) 칸 번호 — 종류별. -1 이면 그 동작 칸이 없어 걷기 시트로 대신한다.
     static final int[][] CELLS = {
-        {-1, 1, 13, 6, 6, 0, 15, 5},   // 0 강아지·고양이
-        {-1, 1, 0, 13, 15, 0, 12, 14}, // 1 두더지
-        {-1, 11, 8, 14, 14, 6, 15, 1}, // 2 독수리
-        {-1, 8, 4, 9, 15, 0, 13, 5},   // 3 올챙이
-        {-1, -1, -1, -1, -1, -1, -1, -1} // 4 그 밖(걷기 시트만)
+        {-1, 1, 13, 6, 6, 0, 15, 5, -1},   // 0 강아지·고양이
+        {-1, 1, 0, 13, 15, 0, 12, 14, -1}, // 1 두더지
+        {-1, 11, 8, 14, 14, 6, 15, 1, -1}, // 2 독수리
+        {-1, 8, 4, 9, 15, 0, 13, 5, -1},   // 3 올챙이
+        {-1, -1, -1, -1, -1, -1, -1, -1, -1} // 4 그 밖(걷기 시트만)
     };
     // id, 이름, 종류
     static final String[][] CAST = {
         {"ppopu", "뽀푸", "0"}, {"dolsom", "돌솜", "0"}, {"lovel", "러블", "0"}, {"chaeng", "챙챙", "3"},
         {"sul", "술", "2"}, {"dudung", "두덩", "1"}, {"bbosong", "뽀송", "4"}, {"juksun", "죽순", "4"}
     };
-    private static final String[] BUBBLE = {"", "밥 주세요!", "냠냠!", "흥!", "아파요…", "응가!", "신나요!", "zZ"};
+    private static final String[] BUBBLE = {"", "밥 주세요!", "냠냠!", "흥!", "아파요…", "응가!", "신나요!", "zZ", "공부 중"};
     private static final String KEYS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
     static final class F {
@@ -62,6 +65,8 @@ final class Engine {
         String tm = "";
         long tmUntil;
         long nextEvt;
+        long nextLong;
+        long angerUntil;
     }
 
     private final Store store;
@@ -83,6 +88,9 @@ final class Engine {
     private String sceneJson = "";
     private long sceneAskT = 0L, sceneGotT = 0L;
     private double lat = Double.NaN, lng = Double.NaN;
+    private long fixT = 0L;
+    private boolean sceneWx = false;
+    private String drawKey = "", drawJson = "";
 
     Engine(Store s) {
         store = s;
@@ -119,6 +127,7 @@ final class Engine {
         if (o.has("la") && o.has("lo")) { // 마지막으로 잡은 정확한 위치 — 앱을 껐다 켜도 이어서 쓴다
             lat = o.optDouble("la", Double.NaN);
             lng = o.optDouble("lo", Double.NaN);
+            fixT = o.optLong("ft", 0L);
         }
 
         lastTickT = o.optLong("lt", 0L);
@@ -168,6 +177,7 @@ final class Engine {
             if (!Double.isNaN(lat) && !Double.isNaN(lng)) {
                 o.put("la", lat);
                 o.put("lo", lng);
+                o.put("ft", fixT);
             }
 
             o.put("lt", lastTickT);
@@ -228,10 +238,21 @@ final class Engine {
         dirty = true;
     }
 
+    /** 부모에게 알리는 위치 — 정확한 값 그대로 저장한다(날씨를 물을 때만 따로 뭉갠다). */
     synchronized void lastFix(double la, double lo, float acc, long t) {
         lastFixT = t;
         lat = la;
         lng = lo;
+        fixT = t;
+        dirty = true;
+    }
+
+    /** 날씨용으로 빨리 잡은 마지막 위치(부모에게 알린 것은 아니다). */
+    synchronized void seenFix(double la, double lo) {
+        if (Double.isNaN(la) || Double.isNaN(lo)) return;
+        lat = la;
+        lng = lo;
+        fixT = System.currentTimeMillis();
         dirty = true;
     }
 
@@ -251,6 +272,7 @@ final class Engine {
         if (dt > OFFLINE_CAP_MS) dt = OFFLINE_CAP_MS;
         lastTickT = now;
         for (int i = 0; i < fs.size(); i++) step(fs.get(i), now, dt);
+        Poke.setStudy(studyCsv(now));
         if (now - lastPrune > 60000L) {
             lastPrune = now;
             pruneChat(now);
@@ -287,6 +309,7 @@ final class Engine {
             f.tmUntil = 0L;
         }
         if (f.nextEvt == 0L) f.nextEvt = now + EVT_MIN + rnd.nextInt((int) (EVT_MAX - EVT_MIN));
+        if (f.nextLong == 0L) f.nextLong = now + rnd.nextInt(5 * 60 * 1000);
         if (now >= f.nextEvt) {
             f.nextEvt = now + EVT_MIN + rnd.nextInt((int) (EVT_MAX - EVT_MIN));
             if (!f.sick && f.sulkUntil <= now && f.tm.isEmpty()) event(f, now);
@@ -307,17 +330,38 @@ final class Engine {
 
     private void event(F f, long now) {
         int r = rnd.nextInt(100);
-        if (r < 35) {
+        if (r < 25) {
             if (f.poop < 3) {
                 if (f.poop == 0) f.poopSince = now;
                 f.poop++;
             }
             setTm(f, "poop", now + 4000L);
-        } else if (r < 65) {
-            setTm(f, "play", now + 6000L);
-        } else if (r < 85) {
-            setTm(f, "sleep", now + 10000L);
+        } else if (r < 50) {
+            playTogether(f, now, 45000L + rnd.nextInt(30000));
+        } else if (r < 64 && now >= f.nextLong) {
+            startLong(f, "study", now + STUDY_MS, now);
+        } else if (r < 78 && now >= f.nextLong) {
+            startLong(f, "sleep", now + SLEEP_MS, now);
         }
+    }
+
+    /** 공부·잠처럼 오래 하는 행동은 한 번 하면 한참 쉬었다가 다시 한다(장면이 늘 자고 있지 않게). */
+    private void startLong(F f, String m, long until, long now) {
+        setTm(f, m, until);
+        f.nextLong = now + 8L * 60L * 1000L + rnd.nextInt(8 * 60 * 1000);
+    }
+
+    /** 친구 한 명이 놀기 시작하면 한가한 친구 한두 명이 같이 논다. */
+    private void playTogether(F f, long now, long ms) {
+        setTm(f, "play", now + ms);
+        ArrayList<F> o = new ArrayList<F>();
+        for (int i = 0; i < fs.size(); i++) {
+            F x = fs.get(i);
+            if (x != f && !x.sick && x.sulkUntil <= now && x.tm.isEmpty()) o.add(x);
+        }
+        Collections.shuffle(o, rnd);
+        int n = 1 + rnd.nextInt(2);
+        for (int i = 0; i < n && i < o.size(); i++) setTm(o.get(i), "play", now + ms);
     }
 
     private void setTm(F f, String m, long until) {
@@ -350,7 +394,8 @@ final class Engine {
         for (int i = 0; i < fs.size(); i++) {
             F f = fs.get(i);
             sb.append('|').append(moodOf(f, lastNow)).append(',').append((int) (f.hunger / 5)).append(',')
-                    .append(f.poop).append(',').append(f.neg);
+                    .append(f.poop).append(',').append(f.neg).append(f.angerUntil > lastNow ? 'a' : '-')
+                    .append(f.tm.isEmpty() ? 0L : (f.tmUntil - lastNow) / 60000L);
         }
         return sb.toString();
     }
@@ -451,12 +496,12 @@ final class Engine {
     synchronized String tabbar(String t) {
         JSONObject o = new JSONObject();
         JSONArray a = new JSONArray();
-        if (consented()) {
+        {
             String[][] T = {
                 {"chat", "가족대화", "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"},
                 {"map", "노선도", "M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"},
                 {"home", "홈", "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"},
-                {"friends", "길동무", "M2 9.5a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0zM6.5 5a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0zM12.5 5a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0zM17 9.5a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0zM12 12c-3 0-6 3-6 6.5S8 22 12 22s6-0.5 6-3.5S15 12 12 12z"},
+                {"decor", "꾸미기", "M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"},
                 {"settings", "설정", "M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"}
             };
             for (int i = 0; i < T.length; i++) {
@@ -474,15 +519,29 @@ final class Engine {
 
     synchronized String screen(String t) {
         try {
-            if (!consented()) return consentScreen();
+            if (!consented()) return homeScreen();
             if ("chat".equals(t)) return chatScreen();
             if ("map".equals(t)) return wrap("map", new JSONArray());
-            if ("friends".equals(t)) return friendsScreen();
+            if ("decor".equals(t)) return decorScreen();
             if ("settings".equals(t)) return settingsScreen();
             return homeScreen();
         } catch (Exception e) {
             return wrap("scroll", new JSONArray());
         }
+    }
+
+    /** 처음 켰을 때 홈 위로 올라오는 동의 창 내용(동의한 뒤에는 빈 글). */
+    synchronized String consentSheet() {
+        return consented() ? "" : consentScreen();
+    }
+
+    private String decorScreen() {
+        JSONArray a = new JSONArray();
+        a.put(b("head", "text", "꾸미기"));
+        a.put(b("text", "text", "길동무 친구들을 예쁘게 꾸며 줄 수 있게 준비하고 있어요 ✨", "sub", "1"));
+        a.put(b("card", "title", "옷 입히기", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
+        a.put(b("card", "title", "마을 꾸미기", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
+        return wrap("scroll", a);
     }
 
     private String consentScreen() {
@@ -508,43 +567,43 @@ final class Engine {
     private String homeScreen() {
         long now = lastNow;
         JSONArray body = new JSONArray();
-        if (!sceneJson.isEmpty()) {
+        String sc = sceneOut(now);
+        if (!sc.isEmpty()) {
             body.put(nd("scene", "h", 300, "fit", true, "fmin", 240, "fmax", 640, "frh", 26, "r", 16,
-                    "pad", pad(12, 6, 12, 6), "sc", sceneJson));
+                    "pad", pad(12, 6, 12, 6), "sc", sc));
         } else {
             JSONArray ph = new JSONArray();
             ph.put(tx("해변을 불러오는 중이에요…", 14, true, "sub", 0));
             body.put(nd("panel", "pad", pad(12, 6, 12, 6), "ip", pad(14, 40, 14, 40), "kids", ph));
         }
-        body.put(nd("lth", "s", "길동무 브리핑", "dot", "#34c759", "live", true, "pad", pad(16, 10, 16, 4)));
+        body.put(nd("lth", "s", "길동무 친구들과 놀기", "dot", "#34c759", "live", true, "pad", pad(16, 10, 16, 4)));
         JSONArray kids = new JSONArray();
-        String[] wl = weatherLines();
-        kids.put(tx(wl[0], 13, true, "text", 2));
-        if (wl[1].length() > 0) kids.put(tx(wl[1], 12, false, "sub", 8));
-        ArrayList<F> list = new ArrayList<F>(fs);
-        final long n = now;
-        Collections.sort(list, new Comparator<F>() {
-            @Override
-            public int compare(F x, F y) {
-                return need(x, n) - need(y, n);
+        String[] w = weatherParts();
+        kids.put(tx(w[0], 22, true, "text", w[1].isEmpty() ? 8 : 2));
+        if (!w[1].isEmpty()) kids.put(tx(w[1], 12, false, "sub", 8));
+        ArrayList<F> g = onScreen();
+        String[] keys = {"angry", "sick", "sulk", "beg", "poop", "eat", "study", "sleep", "play", "ok"};
+        String[] lab = {"😤 공부 중에 건드려서 화났어요", "🤒 아파요", "😤 삐졌어요", "🍚 배고파요", "💩 응가했어요", "😋 냠냠 먹는 중이에요",
+                "📖 공부 중이에요", "😴 쿨쿨 자는 중이에요", "🤝 같이 놀아요", "😊 잘 지내요"};
+        for (int k = 0; k < keys.length; k++) {
+            ArrayList<String> names = new ArrayList<String>();
+            long left = Long.MAX_VALUE;
+            for (int i = 0; i < g.size(); i++) {
+                F f = g.get(i);
+                if (!keys[k].equals(stateOf(f, now))) continue;
+                names.add(f.name);
+                if (f.tmUntil > 0L) left = Math.min(left, f.tmUntil - now);
             }
-        });
-        int needy = 0;
-        for (int i = 0; i < list.size(); i++) if (need(list.get(i), now) < 4) needy++;
-        kids.put(tx(needy == 0 ? "길동무 친구들이 모두 잘 지내요 😊" : "도와줘야 하는 친구가 " + needy + "명 있어요", 13, true, "text", 4));
-        String[] em = {"🤒 ", "😤 ", "🍚 ", "💩 "};
-        int shown = 0;
-        for (int i = 0; i < list.size() && shown < 4; i++) {
-            F f = list.get(i);
-            int nz = need(f, now);
-            if (nz >= 4) break;
-            kids.put(tx(em[nz] + line(f, now), 13, false, "text", 3, f.name));
-            shown++;
+            if (names.isEmpty()) continue;
+            StringBuilder sb = new StringBuilder(lab[k]);
+            if (("study".equals(keys[k]) || "sleep".equals(keys[k])) && left != Long.MAX_VALUE) sb.append(" · ").append(left / 60000L + 1L).append("분 남음");
+            sb.append(" — ");
+            for (int i = 0; i < names.size(); i++) sb.append(i > 0 ? ", " : "").append(names.get(i));
+            kids.put(tx(sb.toString(), 13, !"ok".equals(keys[k]), "ok".equals(keys[k]) ? "sub" : "text", 5, names.toArray(new String[0])));
         }
-        if (needy > shown) kids.put(tx("그리고 " + (needy - shown) + "명이 더 기다려요", 12, false, "sub", 2));
-        body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 12), "kids", kids));
-        body.put(nd("button", "s", "친구들 보러 가기", "act", callAct("tab.friends"), "h", 42, "size", 13, "bold", true,
-                "fill", "gold", "tc", "ongold", "r", 14, "pad", pad(12, 2, 12, 14)));
+        body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 8), "kids", kids));
+        body.put(btnRow(new String[][] {{"🤝 같이 놀기", "home.play"}, {"📖 공부하기", "home.study"}, {"😴 잠자기", "home.sleep"}}, 6));
+        body.put(btnRow(new String[][] {{"🍚 밥 주기", "home.feed"}, {"🧹 응가 치우기", "home.clean"}}, 14));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);
@@ -558,33 +617,30 @@ final class Engine {
         return o.toString();
     }
 
-    /** 지금 날씨 두 줄(상태 · 한마디) — 장면 답(look)에 든 값을 글로 옮길 뿐이다. */
-    private String[] weatherLines() {
+    private static JSONObject btnRow(String[][] items, int padB) {
+        JSONArray k = new JSONArray();
+        for (int i = 0; i < items.length; i++) {
+            k.put(nd("button", "s", items[i][0], "act", callAct(items[i][1]), "h", 42, "size", 13, "bold", true,
+                    "fill", "card", "line", "border", "tc", "text", "r", 14));
+        }
+        return nd("row", "gap", 8, "pad", pad(12, 0, 12, padB), "kids", k);
+    }
+
+    /** 날씨 한 줄(크게)과 작은 안내 — 장면 답(look)에 든 값을 아이콘과 글로 옮길 뿐이다. */
+    private String[] weatherParts() {
+        boolean stale = !Double.isNaN(lat) && (!loc || lastNow - fixT > 1800000L);
         try {
             JSONObject l = new JSONObject(sceneJson).optJSONObject("look");
             if (l != null && l.optBoolean("wxKnown", false) && !l.isNull("temp")) {
-                int t = l.optInt("temp");
-                String wk = l.optString("wk", "");
-                String ko = l.optString("wxKo", "");
+                String wk = l.optString("wk", "clear");
                 String ic = "rain".equals(wk) ? "🌧️" : "snow".equals(wk) ? "❄️" : "fog".equals(wk) ? "🌫️" : "overcast".equals(wk) ? "☁️" : "cloudy".equals(wk) ? "⛅" : "☀️";
-                String a = ic + " 지금 날씨는 " + ko + ", " + t + "°C예요" + (!Double.isNaN(lat) && (!loc || lastNow - lastFixT > 1800000L) ? " (마지막 위치 기준)" : "")
-;
-                String tip;
-                if ("rain".equals(wk)) tip = "비가 와요, 우산을 꼭 챙겨요 ☂️";
-                else if ("snow".equals(wk)) tip = "눈이 와요, 미끄러우니 조심조심 걸어요";
-                else if ("fog".equals(wk)) tip = "안개가 껴서 앞이 잘 안 보여요, 천천히 걸어요";
-                else if (t <= 5) tip = "많이 추워요, 따뜻하게 입고 나가요 🧣";
-                else if (t >= 28) tip = "많이 더워요, 물을 자주 마셔요 💧";
-                else if ("overcast".equals(wk)) tip = "구름이 많아요, 가벼운 겉옷을 챙겨요";
-                else tip = "밖에서 뛰어놀기 좋은 날이에요 🏃";
-                return new String[] {a, tip};
+                return new String[] {ic + " " + l.optString("wxKo", "") + "  " + l.optInt("temp") + "°C", stale ? "마지막으로 잡은 위치 기준이에요" : ""};
             }
         } catch (Exception e) {
             // 아래 기본 글
         }
-        if (Double.isNaN(lat)) return new String[] {"내 위치를 아직 몰라서 날씨를 못 알려줘요", "설정에서 위치 공유를 켜면 알려줄게요"};
-        return new String[] {"날씨를 불러오는 중이에요…", ""};
-
+        if (Double.isNaN(lat)) return new String[] {"📍 위치를 켜면 날씨를 알려줘요", "설정에서 위치 공유를 켜 주세요"};
+        return new String[] {"⛅ 날씨를 불러오는 중이에요", ""};
     }
 
     private String locLine() {
@@ -699,7 +755,7 @@ final class Engine {
         lastNow = now;
         String res = null;
         if (v.startsWith("tab.")) {
-            tab = v.substring(4);
+            if (consented()) tab = v.substring(4);
         } else if (v.equals("theme.toggle")) {
             store.put("theme", "dark".equals(theme()) ? "pastel" : "dark");
         } else if (v.equals("consent.parent")) {
@@ -741,6 +797,31 @@ final class Engine {
                 } catch (Exception e) {
                     // 무시
                 }
+            }
+        } else if (v.equals("home.play")) {
+            groupSet(now, "play", 60000L);
+        } else if (v.equals("home.study")) {
+            groupSet(now, "study", STUDY_MS);
+        } else if (v.equals("home.sleep")) {
+            groupSet(now, "sleep", SLEEP_MS);
+        } else if (v.equals("home.feed")) {
+            ArrayList<F> g = onScreen();
+            for (int i = 0; i < g.size(); i++) {
+                F f = g.get(i);
+                f.hunger = Math.max(0.0, f.hunger - 50.0);
+                if (f.hunger < 100) f.starved = false;
+                if (f.sulkUntil > now) f.sulkUntil = 0L;
+                if (f.sick) recover(f, now);
+                if (!f.sick) setTm(f, "eat", now + 4000L);
+            }
+        } else if (v.equals("home.clean")) {
+            ArrayList<F> g = onScreen();
+            for (int i = 0; i < g.size(); i++) {
+                F f = g.get(i);
+                f.poop = 0;
+                f.poopNeg = false;
+                f.poopSince = 0L;
+                recover(f, now);
             }
         } else if (v.startsWith("sel:")) {
             sel = find(v.substring(4)).id;
@@ -852,7 +933,9 @@ final class Engine {
 
     synchronized boolean sceneDue(long now) {
         if (now - sceneAskT < 15000L) return false;
-        return sceneJson.isEmpty() || now / 600000L != sceneGotT / 600000L;
+        if (sceneJson.isEmpty()) return true;
+        if (!sceneWx && !Double.isNaN(lat)) return true;      // 위치를 잡았는데 날씨가 아직 없으면 바로 다시 묻는다
+        return now / 600000L != sceneGotT / 600000L;
     }
 
     synchronized void sceneAsked(long now) {
@@ -879,6 +962,12 @@ final class Engine {
         }
         sceneJson = json;
         sceneGotT = now;
+        try {
+            JSONObject lk = new JSONObject(json).optJSONObject("look");
+            sceneWx = lk != null && lk.optBoolean("wxKnown", false);
+        } catch (Exception e) {
+            sceneWx = false;
+        }
     }
 
     /** 장면·날씨를 물을 때 보낼 글 — 날씨를 묻는 이 순간에만 위치를 약 5km 칸으로 뭉갠다. 저장·부모 전달용 위치는 그대로 둔다. 위치를 모르면 좌표를 아예 보내지 않는다. */
@@ -946,6 +1035,114 @@ final class Engine {
         JSONObject n = nd("text", "s", s, "size", size, "bold", bold, "color", color, "pad", pad(0, 0, 0, padB), "lh", 1.4);
         if (words.length > 0) put(n, "hl", hl(s, words));
         return n;
+    }
+
+    // ───────── 화면에 나온 친구 · 상태 · 장면 동작 ─────────
+    /** 지금 장면에 나온 친구들(장면을 아직 못 받았으면 모두). */
+    private ArrayList<F> onScreen() {
+        ArrayList<F> r = new ArrayList<F>();
+        try {
+            if (!sceneJson.isEmpty()) {
+                JSONObject o = new JSONObject(sceneJson);
+                JSONArray c = o.optJSONArray("cast");
+                if (c != null) {
+                    for (int i = 0; i < c.length(); i++) {
+                        String id = c.optString(i);
+                        for (int j = 0; j < fs.size(); j++) if (fs.get(j).id.equals(id) && !r.contains(fs.get(j))) r.add(fs.get(j));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            r.clear();
+        }
+        if (r.isEmpty()) r.addAll(fs);
+        return r;
+    }
+
+    private String stateOf(F f, long now) {
+        if (f.sick) return "sick";
+        if (f.angerUntil > now) return "angry";
+        if (f.sulkUntil > now) return "sulk";
+        if (!f.tm.isEmpty() && (f.tm.equals("study") || f.tm.equals("sleep") || f.tm.equals("play") || f.tm.equals("eat"))) return f.tm;
+        if (f.hunger >= BEG_AT) return "beg";
+        if (f.poop > 0) return "poop";
+        return "ok";
+    }
+
+    private static String[] actsFor(String st) {
+        if ("study".equals(st)) return new String[] {"kstudy", "kstudy", "rest", "kstudy"};
+        if ("sleep".equals(st)) return new String[] {"ksleep", "ksleep", "ksleep"};
+        if ("play".equals(st)) return new String[] {"walk", "kplay", "walk", "kplay", "hop"};
+        if ("eat".equals(st)) return new String[] {"keat", "keat"};
+        if ("beg".equals(st)) return new String[] {"kbeg", "rest", "kbeg", "walk"};
+        if ("sulk".equals(st)) return new String[] {"ksulk", "rest", "ksulk"};
+        if ("sick".equals(st)) return new String[] {"ksick", "rest", "ksick"};
+        if ("poop".equals(st)) return new String[] {"walk", "kpoop", "walk", "walk", "kpoop"};
+        return null;
+    }
+
+    private String studyCsv(long now) {
+        StringBuilder sb = new StringBuilder(",");
+        for (int i = 0; i < fs.size(); i++) if ("study".equals(stateOf(fs.get(i), now))) sb.append(fs.get(i).id).append(',');
+        return sb.toString();
+    }
+
+    /** 서버가 준 장면에 친구들의 지금 상태(공부·잠·배고픔…)를 동작 이름으로 끼워 그리개에 넘긴다. */
+    private String sceneOut(long now) {
+        if (sceneJson.isEmpty()) return "";
+        StringBuilder k = new StringBuilder().append(sceneGotT);
+        for (int i = 0; i < fs.size(); i++) k.append(stateOf(fs.get(i), now)).append(';');
+        String key = k.toString();
+        if (key.equals(drawKey)) return drawJson;
+        String out = sceneJson;
+        try {
+            JSONObject o = new JSONObject(sceneJson);
+            JSONObject tr = o.optJSONObject("traits");
+            if (tr != null) {
+                for (int i = 0; i < fs.size(); i++) {
+                    F f = fs.get(i);
+                    JSONObject t = tr.optJSONObject(f.id);
+                    String[] ac = actsFor(stateOf(f, now));
+                    if (t == null || ac == null) continue;
+                    JSONArray a = new JSONArray();
+                    for (int j = 0; j < ac.length; j++) a.put(ac[j]);
+                    t.put("acts", a);
+                }
+                out = o.toString();
+            }
+        } catch (Exception e) {
+            out = sceneJson;
+        }
+        drawKey = key;
+        drawJson = out;
+        return out;
+    }
+
+    /** 화면에 나온 친구 중 쉴 수 있는 친구들에게 같은 행동(같이 놀기·공부·잠)을 시킨다. */
+    private void groupSet(long now, String m, long ms) {
+        ArrayList<F> g = onScreen();
+        for (int i = 0; i < g.size(); i++) {
+            F f = g.get(i);
+            if (f.sick || f.sulkUntil > now) continue;
+            setTm(f, m, now + ms);
+            if (!"play".equals(m)) f.nextLong = now + 8L * 60L * 1000L;
+        }
+    }
+
+    /** 장면에서 공부 중인 친구를 건드렸다(엔진 스레드에서 부른다). */
+    synchronized void angered(String id, long now) {
+        for (int i = 0; i < fs.size(); i++) {
+            if (fs.get(i).id.equals(id)) {
+                fs.get(i).angerUntil = now + ANGRY_MS;
+                lastNow = now;
+                String sg = sig();
+                if (!sg.equals(lastSig)) {
+                    lastSig = sg;
+                    rev++;
+                }
+                return;
+            }
+        }
     }
 
     private void pruneChat(long now) {
