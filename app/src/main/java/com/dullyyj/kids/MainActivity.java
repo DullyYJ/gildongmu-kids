@@ -10,10 +10,13 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
 import androidx.core.view.WindowCompat;
@@ -115,10 +118,29 @@ public class MainActivity extends Activity {
         // 맨 위 흐르는 응원 문구(길동무와 같은 그리개 · 높이 43dp)
         hdrView = SvHost.make(this, null);
         hdrView.setVisibility(View.GONE);
-        root.addView(hdrView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(30f * getResources().getDisplayMetrics().density)));
+        root.addView(hdrView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(43f * getResources().getDisplayMetrics().density)));
         root.addView(renderer.view(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        root.addView(tabbar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        setContentView(root);
+        root.addView(tabbar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(56f * getResources().getDisplayMetrics().density)));
+        // 상태 표시줄 · 내비게이션 막대 자리를 비우고, 상태 표시줄 자리는 길동무처럼 늘 검정으로 채운다
+        final FrameLayout outer = new FrameLayout(this);
+        outer.setBackgroundColor(0xFF000000);
+        final View sbStrip = new View(this);
+        sbStrip.setBackgroundColor(0xFF000000);
+        outer.addView(root, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        outer.addView(sbStrip, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, Gravity.TOP));
+        outer.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public WindowInsets onApplyWindowInsets(View v, WindowInsets in) {
+                root.setPadding(in.getSystemWindowInsetLeft(), in.getSystemWindowInsetTop(), in.getSystemWindowInsetRight(), in.getSystemWindowInsetBottom());
+                ViewGroup.LayoutParams lp = sbStrip.getLayoutParams();
+                if (lp.height != in.getSystemWindowInsetTop()) {
+                    lp.height = in.getSystemWindowInsetTop();
+                    sbStrip.setLayoutParams(lp);
+                }
+                return in;
+            }
+        });
+        setContentView(outer);
     }
 
     @Override
@@ -264,10 +286,10 @@ public class MainActivity extends Activity {
 
     private void applyBars() {
         Window w = getWindow();
-        w.setStatusBarColor(Pal.c(Pal.BG));
+        w.setStatusBarColor(0xFF000000);                       // 상태 표시줄은 길동무처럼 늘 검정 + 흰 아이콘
         w.setNavigationBarColor(Pal.c(Pal.NAV));
         WindowInsetsControllerCompat ic = WindowCompat.getInsetsController(w, w.getDecorView());
-        ic.setAppearanceLightStatusBars(!Pal.dark);
+        ic.setAppearanceLightStatusBars(false);
         ic.setAppearanceLightNavigationBars(!Pal.dark);
     }
 

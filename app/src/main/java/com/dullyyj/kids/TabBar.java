@@ -71,7 +71,7 @@ final class TabBar extends View {
 
     @Override
     protected void onMeasure(int w, int h) {
-        setMeasuredDimension(MeasureSpec.getSize(w), Math.round(dp(58f)));
+        setMeasuredDimension(MeasureSpec.getSize(w), Math.round(dp(56f)));
     }
 
     @Override
@@ -81,10 +81,10 @@ final class TabBar extends View {
         p.setColor(Pal.c(Pal.NAV));
         c.drawRect(0, 0, w, h, p);
         p.setColor(Pal.c(Pal.BORDER));
-        c.drawRect(0, 0, w, Math.max(1f, dp(0.6f)), p);
+        c.drawRect(0, 0, w, Math.max(1f, dp(1f)), p);
         int n = ids.size();
         if (n == 0) return;
-        float cw = w / (float) n, ic = dp(24f);
+        float cw = w / (float) n, ic = dp(20f);
         for (int i = 0; i < n; i++) {
             boolean on = ons.get(i);
             int col = on ? Pal.c(Pal.GOLD) : Pal.c(Pal.SUB);
@@ -94,15 +94,16 @@ final class TabBar extends View {
             p.setStyle(Paint.Style.FILL);
             if (pa != null) {
                 c.save();
-                c.translate(cx - ic / 2f, dp(8f));
+                c.translate(cx - ic / 2f, dp(9f));
                 c.scale(ic / 24f, ic / 24f);
                 c.drawPath(pa, p);
                 c.restore();
             }
             p.setTextAlign(Paint.Align.CENTER);
-            p.setTextSize(dp(10.5f));
+            p.setTextSize(dp(10f));
             p.setFakeBoldText(on);
-            c.drawText(labels.get(i), cx, dp(48f), p);
+            Paint.FontMetrics fm = p.getFontMetrics();
+            c.drawText(labels.get(i), cx, dp(40f) - (fm.ascent + fm.descent) / 2f, p);
             p.setFakeBoldText(false);
         }
     }
