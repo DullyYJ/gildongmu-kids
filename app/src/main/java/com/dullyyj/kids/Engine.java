@@ -103,7 +103,6 @@ final class Engine {
     private long fixT = 0L;
     private boolean sceneWx = false;
     private String drawKey = "", drawJson = "";
-    private String wxKey = "";
     private int viewDp = 0;                 // 화면 높이(dp) — 장면 높이를 고정으로 정할 때만 쓴다(줄 수가 바뀌어도 장면이 다시 만들어지지 않게)
 
     Engine(Store s) {
@@ -299,12 +298,6 @@ final class Engine {
         Poke.setStudy(studyCsv(now));
         Poke.setSleep(sleepCsv(now));
         Poke.setStates(statesCsv(now));
-        String wk = sceneGotT + "|" + (Double.isNaN(lat) ? 'n' : 'y') + "|" + (loc ? 1 : 0) + "|" + (now - fixT > 1800000L ? 1 : 0);
-        if (!wk.equals(wxKey)) {
-            wxKey = wk;
-            String[] w = weatherParts();
-            Poke.setWx(w[0], w[1]);
-        }
         if (now - lastPrune > 60000L) {
             lastPrune = now;
             pruneChat(now);
@@ -673,9 +666,17 @@ final class Engine {
     private String homeScreen() {
         long now = lastNow;
         JSONArray body = new JSONArray();
+        String[] w = weatherParts();                                   // ① 날씨 · ② 애니메이션(장면) · ③ 길동무 친구들 — 세 칸으로 나눈다
+        JSONArray wk = new JSONArray();
+        JSONObject wl = nd("text", "s", "● 길동무 날씨", "size", 10, "bold", true, "color", "sub", "pad", pad(0, 0, 0, 3), "lh", 1.3);
+        put(wl, "hl", hl("● 길동무 날씨", "● 길동무 날씨"));
+        wk.put(wl);
+        wk.put(tx(w[0], 18, true, "text", w[1].isEmpty() ? 0 : 2));
+        if (!w[1].isEmpty()) wk.put(tx(w[1], 11, false, "sub", 0));
+        body.put(nd("panel", "pad", pad(12, 6, 12, 0), "ip", pad(14, 10, 14, 10), "kids", wk));
         String sc = sceneOut(now);
         if (!sc.isEmpty()) {
-            int sh = viewDp > 0 ? Math.max(240, Math.min(600, viewDp - 235)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
+            int sh = viewDp > 0 ? Math.max(240, Math.min(720, viewDp - 205)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
             body.put(nd("scene", "h", sh, "r", 16, "pad", pad(12, 6, 12, 6), "sc", sc));
         } else {
             JSONArray ph = new JSONArray();
@@ -1012,7 +1013,7 @@ final class Engine {
         JSONArray m = new JSONArray();
         for (int i = 0; i < l.size(); i++) m.put(l.get(i));
         JSONArray body = new JSONArray();
-        body.put(nd("marq", "h", 30, "pad", pad(10, 3, 10, 4), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
+        body.put(nd("marq", "h", 26, "pad", pad(10, 1, 10, 2), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);
