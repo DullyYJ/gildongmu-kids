@@ -744,13 +744,10 @@ final class Engine {
         long now = lastNow;
         JSONArray body = new JSONArray();
         String[] w = weatherParts();                                   // ① 날씨 · ② 애니메이션(장면) · ③ 길동무 친구들 — 세 칸으로 나눈다
-        JSONArray wk = new JSONArray();
-        JSONObject wl = nd("text", "s", "● 길동무 날씨", "size", 10, "bold", true, "color", "sub", "pad", pad(0, 0, 0, 3), "lh", 1.3);
-        put(wl, "hl", hl("● 길동무 날씨", "● 길동무 날씨"));
-        wk.put(wl);
-        wk.put(tx(w[0], 18, true, "text", w[1].isEmpty() ? 0 : 2));
-        if (!w[1].isEmpty()) wk.put(tx(w[1], 11, false, "sub", 0));
-        body.put(nd("panel", "pad", pad(12, 6, 12, 0), "ip", pad(14, 10, 14, 10), "kids", wk));
+        JSONObject wl = nd("text", "s", w[0], "size", 20, "bold", true, "color", "text", "pad", pad(18, 12, 18, w[1].isEmpty() ? 6 : 2), "lh", 1.3);   // 박스 없이 맨 위 한 문장: "아라동 7도예요. 맑아요."
+        put(wl, "hl", hl(w[0], w[2], w[3]));
+        body.put(wl);
+        if (!w[1].isEmpty()) body.put(nd("text", "s", w[1], "size", 12, "color", "sub", "pad", pad(18, 0, 18, 6), "lh", 1.4));
         String sc = sceneOut(now);
         if (!sc.isEmpty()) {
             int sh = viewDp > 0 ? Math.max(200, Math.min(720, viewDp - 290)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
@@ -819,17 +816,19 @@ final class Engine {
                 String ic = "rain".equals(wk) ? "🌧️" : "snow".equals(wk) ? "❄️" : "fog".equals(wk) ? "🌫️" : "overcast".equals(wk) ? "☁️" : "cloudy".equals(wk) ? "⛅" : "☀️";
                 int wd = l.optInt("wind", 0);
                 StringBuilder sub = new StringBuilder();
-                if (!dong.isEmpty()) sub.append("📍 ").append(dong);
-                sub.append(sub.length() > 0 ? " · " : "").append(wd >= 2 ? "💨 바람이 세요" : wd == 1 ? "🍃 바람이 불어요" : "🍃 바람이 잔잔해요");
+                sub.append(wd >= 2 ? "💨 바람이 세요" : wd == 1 ? "🍃 바람이 불어요" : "🍃 바람이 잔잔해요");
                 sub.append(" · ").append(l.optBoolean("hot", false) ? "🥵 더워요" : l.optBoolean("cold", false) ? "🥶 추워요" : "😊 지내기 좋아요");
                 if (stale) sub.append(" · 마지막으로 잡은 위치 기준");
-                return new String[] {ic + " " + l.optString("wxKo", "") + "  " + l.optInt("temp") + "°C", sub.toString()};
+                String say = "rain".equals(wk) ? "비가 와요" : "snow".equals(wk) ? "눈이 와요" : "fog".equals(wk) ? "안개가 꼈어요" : "overcast".equals(wk) ? "흐려요" : "cloudy".equals(wk) ? "구름이 조금 있어요" : "clear".equals(wk) ? "맑아요" : l.optString("wxKo", "");
+                String dn = dong.isEmpty() ? "" : dong, tp = l.optInt("temp") + "도";
+                String head = ic + " " + (dn.isEmpty() ? "" : dn + " ") + tp + "예요. " + say + ".";
+                return new String[] {head, sub.toString(), dn, tp};
             }
         } catch (Exception e) {
             // 아래 기본 글
         }
-        if (Double.isNaN(lat)) return new String[] {"📍 위치를 켜면 날씨를 알려줘요", "설정에서 위치 공유를 켜 주세요"};
-        return new String[] {"⛅ 날씨를 불러오는 중이에요", ""};
+        if (Double.isNaN(lat)) return new String[] {"📍 위치를 켜면 날씨를 알려줘요", "설정에서 위치 공유를 켜 주세요", "", ""};
+        return new String[] {"⛅ 날씨를 불러오는 중이에요", "", "", ""};
     }
 
     private String locLine() {

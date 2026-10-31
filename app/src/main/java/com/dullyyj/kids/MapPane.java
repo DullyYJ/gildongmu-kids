@@ -70,6 +70,7 @@ final class MapPane extends LinearLayout {
     private String favRaw = null, alRaw = null;
     private int favMax = 12, aliasMax = 10;
     private String favAdd = "", favRm = "", favFull = "";
+    private String ordRaw = "[]";
 
     MapPane(Context c) {
         super(c);
@@ -106,6 +107,38 @@ final class MapPane extends LinearLayout {
             @Override
             public void act(String kind, String v) {
                 onBusAct(kind, v);
+            }
+        });
+        bus.setSwipeHost(new ScreenView.SwipeHost() {                  // 길동무처럼 버스 → 지하철 좌우 밀기
+            @Override
+            public boolean onSwipe(ScreenView v, int dir) {
+                if (dir == -1 && "bus".equals(mode)) {
+                    v.slideNext(dir);
+                    setMode("subway");
+                }
+                return true;
+            }
+
+            @Override
+            public boolean canSwipe() {
+                return "bus".equals(mode);
+            }
+        });
+        bus.setPullHost(new ScreenView.PullHost() {                    // 아래로 당겨 새로고침(🔄 단추와 같은 행동)
+            @Override
+            public boolean canPull() {
+                return "bus".equals(mode);
+            }
+
+            @Override
+            public void onPull() {
+                onBusAct("call", "mp.rf");
+            }
+        });
+        bus.setReorderHost(new ScreenView.ReorderHost() {              // 주변 정류장 카드 끌어서 순서 바꾸기
+            @Override
+            public void onReorder(String[] keys, int[] perm) {
+                reorderNear(keys, perm);
             }
         });
         bus.setVisibility(View.GONE);
@@ -220,6 +253,7 @@ final class MapPane extends LinearLayout {
 
             @Override
             public void onEdgeSwipe(int dir) {
+                if (dir == 1) setMode("bus");                          // 노선도 끝에서 더 밀면 버스로
             }
 
             @Override
@@ -383,7 +417,7 @@ final class MapPane extends LinearLayout {
             b.put("fav", new JSONArray(favRaw == null ? "[]" : favRaw));
             b.put("nx", new JSONObject());
             b.put("al", new JSONObject(alRaw == null ? "{}" : alRaw));
-            b.put("ord", new JSONArray());
+            b.put("ord", new JSONArray(ordRaw));
             JSONObject res = new JSONObject();
             for (Map.Entry<String, String> e : resIn.entrySet()) res.put(e.getKey(), e.getValue());
             b.put("res", res);
@@ -542,6 +576,30 @@ final class MapPane extends LinearLayout {
         }
     }
 
+    /** 주변 정류장 카드를 끌어 바꾼 순서는 이 기기에 두고, 요청마다 서버에 실어 보낸다. */
+    private void reorderNear(String[] keys, int[] perm) {
+        if (!"bus".equals(mode) || !"near".equals(busVw) || keys == null || keys.length < 2 || keys.length > 40) return;
+        JSONArray a = new JSONArray();
+        for (int i = 0; i < keys.length; i++) {
+            if (keys[i] == null || keys[i].isEmpty() || keys[i].length() > 64) return;
+            a.put(keys[i]);
+        }
+        ordRaw = a.toString();
+        final String o = ordRaw;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    ctx.getSharedPreferences("kids_busmap", Context.MODE_PRIVATE).edit().putString("ord", o).apply();
+                } catch (Throwable t) {
+                    // 저장 실패는 이번 실행에서만 유지
+                }
+            }
+        });
+        busSel = -1;
+        loadBus(true);
+    }
+
     private int stopIdx(String v) {
         try {
             int i = Integer.parseInt(v.substring(6));
@@ -558,6 +616,7 @@ final class MapPane extends LinearLayout {
             SharedPreferences sp = ctx.getSharedPreferences("kids_busmap", Context.MODE_PRIVATE);
             favRaw = sp.getString("fav", "[]");
             alRaw = sp.getString("al", "{}");
+            ordRaw = sp.getString("ord", "[]");
         } catch (Throwable t) {
             favRaw = "[]";
             alRaw = "{}";
