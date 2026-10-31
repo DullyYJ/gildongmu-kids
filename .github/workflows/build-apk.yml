@@ -50,6 +50,100 @@ jobs:
           git -C /tmp/sub sparse-checkout set native/shell shell-android/app/src/main/assets
           A=/tmp/sub/shell-android/app/src/main/assets
           mkdir -p app/src/main/java/com/dullyyj/subway app/src/main/assets/chars3d
+          for f in ScreenView ActRowCore PerfLog RunnerArt RunnerCore SceneDriver SceneHello ScreenCore TileLoader TileMapArt TileMapCore AndroidCv Chars OpenWx SceneCore SceneCv SceneHaptics SceneModel SceneUtil SceneActs SceneArt SceneFx ScenePlatform SceneTrain ScenePlaces MetroMapView MetroRenderer MetroCamera MetroMapData; do cp /tmp/sub/native/shell/$f.java app/src/main/java/com/dullyyj/subway/; done
+          cp -r $A/. app/src/main/assets/
+          du -sh app/src/main/assets
+          ls -la app/src/main/assets/chars3d
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'cmdline-tools;latest'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
+
+      - name: Build debug APK
+        run: gradle --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gildongmu-kids-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish APK to the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk gildongmu-kids.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest gildongmu-kids.apk --prerelease --title "Gildongmu Kids build $GITHUB_RUN_NUMBER" --notes "Debug-signed test APK built by GitHub Actions."
+
+      - name: Commit expanded sources
+        if: always()
+        run: |
+          git config user.name "gildongmu-kids-ci"
+          git config user.email "ci@users.noreply.github.com"
+          rm -f bundle/*.txt bundle/*.pending
+          git add -A
+          if ! git diff --cached --quiet; then git commit -m "ci: expand source bundle [skip ci]"; git push; fi
+name: Build Gildongmu Kids APK
+
+on:
+  push:
+    paths:
+      - 'bundle/*.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANDROID_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Expand source bundles
+        run: |
+          python3 - <<'PY'
+          import glob, os, re
+          files = sorted(glob.glob('bundle/*.txt') + glob.glob('bundle/*.pending'))
+          print('bundles:', files)
+          pat = re.compile(r'^=== (FILE|EDIT): (.+?) ===\n', re.M)
+          for bf in files:
+              txt = open(bf, encoding='utf-8').read()
+              parts = pat.split(txt)
+              for i in range(1, len(parts), 3):
+                  kind, path, body = parts[i], parts[i + 1].strip(), parts[i + 2]
+                  if kind == 'FILE':
+                      os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+                      with open(path, 'w', encoding='utf-8', newline='\n') as f:
+                          f.write(body)
+                      print('wrote', path, len(body))
+                  else:
+                      m = re.match(r'@@ old\n(.*?)\n@@ new\n(.*?)\n?\Z', body, re.S)
+                      src = open(path, encoding='utf-8').read()
+                      assert m and src.count(m.group(1)) == 1, 'edit failed: ' + path
+                      with open(path, 'w', encoding='utf-8', newline='\n') as f:
+                          f.write(src.replace(m.group(1), m.group(2)))
+                      print('edited', path)
+          PY
+
+      - name: Vendor map code and character sheets from the Gildongmu repo (read only)
+        run: |
+          git clone --depth 1 --branch native-shell --filter=blob:none --sparse https://github.com/DullyYJ/subway-app.git /tmp/sub
+          git -C /tmp/sub sparse-checkout set native/shell shell-android/app/src/main/assets
+          A=/tmp/sub/shell-android/app/src/main/assets
+          mkdir -p app/src/main/java/com/dullyyj/subway app/src/main/assets/chars3d
           for f in MetroMapView MetroRenderer MetroCamera MetroMapData; do cp /tmp/sub/native/shell/$f.java app/src/main/java/com/dullyyj/subway/; done
           cp $A/metro_native.bin app/src/main/assets/
           for id in dolsom ppopu lovel dudung sul chaeng juksun; do for s in "" _act; do cp $A/chars3d/$id$s.webp app/src/main/assets/chars3d/; done; done
