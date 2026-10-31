@@ -8,6 +8,8 @@ public final class Poke {
     private static volatile String study = ",";
     private static volatile String sleep = ",";
     private static volatile String states = ";";
+    private static volatile String wxMain = "";
+    private static volatile String wxSub = "";
     private static volatile Sink sink;
     private Poke() {}
     public static void setStudy(String csv) { study = csv == null ? "," : csv; }
@@ -15,6 +17,9 @@ public final class Poke {
     public static void setSink(Sink s) { sink = s; }
     /** 형식 ";id:상태:응가수;id:상태:응가수;" */
     public static void setStates(String s) { states = s == null ? ";" : s; }
+    public static void setWx(String main, String sub) { wxMain = main == null ? "" : main; wxSub = sub == null ? "" : sub; }
+    public static String wxMain() { return wxMain; }
+    public static String wxSub() { return wxSub; }
     private static String field(String id, int n) {
         String s = states, k = ";" + id + ":";
         int i = s.indexOf(k);

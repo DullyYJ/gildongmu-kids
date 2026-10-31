@@ -103,6 +103,7 @@ final class Engine {
     private long fixT = 0L;
     private boolean sceneWx = false;
     private String drawKey = "", drawJson = "";
+    private String wxKey = "";
     private int viewDp = 0;                 // 화면 높이(dp) — 장면 높이를 고정으로 정할 때만 쓴다(줄 수가 바뀌어도 장면이 다시 만들어지지 않게)
 
     Engine(Store s) {
@@ -298,6 +299,12 @@ final class Engine {
         Poke.setStudy(studyCsv(now));
         Poke.setSleep(sleepCsv(now));
         Poke.setStates(statesCsv(now));
+        String wk = sceneGotT + "|" + (Double.isNaN(lat) ? 'n' : 'y') + "|" + (loc ? 1 : 0) + "|" + (now - fixT > 1800000L ? 1 : 0);
+        if (!wk.equals(wxKey)) {
+            wxKey = wk;
+            String[] w = weatherParts();
+            Poke.setWx(w[0], w[1]);
+        }
         if (now - lastPrune > 60000L) {
             lastPrune = now;
             pruneChat(now);
@@ -668,20 +675,14 @@ final class Engine {
         JSONArray body = new JSONArray();
         String sc = sceneOut(now);
         if (!sc.isEmpty()) {
-            int sh = viewDp > 0 ? Math.max(240, Math.min(640, viewDp - 310)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
+            int sh = viewDp > 0 ? Math.max(240, Math.min(600, viewDp - 235)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
             body.put(nd("scene", "h", sh, "r", 16, "pad", pad(12, 6, 12, 6), "sc", sc));
         } else {
             JSONArray ph = new JSONArray();
             ph.put(tx("해변을 불러오는 중이에요…", 14, true, "sub", 0));
             body.put(nd("panel", "pad", pad(12, 6, 12, 6), "ip", pad(14, 40, 14, 40), "kids", ph));
         }
-        body.put(nd("lth", "s", "길동무 날씨", "dot", "#3b82f6", "pad", pad(16, 10, 16, 4)));
-        JSONArray wk = new JSONArray();
-        String[] w = weatherParts();
-        wk.put(tx(w[0], 22, true, "text", w[1].isEmpty() ? 2 : 2));
-        if (!w[1].isEmpty()) wk.put(tx(w[1], 12, false, "sub", 2));
-        body.put(nd("panel", "pad", pad(12, 0, 12, 4), "ip", pad(14, 10, 14, 6), "kids", wk));
-        body.put(nd("lth", "s", "길동무 친구들과 놀기", "dot", "#34c759", "live", true, "pad", pad(16, 6, 16, 4)));
+        body.put(nd("lth", "s", "길동무 친구들과 놀기", "dot", "#34c759", "live", true, "pad", pad(16, 10, 16, 4)));
         JSONArray kids = new JSONArray();
         ArrayList<F> g = onScreen();
         String[] keys = {"angry", "wake", "sick", "sulk", "beg", "poop", "eat", "study", "sleep", "play", "ok"};

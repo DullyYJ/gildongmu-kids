@@ -362,8 +362,32 @@ final class KidsActs {
         c.restore();
     }
 
-    // ───────── 장면 위에 얹는 것: 원형 메뉴 ─────────
+    // ───────── 장면 위에 얹는 것: 길동무 날씨 박스 · 원형 메뉴 ─────────
     static void hud(SceneCore S, SceneCv c) {
+        String main = Poke.wxMain();
+        if (main.length() > 0) {                                  // 하늘 쪽 "길동무 날씨" 박스 — 친구들 현황 박스와 같은 흰 카드 모양
+            String sub = Poke.wxSub();
+            double w = Math.min(S.W - 24, 360), h = sub.length() > 0 ? 62 : 52, x = (S.W - w) / 2, y = 10;
+            c.save();
+            c.fillStyle(rgba(255, 255, 255, .94));
+            rr(c, x, y, w, h, 14); c.fill();
+            c.strokeStyle(rgba(120, 140, 180, .35)); c.lineWidth(1);
+            rr(c, x, y, w, h, 14); c.stroke();
+            c.fillStyle("#3b82f6"); c.beginPath(); c.arc(x + 15, y + 14, 3.6, 0, PI2); c.fill();
+            c.font(9.5);
+            c.fillStyle("#1d2540");
+            String lb = "길동무 날씨";
+            c.fillTextC(lb, x + 24 + c.measureText(lb) / 2, y + 14);
+            c.font(17.6);
+            c.fillStyle("#1d2540");
+            c.fillTextC(main, x + 15 + c.measureText(main) / 2, y + 36);
+            if (sub.length() > 0) {
+                c.font(8.5);
+                c.fillStyle("#6b7690");
+                c.fillTextC(sub, x + 15 + c.measureText(sub) / 2, y + 53);
+            }
+            c.restore();
+        }
         if (menuA != null) {
             double[] ctr = menuCenter(S);
             double el = S.t - menuT0;
