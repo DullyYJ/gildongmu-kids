@@ -103,6 +103,8 @@ final class Engine {
     private long fixT = 0L;
     private boolean sceneWx = false;
     private String drawKey = "", drawJson = "";
+    private int viewDp = 0;                 // 화면 높이(dp) — 장면 높이를 고정으로 정할 때만 쓴다(줄 수가 바뀌어도 장면이 다시 만들어지지 않게)
+    private String wxKey = "";
 
     Engine(Store s) {
         store = s;
@@ -296,6 +298,13 @@ final class Engine {
         for (int i = 0; i < fs.size(); i++) step(fs.get(i), now, dt);
         Poke.setStudy(studyCsv(now));
         Poke.setSleep(sleepCsv(now));
+        Poke.setStates(statesCsv(now));
+        String wk = sceneGotT + "|" + (Double.isNaN(lat) ? 'n' : 'y') + "|" + (loc ? 1 : 0) + "|" + (now - fixT > 1800000L ? 1 : 0);
+        if (!wk.equals(wxKey)) {
+            wxKey = wk;
+            String[] w = weatherParts();
+            Poke.setWx(w[0], w[1]);
+        }
         if (now - lastPrune > 60000L) {
             lastPrune = now;
             pruneChat(now);
@@ -487,7 +496,7 @@ final class Engine {
                 .append(store.get("cp", "0")).append(store.get("cc", "0")).append(loc ? 1 : 0)
                 .append('|').append(sel).append('|').append(pairCode).append('|').append(chat.length());
         if ("settings".equals(tab)) sb.append('|').append(lastFixT / 60000L);
-        if ("home".equals(tab)) sb.append('|').append(sceneGotT / 1000L).append(Double.isNaN(lat) ? 'n' : 'y');
+        if ("home".equals(tab)) sb.append('|').append(sceneGotT / 1000L).append(Double.isNaN(lat) ? 'n' : 'y').append(viewDp);
         for (int i = 0; i < fs.size(); i++) {
             F f = fs.get(i);
             sb.append('|').append(moodOf(f, lastNow)).append(',').append((int) (f.hunger / 5)).append(',')
@@ -666,8 +675,8 @@ final class Engine {
         JSONArray body = new JSONArray();
         String sc = sceneOut(now);
         if (!sc.isEmpty()) {
-            body.put(nd("scene", "h", 300, "fit", true, "fmin", 240, "fmax", 640, "frh", 26, "r", 16,
-                    "pad", pad(12, 6, 12, 6), "sc", sc));
+            int sh = viewDp > 0 ? Math.max(260, Math.min(640, viewDp - 400)) : 420;   // 고정 높이 — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
+            body.put(nd("scene", "h", sh, "r", 16, "pad", pad(12, 6, 12, 6), "sc", sc));
         } else {
             JSONArray ph = new JSONArray();
             ph.put(tx("해변을 불러오는 중이에요…", 14, true, "sub", 0));
@@ -675,12 +684,9 @@ final class Engine {
         }
         body.put(nd("lth", "s", "길동무 친구들과 놀기", "dot", "#34c759", "live", true, "pad", pad(16, 10, 16, 4)));
         JSONArray kids = new JSONArray();
-        String[] w = weatherParts();
-        kids.put(tx(w[0], 22, true, "text", w[1].isEmpty() ? 8 : 2));
-        if (!w[1].isEmpty()) kids.put(tx(w[1], 12, false, "sub", 8));
         ArrayList<F> g = onScreen();
         String[] keys = {"angry", "wake", "sick", "sulk", "beg", "poop", "eat", "study", "sleep", "play", "ok"};
-        String[] lab = {"😤 공부 중에 건드려서 화났어요", "😠 자다가 깨서 화났어요", "🤒 아파요", "😤 삐졌어요", "🍚 배고파요", "💩 응가했어요", "😋 냠냠 먹는 중이에요",
+        String[] lab = {"😤 공부 중에 건드려서 화났어요", "😠 자다가 깨서 화났어요", "🤒 아파요", "😤 삐졌어요", "🍚 배고파요 · 밥을 주세요", "💩 응가했어요 · 치워 주세요", "😋 냠냠 먹는 중이에요",
                 "📖 공부 중이에요", "😴 쿨쿨 자는 중이에요", "🤝 같이 놀아요", "😊 잘 지내요"};
         for (int k = 0; k < keys.length; k++) {
             ArrayList<String> names = new ArrayList<String>();
@@ -699,9 +705,9 @@ final class Engine {
             for (int i = 0; i < names.size(); i++) sb.append(i > 0 ? ", " : "").append(names.get(i));
             kids.put(tx(sb.toString(), 13, !"ok".equals(keys[k]), "ok".equals(keys[k]) ? "sub" : "text", 5, names.toArray(new String[0])));
         }
+        kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 11, false, "sub", 6));
         body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 8), "kids", kids));
-        body.put(btnRow(new String[][] {{"🤝 같이 놀기", "home.play"}, {"📖 공부하기", "home.study"}, {"😴 잠자기", "home.sleep"}}, 6));
-        body.put(btnRow(new String[][] {{"🍚 밥 주기", "home.feed"}, {"🧹 응가 치우기", "home.clean"}}, 14));
+        body.put(btnRow(new String[][] {{"🤝 같이 놀기", "home.play"}}, 14));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);
@@ -896,6 +902,9 @@ final class Engine {
                     // 무시
                 }
             }
+        } else if (v.startsWith("kid.pick:")) {
+            String[] p = v.substring(9).split(":");
+            if (p.length == 2) pickFor(find(p[0]), p[1], now);
         } else if (v.equals("home.play")) {
             groupSet(now, "play", 60000L);
         } else if (v.equals("home.study")) {
@@ -1004,7 +1013,7 @@ final class Engine {
         JSONArray m = new JSONArray();
         for (int i = 0; i < l.size(); i++) m.put(l.get(i));
         JSONArray body = new JSONArray();
-        body.put(nd("marq", "h", 26, "pad", pad(8, 8, 8, 9), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
+        body.put(nd("marq", "h", 39, "pad", pad(12, 12, 12, 13), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);
@@ -1187,35 +1196,58 @@ final class Engine {
         return sb.toString();
     }
 
-    /** 서버가 준 장면에 친구들의 지금 상태(공부·잠·배고픔…)를 동작 이름으로 끼워 그리개에 넘긴다. */
+    /** 장면은 서버가 준 값 그대로(친구 모두가 늘 나온다). 친구들의 지금 상태(공부·잠·밥·응가…)는 Poke 로 따로 건네서 그림이 이어진다 — 글이 바뀌어도 장면이 다시 만들어지지 않는다. */
     private String sceneOut(long now) {
         if (sceneJson.isEmpty()) return "";
-        StringBuilder k = new StringBuilder().append(sceneGotT);
-        for (int i = 0; i < fs.size(); i++) k.append(stateOf(fs.get(i), now)).append(';');
-        String key = k.toString();
+        String key = String.valueOf(sceneGotT);
         if (key.equals(drawKey)) return drawJson;
         String out = sceneJson;
         try {
             JSONObject o = new JSONObject(sceneJson);
-            JSONObject tr = o.optJSONObject("traits");
-            if (tr != null) {
-                for (int i = 0; i < fs.size(); i++) {
-                    F f = fs.get(i);
-                    JSONObject t = tr.optJSONObject(f.id);
-                    String[] ac = actsFor(stateOf(f, now));
-                    if (t == null || ac == null) continue;
-                    JSONArray a = new JSONArray();
-                    for (int j = 0; j < ac.length; j++) a.put(ac[j]);
-                    t.put("acts", a);
-                }
-                out = o.toString();
-            }
+            JSONArray c = new JSONArray();
+            for (int i = 0; i < CAST.length; i++) c.put(CAST[i][0]);
+            o.put("cast", c);
+            out = o.toString();
         } catch (Exception e) {
             out = sceneJson;
         }
         drawKey = key;
         drawJson = out;
         return out;
+    }
+
+    private String statesCsv(long now) {
+        StringBuilder sb = new StringBuilder(";");
+        for (int i = 0; i < fs.size(); i++) {
+            F f = fs.get(i);
+            sb.append(f.id).append(':').append(stateOf(f, now)).append(':').append(f.poop).append(';');
+        }
+        return sb.toString();
+    }
+
+    /** 장면에서 친구를 짧게 눌러 고른 일(응가 치우기 · 식사 · 공부 · 잠자기). */
+    private void pickFor(F f, String what, long now) {
+        if ("clean".equals(what)) {
+            f.poop = 0;
+            f.poopNeg = false;
+            f.poopSince = 0L;
+            recover(f, now);
+        } else if ("feed".equals(what)) {
+            feedOne(f, now);
+        } else if ("study".equals(what) || "sleep".equals(what)) {
+            if (f.sick || f.sulkUntil > now || wakeAt(f, now) != 0L) return;
+            boolean st = "study".equals(what);
+            setTm(f, what, now + (st ? STUDY_MS : SLEEP_MS));
+            f.nextLong = now + 8L * 60L * 1000L;
+        }
+    }
+
+    /** 앱이 알려 주는 화면 높이(dp). 장면 높이를 정하는 데만 쓴다. */
+    synchronized void setView(int dp) {
+        if (dp > 0 && dp != viewDp) {
+            viewDp = dp;
+            rev++;
+        }
     }
 
     /** 화면에 나온 친구 중 쉴 수 있는 친구들에게 같은 행동(같이 놀기·공부·잠)을 시킨다. */

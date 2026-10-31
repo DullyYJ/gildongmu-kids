@@ -1,0 +1,15 @@
+SceneCore.java|||SceneActs.register(this);|||SceneActs.register(this); KidsActs.register(this);
+SceneCore.java|||double kk = PH < 150 ? Math.max(.55, PH / 150) : clamp(Math.min(PH / 190, PW / 200), 1, 2);|||double kk = KidsActs.ZOOM * (PH < 150 ? Math.max(.55, PH / 150) : clamp(Math.min(PH / 190, PW / 200), 1, 2));
+SceneCore.java|||Actor a = hitActor(xdp / k, ydp / k); if (a == null) return false;|||if (KidsActs.menuDown(this, xdp / k, ydp / k)) return true; Actor a = hitActor(xdp / k, ydp / k); if (a == null) return false; KidsActs.poke(this, a);
+SceneCore.java|||public void up() { PEND = null; if (DRAG != null) release(); }|||public void up() { if (PEND != null) KidsActs.tap(this, PEND.a); PEND = null; if (DRAG != null) release(); }
+SceneCore.java|||a.k = kk; a.w = D.cell * kk; a.x = x;|||a.k = kk * KidsActs.CHAR; a.w = D.cell * kk * KidsActs.CHAR; a.x = x;
+SceneCore.java|||double HH(Actor a) { return TH * zs(a.z) * (a.hero ? 1.12 : 1); }|||double HH(Actor a) { return TH * KidsActs.CHAR * zs(a.z) * (a.hero ? 1.12 : 1); }
+SceneCore.java|||if (PEND != null && t - PEND.t0 >= LONGPRESS) grab();|||KidsActs.tick(this, dt); if (PEND != null && t - PEND.t0 >= LONGPRESS) grab();
+SceneCore.java|||void drawActor(SceneCv c, Actor a) {|||void drawActor(SceneCv c, Actor a) { KidsActs.under(this, c, a); drawActor0(c, a); KidsActs.over(this, c, a); }\n    void drawActor0(SceneCv c, Actor a) {
+SceneCore.java|||public void render(SceneCv c) {|||public void render(SceneCv c) { render0(c); if (running && bg != null && tv < 0) { c.save(); c.scale(dpr, dpr); SceneUtil.rr(c, 0, 0, W, H + stretch, HOST_RADIUS); c.clip(); try { KidsActs.hud(this, c); } catch (RuntimeException e) { /* 장면 위 덧그림 실패는 장면에 영향 없다 */ } c.restore(); } }\n    public void render0(SceneCv c) {
+SceneCore.java|||friends != null && !friends.isEmpty() && R.next() < .42 ?|||friends != null && !friends.isEmpty() && R.next() < .12 ?
+SceneCore.java|||int want = W < 260 ? 2 : 3, alive = 0;|||int want = KidsActs.want(this), alive = 0;
+SceneCore.java|||a2.x = left ? -a2.w * .9 : W + a2.w * .9;|||a2.x = KidsActs.startX(this, a2, left ? -a2.w * .9 : W + a2.w * .9);
+SceneCore.java|||a2.born = t; actors.add(a2); spawnAt = t + rnd(.9, 2.4);|||a2.born = t; a2.life = 1e9; actors.add(a2); spawnAt = t + .12;
+ScreenView.java|||mqp.setTextSize(13.5f * dpr);|||mqp.setTextSize(20.25f * dpr);
+ScreenCore.java|||n.h = optNum(m, "h", 150f, 80f, 360f); n.r|||n.h = optNum(m, "h", 150f, 80f, 900f); n.r

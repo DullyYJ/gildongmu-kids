@@ -43,21 +43,22 @@ dependencies {
 tasks.register('kidsScenePatch') {
     doLast {
         def dir = file('src/main/java/com/dullyyj/subway')
-        def sc = new File(dir, 'SceneCore.java')
-        def s = sc.getText('UTF-8')
-        if (!s.contains('KidsActs.register')) {
-            def swaps = [
-                ['SceneActs.register(this);', 'SceneActs.register(this); KidsActs.register(this);'],
-                ['double kk = PH < 150 ? Math.max(.55, PH / 150) : clamp(Math.min(PH / 190, PW / 200), 1, 2);', 'double kk = KidsActs.ZOOM * (PH < 150 ? Math.max(.55, PH / 150) : clamp(Math.min(PH / 190, PW / 200), 1, 2));'],
-                ['Actor a = hitActor(xdp / k, ydp / k); if (a == null) return false;', 'Actor a = hitActor(xdp / k, ydp / k); if (a == null) return false; KidsActs.poke(this, a);']
-            ]
-            swaps.each { sw ->
-                if (s.indexOf(sw[0]) < 0) throw new GradleException('장면 코드에서 바꿀 곳을 찾지 못했어요: ' + sw[0])
-                s = s.replace(sw[0], sw[1])
+        def tg = [:]
+        def done = new File(dir, 'SceneCore.java').getText('UTF-8').contains('KidsActs.register')
+        if (!done) file('kids-patch/swaps.txt').getText('UTF-8').readLines().each { ln ->
+            if (ln.trim().length() == 0) return
+            def p = ln.split('\\|\\|\\|', -1)
+            if (p.length != 3) throw new GradleException('swaps.txt 줄 형식 오류: ' + ln)
+            def f = new File(dir, p[0])
+            if (!tg.containsKey(p[0])) tg[p[0]] = f.getText('UTF-8')
+            def t = tg[p[0]]
+            if (t.indexOf(p[1]) < 0) {
+                throw new GradleException('장면 코드에서 바꿀 곳을 찾지 못했어요: ' + p[1])
             }
-            sc.setText(s, 'UTF-8')
+            tg[p[0]] = t.replace(p[1], p[2].replace('\\n', '\n'))
         }
-        new File(dir, 'KidsActs.java').setText(file('kids-patch/KidsActs.java.txt').getText('UTF-8'), 'UTF-8')
+        if (!done) tg.each { k, v -> new File(dir, k).setText(v, 'UTF-8') }
+        new File(dir, 'KidsActs.java').setText(file('kids-patch/KidsActs3.java.txt').getText('UTF-8'), 'UTF-8')
     }
 }
 tasks.configureEach { t ->

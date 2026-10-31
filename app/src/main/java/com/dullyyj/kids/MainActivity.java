@@ -103,6 +103,11 @@ public class MainActivity extends Activity {
                     }
                 });
             }
+
+            @Override
+            public void pick(String id, String what) {
+                act("kid.pick:" + id + ":" + what, "");
+            }
         });
         tabbar = new TabBar(this);
         root = new LinearLayout(this);
@@ -110,7 +115,7 @@ public class MainActivity extends Activity {
         // 맨 위 흐르는 응원 문구(길동무와 같은 그리개 · 높이 43dp)
         hdrView = SvHost.make(this, null);
         hdrView.setVisibility(View.GONE);
-        root.addView(hdrView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(43f * getResources().getDisplayMetrics().density)));
+        root.addView(hdrView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(65f * getResources().getDisplayMetrics().density)));
         root.addView(renderer.view(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         root.addView(tabbar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(root);
@@ -164,6 +169,8 @@ public class MainActivity extends Activity {
         Engine en = Core.engine;
         long nowT = System.currentTimeMillis();
         en.tick(nowT);
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        en.setView(Math.round(dm.heightPixels / dm.density));
         askScene(en, nowT);
         final String theme = en.theme();
         final String tab = en.tab();
