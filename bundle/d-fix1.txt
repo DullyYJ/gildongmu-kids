@@ -1,6 +1,0 @@
-=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
-@@ old
-        return now - sceneAskT > (sceneJson.isEmpty() ? 15000L : 600000L);
-@@ new
-        if (now - sceneAskT < 15000L) return false;
-        return sceneJson.isEmpty() || now / 600000L != sceneGotT / 600000L;

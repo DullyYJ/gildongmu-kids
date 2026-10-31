@@ -838,7 +838,8 @@ final class Engine {
     }
 
     synchronized boolean sceneDue(long now) {
-        return now - sceneAskT > (sceneJson.isEmpty() ? 15000L : 600000L);
+        if (now - sceneAskT < 15000L) return false;
+        return sceneJson.isEmpty() || now / 600000L != sceneGotT / 600000L;
     }
 
     synchronized void sceneAsked(long now) {
