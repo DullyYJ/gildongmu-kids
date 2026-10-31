@@ -104,7 +104,6 @@ final class Engine {
     private boolean sceneWx = false;
     private String drawKey = "", drawJson = "";
     private int viewDp = 0;                 // 화면 높이(dp) — 장면 높이를 고정으로 정할 때만 쓴다(줄 수가 바뀌어도 장면이 다시 만들어지지 않게)
-    private String wxKey = "";
 
     Engine(Store s) {
         store = s;
@@ -299,12 +298,6 @@ final class Engine {
         Poke.setStudy(studyCsv(now));
         Poke.setSleep(sleepCsv(now));
         Poke.setStates(statesCsv(now));
-        String wk = sceneGotT + "|" + (Double.isNaN(lat) ? 'n' : 'y') + "|" + (loc ? 1 : 0) + "|" + (now - fixT > 1800000L ? 1 : 0);
-        if (!wk.equals(wxKey)) {
-            wxKey = wk;
-            String[] w = weatherParts();
-            Poke.setWx(w[0], w[1]);
-        }
         if (now - lastPrune > 60000L) {
             lastPrune = now;
             pruneChat(now);
@@ -675,14 +668,20 @@ final class Engine {
         JSONArray body = new JSONArray();
         String sc = sceneOut(now);
         if (!sc.isEmpty()) {
-            int sh = viewDp > 0 ? Math.max(260, Math.min(640, viewDp - 400)) : 420;   // 고정 높이 — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
+            int sh = viewDp > 0 ? Math.max(240, Math.min(640, viewDp - 310)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
             body.put(nd("scene", "h", sh, "r", 16, "pad", pad(12, 6, 12, 6), "sc", sc));
         } else {
             JSONArray ph = new JSONArray();
             ph.put(tx("해변을 불러오는 중이에요…", 14, true, "sub", 0));
             body.put(nd("panel", "pad", pad(12, 6, 12, 6), "ip", pad(14, 40, 14, 40), "kids", ph));
         }
-        body.put(nd("lth", "s", "길동무 친구들과 놀기", "dot", "#34c759", "live", true, "pad", pad(16, 10, 16, 4)));
+        body.put(nd("lth", "s", "길동무 날씨", "dot", "#3b82f6", "pad", pad(16, 10, 16, 4)));
+        JSONArray wk = new JSONArray();
+        String[] w = weatherParts();
+        wk.put(tx(w[0], 22, true, "text", w[1].isEmpty() ? 2 : 2));
+        if (!w[1].isEmpty()) wk.put(tx(w[1], 12, false, "sub", 2));
+        body.put(nd("panel", "pad", pad(12, 0, 12, 4), "ip", pad(14, 10, 14, 6), "kids", wk));
+        body.put(nd("lth", "s", "길동무 친구들과 놀기", "dot", "#34c759", "live", true, "pad", pad(16, 6, 16, 4)));
         JSONArray kids = new JSONArray();
         ArrayList<F> g = onScreen();
         String[] keys = {"angry", "wake", "sick", "sulk", "beg", "poop", "eat", "study", "sleep", "play", "ok"};
@@ -706,8 +705,7 @@ final class Engine {
             kids.put(tx(sb.toString(), 13, !"ok".equals(keys[k]), "ok".equals(keys[k]) ? "sub" : "text", 5, names.toArray(new String[0])));
         }
         kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 11, false, "sub", 6));
-        body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 8), "kids", kids));
-        body.put(btnRow(new String[][] {{"🤝 같이 놀기", "home.play"}}, 14));
+        body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 8), "fillRest", true, "kids", kids));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);
@@ -1013,7 +1011,7 @@ final class Engine {
         JSONArray m = new JSONArray();
         for (int i = 0; i < l.size(); i++) m.put(l.get(i));
         JSONArray body = new JSONArray();
-        body.put(nd("marq", "h", 39, "pad", pad(12, 12, 12, 13), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
+        body.put(nd("marq", "h", 30, "pad", pad(10, 3, 10, 4), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);
@@ -1242,9 +1240,9 @@ final class Engine {
         }
     }
 
-    /** 앱이 알려 주는 화면 높이(dp). 장면 높이를 정하는 데만 쓴다. */
+    /** 앱이 알려 주는 본문 칸 높이(dp). 장면 높이를 정하는 데만 쓴다. */
     synchronized void setView(int dp) {
-        if (dp > 0 && dp != viewDp) {
+        if (dp > 0 && Math.abs(dp - viewDp) > 4) {
             viewDp = dp;
             rev++;
         }

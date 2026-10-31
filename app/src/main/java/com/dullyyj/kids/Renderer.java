@@ -144,22 +144,22 @@ final class Renderer {
             GradientDrawable g = new GradientDrawable();
             g.setColor(Pal.c(Pal.BG));
             float r = Ui.dpi(ctx, 24);
-            g.setCornerRadii(new float[] {r, r, r, r, 0f, 0f, 0f, 0f});
+            g.setCornerRadius(r);
             box.setBackground(g);
-            View grip = new View(ctx);
-            grip.setBackground(Ui.box(ctx, Pal.c(Pal.BORDER2), 3, 0));
-            LinearLayout.LayoutParams gl = new LinearLayout.LayoutParams(Ui.dpi(ctx, 40), Ui.dpi(ctx, 5));
-            gl.gravity = Gravity.CENTER_HORIZONTAL;
-            gl.topMargin = Ui.dpi(ctx, 10);
-            box.addView(grip, gl);
-            sheetScroll = new ScrollView(ctx);
+            final int capPx = Math.round(ctx.getResources().getDisplayMetrics().heightPixels * 0.78f);
+            sheetScroll = new ScrollView(ctx) {
+                @Override
+                protected void onMeasure(int wSpec, int hSpec) {
+                    super.onMeasure(wSpec, View.MeasureSpec.makeMeasureSpec(capPx, View.MeasureSpec.AT_MOST));
+                }
+            };
             sheetScroll.setVerticalScrollBarEnabled(false);
             sheetCol = new LinearLayout(ctx);
             sheetCol.setOrientation(LinearLayout.VERTICAL);
             int pad = Ui.dpi(ctx, 16);
-            sheetCol.setPadding(pad, Ui.dpi(ctx, 6), pad, Ui.dpi(ctx, 24));
+            sheetCol.setPadding(pad, Ui.dpi(ctx, 16), pad, Ui.dpi(ctx, 20));
             sheetScroll.addView(sheetCol, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            box.addView(sheetScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            box.addView(sheetScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             d.setContentView(box);
             d.setCancelable(false);
             d.setCanceledOnTouchOutside(false);
@@ -174,13 +174,13 @@ final class Renderer {
                 }
             });
             Window w = d.getWindow();
-            int hpx = Math.round(ctx.getResources().getDisplayMetrics().heightPixels * 0.8f);
-            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, hpx);
-            w.setGravity(Gravity.BOTTOM);
+            int wpx = ctx.getResources().getDisplayMetrics().widthPixels - 2 * Ui.dpi(ctx, 20);
+            w.setLayout(wpx, ViewGroup.LayoutParams.WRAP_CONTENT);
+            w.setGravity(Gravity.CENTER);
             w.setBackgroundDrawable(new ColorDrawable(0));
             w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             w.setDimAmount(0.45f);
-            w.setWindowAnimations(android.R.style.Animation_InputMethod);
+            w.setWindowAnimations(android.R.style.Animation_Dialog);
             sheet = d;
             d.show();
         } catch (Throwable t) {

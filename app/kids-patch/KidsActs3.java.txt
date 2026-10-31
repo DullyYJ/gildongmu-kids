@@ -75,16 +75,80 @@ final class KidsActs {
     static final HashMap<String, Integer> poopSide = new HashMap<>();
 
     // ───────── 친구가 늘 화면에 머문다 ─────────
-    /** 엔진이 준 친구 모두(최대 8)가 늘 나와 있다 — 길동무처럼 2~3명만 오가지 않는다. */
+    /** 한 번에 최대 4마리만 나온다. 4마리가 모두 밥·응가 때문에 멈춰 있으면 모두 지나가고 다른 친구들로 바뀐다(rotate). */
+    static final int MAX_ON = 4;
     static int want(SceneCore S) {
         int n = S.res != null && S.res.cast != null ? S.res.cast.size() : 3;
-        return Math.max(1, Math.min(8, n));
+        return Math.max(1, Math.min(MAX_ON, n));
     }
-    /** 처음부터 화면에 고르게 흩어져 서 있는다(옆에서 걸어 들어오지 않는다). */
+    static int slotOf(SceneCore S, Actor o, double lo, double span) {
+        return (int) clamp(Math.round((o.x - lo) / span * MAX_ON - .5), 0, MAX_ON - 1);
+    }
+    /** 4칸 중 비어 있는 곳에 선다. 새로 들어오는 중이면(rotate 직후) 화면 가장자리에서 걸어 들어온다. */
     static double startX(SceneCore S, Actor a, double edgeX) {
-        int slot = (ix(a.id) * 3) % 8;
         double lo = a.w * .7, span = Math.max(10, S.W - a.w * 1.4);
-        return lo + span * (slot + .5) / 8.0 + (S.R.next() - .5) * 10;
+        boolean[] used = new boolean[MAX_ON];
+        for (Actor o : S.actors) if (o != a && !o.hero && !o.leaving && !o.dead) used[slotOf(S, o, lo, span)] = true;
+        int ixa = ix(a.id), slot = -1;
+        for (int k = 0; k < MAX_ON && slot < 0; k++) { int c = (ixa + k * 2 + k / 2) % MAX_ON; if (!used[c]) slot = c; }
+        if (slot < 0) slot = ixa % MAX_ON;
+        double x = lo + span * (slot + .5) / MAX_ON + (S.R.next() - .5) * 10;
+        if (S.t < enterEdgeUntil) return edgeX;
+        return x;
+    }
+    static double enterEdgeUntil = 0;
+    static final HashMap<String, Double> rest = new HashMap<>();        // 방금 지나간 친구는 한동안 쉰다(다른 친구가 먼저 나온다)
+    static final HashMap<String, Double> blockedSince = new HashMap<>();
+    static boolean blocked(String id) {
+        String s = Poke.state(id);
+        return s.equals("beg") || s.equals("poop");
+    }
+    static double restLeft(SceneCore S, String id) {
+        Double r = rest.get(id);
+        if (r == null) return 0;
+        double l = r - S.t;
+        return l > 0 && l <= 41.0 ? l : 0;
+    }
+    static boolean visible(SceneCore S, String id) {
+        for (Actor a : S.actors) if (id.equals(a.id) && !a.leaving && !a.dead) return true;
+        return false;
+    }
+    /** 다시 부를 수 있는 친구인가(spawn 후보 거르기) — 방금 지나간 친구는 쉬는 동안 뒤로 미루고(모두 쉬면 가장 오래 쉰 친구부터),
+     *  멈춰 있는 친구보다 움직일 수 있는 친구가 있으면 그 친구를 먼저 부른다. */
+    static boolean avail(SceneCore S, String cand) {
+        if (S.res == null || S.res.cast == null) return true;
+        double rc = restLeft(S, cand);
+        boolean bc = blocked(cand);
+        for (String o : S.res.cast) {
+            if (o.equals(cand) || visible(S, o)) continue;
+            double ro = restLeft(S, o);
+            if (ro < rc - .001) return false;
+            if (ro <= rc + .001 && bc && !blocked(o)) return false;
+        }
+        return true;
+    }
+    /** 보이는 친구 전부가 밥·응가로 멈춰 있으면(잠깐 지켜본 뒤) 모두 지나가게 하고 다른 친구들을 부른다. */
+    static void rotate(SceneCore S) {
+        int cast = S.res != null && S.res.cast != null ? S.res.cast.size() : 0;
+        if (cast <= MAX_ON || menuA != null) return;
+        int on = 0; double latest = -1;
+        for (Actor a : S.actors) {
+            if (a.hero || a.dead || a.leaving || a.id == null) continue;
+            on++;
+            Double bs = blockedSince.get(a.id);
+            if (bs == null || !blocked(a.id)) return;
+            latest = Math.max(latest, bs);
+        }
+        if (on < MAX_ON || S.t - latest < 8.0) return;
+        for (Actor a : S.actors) {
+            if (a.hero || a.dead || a.leaving || a.id == null) continue;
+            reset(a); a.act = null; a.cell = -1; a.bub = ""; a.sk = null;
+            a.leaving = true; a.st = "walk"; a.tx = a.x < S.W / 2 ? -a.w * 1.1 : S.W + a.w * 1.1; a.tz = a.z; a.onArrive = null;
+            rest.put(a.id, S.t + 40.0);
+            blockedSince.remove(a.id);
+        }
+        enterEdgeUntil = S.t + 3.0;
+        S.spawnAt = S.t + .4;
     }
     /** 말풍선이 한꺼번에 뜨지 않게 친구마다 첫 말을 조금씩 어긋나게 한다. */
     static void stagger(SceneCore S, SceneCore.AS A, Actor a, String key, double gap) {
@@ -162,6 +226,7 @@ final class KidsActs {
             if (a.hero || a.dead || a.leaving || a.hidden || a.held || a.id == null) continue;
             String stt = a.st;
             if (stt.equals("fall") || stt.equals("held") || stt.equals("emerge") || stt.equals("pan") || stt.equals("hidden")) continue;
+            if (a.x < a.w * .3 || a.x > S.W - a.w * .3) continue;       // 아직 화면 밖에서 걸어 들어오는 중이면 도착한 뒤에 동작을 시작한다
             String s = Poke.state(a.id);
             int n = Poke.poops(a.id);
             // 응가 개수 변화
@@ -201,7 +266,11 @@ final class KidsActs {
                 }
             }
             applied.put(a.id, angry ? "angry" : s);
+            boolean stuck = !angry && blocked(a.id) && (cur.equals("kbeg") || cur.equals("kpoop"));
+            if (stuck) { if (!blockedSince.containsKey(a.id)) blockedSince.put(a.id, S.t); }
+            else blockedSince.remove(a.id);
         }
+        rotate(S);
     }
     static int side(Actor a) {
         Integer v = poopSide.get(a.id);
@@ -210,7 +279,7 @@ final class KidsActs {
 
     // ───────── 그리기: 친구 뒤(응가) · 앞(밥그릇·책) ─────────
     static void under(SceneCore S, SceneCv c, Actor a) {
-        if (a == null || a.id == null || !a.vis) return;
+        if (a == null || a.id == null || !a.vis || a.leaving) return;
         int n = Poke.poops(a.id);
         if (n <= 0 || !poopT.containsKey(a.id)) return;
         double h = S.HH(a), zz = SceneCore.zs(a.z), sc = h / 44.0, y = S.feetY(a), T = S.t;
@@ -224,7 +293,7 @@ final class KidsActs {
         }
     }
     static void over(SceneCore S, SceneCv c, Actor a) {
-        if (a == null || a.id == null || !a.vis || a.held) return;
+        if (a == null || a.id == null || !a.vis || a.held || a.leaving) return;
         String s = Poke.state(a.id);
         double h = S.HH(a), sc = h / 44.0, y = S.feetY(a), T = S.t;
         boolean actNow = a.st.equals("act") && a.act != null;
@@ -293,31 +362,8 @@ final class KidsActs {
         c.restore();
     }
 
-    // ───────── 장면 위에 얹는 것: 길동무 날씨 박스 · 원형 메뉴 ─────────
+    // ───────── 장면 위에 얹는 것: 원형 메뉴 ─────────
     static void hud(SceneCore S, SceneCv c) {
-        String main = Poke.wxMain();
-        if (main.length() > 0) {
-            String sub = Poke.wxSub();
-            boolean night = S.L != null && S.L.night;
-            double w = Math.min(S.W - 24, 360), h = sub.length() > 0 ? 52 : 44, x = (S.W - w) / 2, y = 10;
-            c.save();
-            c.fillStyle(night ? rgba(18, 26, 52, .72) : rgba(255, 255, 255, .84));
-            rr(c, x, y, w, h, 14); c.fill();
-            c.strokeStyle(night ? rgba(255, 255, 255, .22) : rgba(60, 90, 160, .22)); c.lineWidth(1);
-            rr(c, x, y, w, h, 14); c.stroke();
-            c.font(9);
-            c.fillStyle(night ? "#9fc1ff" : "#3b6fd4");
-            c.fillTextC("길동무 날씨" + (sub.length() > 0 ? "" : ""), x + w / 2, y + 11);
-            c.font(18);
-            c.fillStyle(night ? "#ffffff" : "#1d2540");
-            c.fillTextC(main, x + w / 2, y + 29);
-            if (sub.length() > 0) {
-                c.font(8);
-                c.fillStyle(night ? "#c4cbe0" : "#6b7690");
-                c.fillTextC(sub, x + w / 2, y + 44);
-            }
-            c.restore();
-        }
         if (menuA != null) {
             double[] ctr = menuCenter(S);
             double el = S.t - menuT0;
@@ -348,6 +394,7 @@ final class KidsActs {
 
     // ───────── 동작 등록 ─────────
     static void register(final SceneCore S) {
+        rest.clear(); blockedSince.clear(); enterEdgeUntil = 0; menuA = null;      // 장면이 새로 만들어졌다 — 시간이 처음부터 다시 간다
         // 공부: 앉아서 가만히 집중(앞에 책)
         SceneActs.A_(S, "kstudy", 3600, null, (a, u, dt, A) -> {
             double T = S.t, el = T - A.t0; S.standF(a);

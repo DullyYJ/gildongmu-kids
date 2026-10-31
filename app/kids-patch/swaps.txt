@@ -13,3 +13,9 @@ SceneCore.java|||a2.x = left ? -a2.w * .9 : W + a2.w * .9;|||a2.x = KidsActs.sta
 SceneCore.java|||a2.born = t; actors.add(a2); spawnAt = t + rnd(.9, 2.4);|||a2.born = t; a2.life = 1e9; actors.add(a2); spawnAt = t + .12;
 ScreenView.java|||mqp.setTextSize(13.5f * dpr);|||mqp.setTextSize(20.25f * dpr);
 ScreenCore.java|||n.h = optNum(m, "h", 150f, 80f, 360f); n.r|||n.h = optNum(m, "h", 150f, 80f, 900f); n.r
+SceneCore.java|||if (!dup && SceneModel.D3.containsKey(cand)) { id = cand; break; }|||if (!dup && SceneModel.D3.containsKey(cand) && KidsActs.avail(this, cand)) { id = cand; break; }
+ScreenCore.java|||public Node fitNode;|||public Node fitNode; public Node fillNode;
+ScreenCore.java|||public float fitH, fmin = 90f, fmax = 900f, frh = 26f;|||public float mh; public float fitH, fmin = 90f, fmax = 900f, frh = 26f;
+ScreenCore.java|||n.glow = optBool(m, "glow", false); n.swp = optBool(m, "swp", false);|||n.mh = 0f; if (optBool(m, "fillRest", false)) sc.fillNode = n; n.glow = optBool(m, "glow", false); n.swp = optBool(m, "swp", false);
+ScreenCore.java|||pn.h = (cy + n.ipB + 1f) - y;|||pn.h = (cy + n.ipB + 1f) - y + n.mh;
+ScreenCore.java|||if (fit == null || !(viewH > 0f)) return L;|||if (viewH > 0f && sc.fillNode != null) { sc.fillNode.mh = 0f; L = layout0(sc, width, m, openKey); float sl0 = viewH - L.headH - L.footH - L.bodyH; if (sl0 > 1f) { sc.fillNode.mh = sl0; L = layout0(sc, width, m, openKey); } } if (fit == null || !(viewH > 0f)) return L;
