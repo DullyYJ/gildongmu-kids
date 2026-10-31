@@ -776,9 +776,9 @@ final class MapPane extends LinearLayout {
     }
 
     private void closeSheet() {
-        TtSheet t = tt;
+        TtSheet ts = tt;
         tt = null;
-        if (t != null) t.gen++;
+        if (ts != null) ts.gen++;
         Dialog d = sheet;
         sheet = null;
         if (d != null) {

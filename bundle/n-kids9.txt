@@ -1,9 +1,0 @@
-=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
-@@ old
-        TtSheet t = tt;
-        tt = null;
-        if (t != null) t.gen++;
-@@ new
-        TtSheet ts = tt;
-        tt = null;
-        if (ts != null) ts.gen++;
