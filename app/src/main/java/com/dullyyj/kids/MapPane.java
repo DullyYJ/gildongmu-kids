@@ -1,16 +1,20 @@
 package com.dullyyj.kids;
 
+import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.SharedPreferences;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputFilter;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -62,6 +66,10 @@ final class MapPane extends LinearLayout {
     private long busAt = 0L;
     private boolean busShown = false, busTicking = false;
     private final LinkedHashMap<String, String> busRes = new LinkedHashMap<String, String>();
+    private final ArrayList<String> lastStops = new ArrayList<String>();
+    private String favRaw = null, alRaw = null;
+    private int favMax = 12, aliasMax = 10;
+    private String favAdd = "", favRm = "", favFull = "";
 
     MapPane(Context c) {
         super(c);
@@ -352,7 +360,7 @@ final class MapPane extends LinearLayout {
     }
 
     // ───────── 버스 (길동무 서버가 지도 + 정류장 카드를 한 번에 내려 준다) ─────────
-    private String busBody(double[] g) {
+    private String busBody(double[] g, String vw, int sel, LinkedHashMap<String, String> resIn) {
         JSONObject o = new JSONObject();
         try {
             JSONObject f = new JSONObject();
@@ -366,18 +374,18 @@ final class MapPane extends LinearLayout {
             ga.put(g[1]);
             f.put("gps", ga);
             JSONObject b = new JSONObject();
-            b.put("vw", busVw);
-            b.put("sel", busSel);
+            b.put("vw", vw);
+            b.put("sel", sel);
             b.put("sv", 1);
             b.put("svb", 300);
             b.put("lat", g[0]);
             b.put("lng", g[1]);
-            b.put("fav", new JSONArray());
+            b.put("fav", new JSONArray(favRaw == null ? "[]" : favRaw));
             b.put("nx", new JSONObject());
-            b.put("al", new JSONObject());
+            b.put("al", new JSONObject(alRaw == null ? "{}" : alRaw));
             b.put("ord", new JSONArray());
             JSONObject res = new JSONObject();
-            for (Map.Entry<String, String> e : busRes.entrySet()) res.put(e.getKey(), e.getValue());
+            for (Map.Entry<String, String> e : resIn.entrySet()) res.put(e.getKey(), e.getValue());
             b.put("res", res);
             f.put("bus", b);
             o.put("cap", Wire.CAP);
@@ -401,18 +409,40 @@ final class MapPane extends LinearLayout {
             return;
         }
         final double[] g = en.where();
-        final String body = busBody(g);
+        final String vw = busVw;
+        final int sel = busSel;
+        final LinkedHashMap<String, String> resCopy = new LinkedHashMap<String, String>(busRes);
         final int seq = ++busSeq;
         if (!quiet && !busShown) busNote("주변 정류장을 불러오는 중이에요…");
         Wire.EX.execute(new Runnable() {
             @Override
             public void run() {
+                loadPrefs();
+                final String body = busBody(g, vw, sel, resCopy);
                 final String r = Wire.post("/screen/map", body, 15000);
                 final ScreenCore.Screen sc = r == null ? null : SvHost.parse(SvHost.strip(r));
                 final LinkedHashMap<String, String> keep = new LinkedHashMap<String, String>();
+                final ArrayList<String> stopsNow = new ArrayList<String>();
+                final int[] lim = new int[] {favMax, aliasMax};
+                final String[] txt = new String[] {favAdd, favRm, favFull};
                 if (r != null) {
                     try {
                         JSONObject info = new JSONObject(r).optJSONObject("info");
+                        JSONArray sa = info == null ? null : info.optJSONArray("stops");
+                        if (sa != null) {
+                            for (int i = 0; i < sa.length() && i < 40; i++) {
+                                JSONObject so = sa.optJSONObject(i);
+                                stopsNow.add(so == null ? "{}" : so.toString());
+                            }
+                        }
+                        JSONObject fp = info == null ? null : info.optJSONObject("favp");
+                        if (fp != null) {
+                            lim[0] = fp.optInt("max", lim[0]);
+                            lim[1] = fp.optInt("al", lim[1]);
+                            txt[0] = fp.optString("add", txt[0]);
+                            txt[1] = fp.optString("rm", txt[1]);
+                            txt[2] = fp.optString("full", txt[2]);
+                        }
                         JSONObject bres = info == null ? null : info.optJSONObject("bres");
                         if (bres != null) {
                             Iterator<String> it = bres.keys();
@@ -442,6 +472,13 @@ final class MapPane extends LinearLayout {
                             busRes.clear();
                             busRes.putAll(keep);
                         }
+                        lastStops.clear();
+                        lastStops.addAll(stopsNow);
+                        favMax = lim[0];
+                        aliasMax = lim[1];
+                        favAdd = txt[0];
+                        favRm = txt[1];
+                        favFull = txt[2];
                         note.setVisibility(View.GONE);
                         bus.setVisibility(View.VISIBLE);
                         bus.setScreen(sc, busShown);
@@ -493,9 +530,126 @@ final class MapPane extends LinearLayout {
                 return;
             }
             loadBus(true);
-        } else if (v.startsWith("mp.fv.") || v.startsWith("mp.al.") || v.startsWith("br.") || "mp.rt".equals(v)) {
+        } else if (v.startsWith("mp.fv.")) {
+            toggleFav(stopIdx(v));
+        } else if (v.startsWith("mp.al.")) {
+            aliasDialog(stopIdx(v));
+        } else if ("mp.rt".equals(v)) {
+            busRes.clear();
+            loadBus(true);
+        } else if (v.startsWith("br.")) {
             toast("이 기능은 곧 열려요");
         }
+    }
+
+    private int stopIdx(String v) {
+        try {
+            int i = Integer.parseInt(v.substring(6));
+            return i >= 0 && i < lastStops.size() ? i : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** 즐겨찾기·별명은 이 기기에만 두고(작은 설정 파일), 길동무 서버에는 요청마다 실어 보낸다. 읽기는 뒤 스레드에서. */
+    private synchronized void loadPrefs() {
+        if (favRaw != null) return;
+        try {
+            SharedPreferences sp = ctx.getSharedPreferences("kids_busmap", Context.MODE_PRIVATE);
+            favRaw = sp.getString("fav", "[]");
+            alRaw = sp.getString("al", "{}");
+        } catch (Throwable t) {
+            favRaw = "[]";
+            alRaw = "{}";
+        }
+    }
+
+    private void savePrefs() {
+        final String f = favRaw, a = alRaw;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    ctx.getSharedPreferences("kids_busmap", Context.MODE_PRIVATE).edit().putString("fav", f).putString("al", a).apply();
+                } catch (Throwable t) {
+                    // 저장 실패는 이번 실행에서만 유지
+                }
+            }
+        });
+    }
+
+    private void toggleFav(int i) {
+        if (i < 0 || favRaw == null) return;
+        try {
+            JSONObject stop = new JSONObject(lastStops.get(i));
+            String id = stop.optString("id", "");
+            if (id.isEmpty()) return;
+            JSONArray fl = new JSONArray(favRaw);
+            int at = -1;
+            for (int k = 0; k < fl.length(); k++) {
+                JSONObject x = fl.optJSONObject(k);
+                if (x != null && id.equals(x.optString("id", ""))) {
+                    at = k;
+                    break;
+                }
+            }
+            if (at >= 0) {
+                fl.remove(at);
+                toast(favRm);
+            } else {
+                if (fl.length() >= favMax) {
+                    toast(favFull);
+                    return;
+                }
+                fl.put(stop);
+                toast(favAdd);
+            }
+            favRaw = fl.toString();
+            savePrefs();
+            loadBus(true);
+        } catch (Exception e) {
+            toast("즐겨찾기를 바꾸지 못했어요");
+        }
+    }
+
+    private void aliasDialog(int i) {
+        if (i < 0 || alRaw == null) return;
+        final String id, nm;
+        final JSONObject al;
+        try {
+            JSONObject stop = new JSONObject(lastStops.get(i));
+            id = stop.optString("id", "");
+            nm = stop.optString("nm", "");
+            al = new JSONObject(alRaw);
+        } catch (Exception e) {
+            return;
+        }
+        if (id.isEmpty()) return;
+        final EditText et = new EditText(ctx);
+        et.setSingleLine(true);
+        et.setFilters(new InputFilter[] {new InputFilter.LengthFilter(Math.max(1, aliasMax))});
+        et.setText(al.optString(id, ""));
+        et.setSelection(et.getText().length());
+        new AlertDialog.Builder(ctx)
+                .setTitle(nm)
+                .setView(et)
+                .setPositiveButton("저장", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        String t = et.getText().toString().trim();
+                        try {
+                            if (t.isEmpty()) al.remove(id);
+                            else al.put(id, t);
+                            alRaw = al.toString();
+                        } catch (Exception e) {
+                            return;
+                        }
+                        savePrefs();
+                        loadBus(true);
+                    }
+                })
+                .setNegativeButton("취소", null)
+                .show();
     }
 
     // ───────── 역을 누르면 바로 시간표 ─────────
