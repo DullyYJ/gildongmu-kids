@@ -80,6 +80,9 @@ final class Engine {
     private String pairCode = "";
     private long pairExp = 0L;
     private final String cid, csec;
+    private String sceneJson = "";
+    private long sceneAskT = 0L, sceneGotT = 0L;
+    private double lat = Double.NaN, lng = Double.NaN;
 
     Engine(Store s) {
         store = s;
@@ -215,8 +218,10 @@ final class Engine {
         dirty = true;
     }
 
-    synchronized void lastFix(double lat, double lng, float acc, long t) {
+    synchronized void lastFix(double la, double lo, float acc, long t) {
         lastFixT = t;
+        lat = la;
+        lng = lo;
         dirty = true;
     }
 
@@ -331,6 +336,7 @@ final class Engine {
                 .append(store.get("cp", "0")).append(store.get("cc", "0")).append(loc ? 1 : 0)
                 .append('|').append(sel).append('|').append(pairCode).append('|').append(chat.length());
         if ("settings".equals(tab)) sb.append('|').append(lastFixT / 60000L);
+        if ("home".equals(tab)) sb.append('|').append(sceneGotT / 1000L).append(Double.isNaN(lat) ? 'n' : 'y');
         for (int i = 0; i < fs.size(); i++) {
             F f = fs.get(i);
             sb.append('|').append(moodOf(f, lastNow)).append(',').append((int) (f.hunger / 5)).append(',')
@@ -491,8 +497,20 @@ final class Engine {
 
     private String homeScreen() {
         long now = lastNow;
-        JSONArray a = new JSONArray();
-        a.put(b("head", "text", "오늘의 길동무 브리핑"));
+        JSONArray body = new JSONArray();
+        if (!sceneJson.isEmpty()) {
+            body.put(nd("scene", "h", 300, "fit", true, "fmin", 240, "fmax", 640, "frh", 26, "r", 16,
+                    "pad", pad(12, 6, 12, 6), "sc", sceneJson));
+        } else {
+            JSONArray ph = new JSONArray();
+            ph.put(tx("해변을 불러오는 중이에요…", 14, true, "sub", 0));
+            body.put(nd("panel", "pad", pad(12, 6, 12, 6), "ip", pad(14, 40, 14, 40), "kids", ph));
+        }
+        body.put(nd("lth", "s", "길동무 브리핑", "dot", "#34c759", "live", true, "pad", pad(16, 10, 16, 4)));
+        JSONArray kids = new JSONArray();
+        String[] wl = weatherLines();
+        kids.put(tx(wl[0], 13, true, "text", 2));
+        if (wl[1].length() > 0) kids.put(tx(wl[1], 12, false, "sub", 8));
         ArrayList<F> list = new ArrayList<F>(fs);
         final long n = now;
         Collections.sort(list, new Comparator<F>() {
@@ -503,16 +521,57 @@ final class Engine {
         });
         int needy = 0;
         for (int i = 0; i < list.size(); i++) if (need(list.get(i), now) < 4) needy++;
-        a.put(b("text", "text", needy == 0 ? "길동무 친구들이 모두 잘 지내요." : "도와줘야 하는 친구가 " + needy + "명 있어요.", "sub", "1"));
-        for (int i = 0; i < list.size(); i++) {
+        kids.put(tx(needy == 0 ? "길동무 친구들이 모두 잘 지내요 😊" : "도와줘야 하는 친구가 " + needy + "명 있어요", 13, true, "text", 4));
+        String[] em = {"🤒 ", "😤 ", "🍚 ", "💩 "};
+        int shown = 0;
+        for (int i = 0; i < list.size() && shown < 4; i++) {
             F f = list.get(i);
-            int nd = need(f, now);
-            a.put(b("card", "title", f.name, "text", line(f, now), "thumb", Sheets.walkFile(f.id),
-                    "act", "friend:" + f.id, "tone", nd < 4 ? "1" : "0"));
+            int nz = need(f, now);
+            if (nz >= 4) break;
+            kids.put(tx(em[nz] + line(f, now), 13, false, "text", 3, f.name));
+            shown++;
         }
-        a.put(b("gap", "h", "6"));
-        a.put(b("card", "title", "내 위치", "text", locLine(), "thumb", "", "act", "tab.settings"));
-        return wrap("scroll", a);
+        if (needy > shown) kids.put(tx("그리고 " + (needy - shown) + "명이 더 기다려요", 12, false, "sub", 2));
+        body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 12), "kids", kids));
+        body.put(nd("button", "s", "친구들 보러 가기", "act", callAct("tab.friends"), "h", 42, "size", 13, "bold", true,
+                "fill", "gold", "tc", "ongold", "r", 14, "pad", pad(12, 2, 12, 14)));
+        JSONObject o = new JSONObject();
+        put(o, "ok", true);
+        put(o, "v", 1);
+        put(o, "screen", "home");
+        put(o, "mode", "sv");
+        put(o, "rev", String.valueOf(rev));
+        put(o, "cover", "tab");
+        put(o, "head", new JSONArray());
+        put(o, "body", body);
+        put(o, "info", new JSONObject());
+        return o.toString();
+    }
+
+    /** 지금 날씨 두 줄(상태 · 한마디) — 장면 답(look)에 든 값을 글로 옮길 뿐이다. */
+    private String[] weatherLines() {
+        try {
+            JSONObject l = new JSONObject(sceneJson).optJSONObject("look");
+            if (l != null && l.optBoolean("wxKnown", false) && !l.isNull("temp")) {
+                int t = l.optInt("temp");
+                String wk = l.optString("wk", "");
+                String ko = l.optString("wxKo", "");
+                String ic = "rain".equals(wk) ? "🌧️" : "snow".equals(wk) ? "❄️" : "fog".equals(wk) ? "🌫️" : "overcast".equals(wk) ? "☁️" : "cloudy".equals(wk) ? "⛅" : "☀️";
+                String a = ic + " 지금 날씨는 " + ko + ", " + t + "°C예요" + (Double.isNaN(lat) ? " (서울 기준)" : "");
+                String tip;
+                if ("rain".equals(wk)) tip = "비가 와요, 우산을 꼭 챙겨요 ☂️";
+                else if ("snow".equals(wk)) tip = "눈이 와요, 미끄러우니 조심조심 걸어요";
+                else if ("fog".equals(wk)) tip = "안개가 껴서 앞이 잘 안 보여요, 천천히 걸어요";
+                else if (t <= 5) tip = "많이 추워요, 따뜻하게 입고 나가요 🧣";
+                else if (t >= 28) tip = "많이 더워요, 물을 자주 마셔요 💧";
+                else if ("overcast".equals(wk)) tip = "구름이 많아요, 가벼운 겉옷을 챙겨요";
+                else tip = "밖에서 뛰어놀기 좋은 날이에요 🏃";
+                return new String[] {a, tip};
+            }
+        } catch (Exception e) {
+            // 아래 기본 글
+        }
+        return new String[] {"날씨를 불러오는 중이에요…", ""};
     }
 
     private String locLine() {
@@ -705,6 +764,169 @@ final class Engine {
         dirty = true;
         save();
         return res;
+    }
+
+    // ───────── 맨 위 흐르는 문구 · 홈 장면 · 날씨 ─────────
+    // 초등학생에게 꿈과 희망을 주는 문구 — 시간대별 12개씩. 같은 시간대라도 날마다 순서가 바뀐다.
+    static final String[][] HOPE = {
+        { // 0 새벽
+            "일찍 일어난 너, 오늘도 반짝반짝 멋져요", "새로운 하루가 선물처럼 도착했어요 🎁", "해님이 올라오듯 너의 꿈도 쑥쑥 커져요 🌅",
+            "오늘은 어떤 멋진 일이 생길까요?", "너의 꿈은 아침 해처럼 환하게 빛나요", "씩씩하게 하루를 시작해 봐요, 화이팅!",
+            "작은 용기가 큰 꿈의 첫걸음이에요", "오늘도 한 뼘 더 자라는 너를 응원해요", "일어나 준 너에게 박수를 짝짝짝 👏",
+            "하고 싶은 일을 마음껏 상상해 봐요", "오늘의 너는 어제보다 더 멋져질 거예요", "꿈을 향해 오늘도 한 걸음 나아가요"
+        },
+        { // 1 아침
+            "좋은 아침! 오늘도 신나게 출발해요 ☀️", "배우는 만큼 너의 꿈도 커져요", "모르는 걸 알아 가는 건 정말 멋진 일이에요",
+            "실수해도 괜찮아요, 다시 하면 되니까요", "오늘 만나는 친구에게 먼저 인사해 봐요 😊", "너는 무엇이든 될 수 있는 소중한 사람이에요",
+            "하고 싶은 일이 있다면 오늘 한 번 해 봐요", "씩씩한 걸음으로 오늘을 만나요", "궁금한 게 많은 너, 정말 멋져요",
+            "오늘 하루도 웃음 가득하길 바라요", "작은 노력이 모여 큰 꿈이 된답니다", "너의 꿈에는 날개가 있어요 🕊️"
+        },
+        { // 2 점심
+            "맛있게 먹고 힘내요! 🍚", "골고루 먹으면 키도 꿈도 쑥쑥 자라요", "점심시간엔 친구와 신나게 놀아요",
+            "오늘 배운 것 중 가장 재미있는 건 뭐였나요?", "햇살 가득한 낮, 마음껏 뛰어놀아요 🏃", "포기하지 않는 너는 이미 멋진 도전자예요",
+            "친구에게 따뜻한 말 한마디를 건네 봐요", "배가 든든하면 용기도 두둑해져요", "너의 하루는 반짝이는 보물 같아요 ✨",
+            "웃는 얼굴이 제일 예뻐요 😄", "오후에도 힘차게 달려 볼까요?", "어려운 문제도 하나씩 풀면 풀려요"
+        },
+        { // 3 오후
+            "오후도 힘내요, 너는 할 수 있어요!", "조금 힘들어도 괜찮아요, 천천히 가도 좋아요", "오늘 해낸 일을 스스로 칭찬해 주세요 👍",
+            "너의 꿈이 점점 가까워지고 있어요", "친구와 함께라면 무엇이든 더 즐거워요", "집에 가는 길, 오늘 하루를 떠올려 봐요",
+            "넘어져도 다시 일어나는 너는 정말 용감해요", "하고 싶은 일을 하나씩 해 나가요", "오늘도 새로운 걸 하나 배웠다면 대성공!",
+            "조금만 더 힘내면 즐거운 저녁이 기다려요", "너는 세상에 하나뿐인 특별한 친구예요", "커서 어떤 사람이 되고 싶은지 상상해 봐요 🌈"
+        },
+        { // 4 저녁
+            "오늘도 수고했어요, 정말 잘했어요! 🌇", "맛있는 저녁 먹고 가족과 이야기 나눠요", "오늘 가장 기뻤던 일을 떠올려 봐요",
+            "가족에게 고맙다는 말을 전해 봐요 💛", "내일은 더 멋진 하루가 될 거예요", "오늘 하루, 열심히 해낸 너를 응원해요",
+            "책 한 쪽 읽으면 꿈도 한 뼘 자라요 📖", "하루를 잘 마무리하는 너는 멋진 사람이에요", "오늘 배운 것을 가족에게 자랑해 봐요",
+            "저녁노을처럼 너의 마음도 따뜻해요", "숙제도 놀이도 즐겁게 해 봐요", "너의 꿈을 모두가 응원하고 있어요 🌟"
+        },
+        { // 5 밤
+            "오늘도 정말 잘 보냈어요, 푹 자요 🌙", "좋은 꿈 꾸고 내일 또 만나요", "잠을 푹 자야 키도 쑥쑥 커요",
+            "별님이 너의 꿈을 지켜 주고 있어요 ⭐", "오늘의 걱정은 잠시 내려놓아요", "내일은 오늘보다 더 반짝일 거예요",
+            "꿈속에서도 멋진 모험을 떠나요 🚀", "하루 동안 고생한 너를 꼭 안아 줄게요", "눈을 감고 오늘 가장 좋았던 일을 떠올려 봐요",
+            "너는 사랑받는 소중한 아이예요 💖", "편안한 밤, 달콤한 꿈 꾸세요", "자고 일어나면 새로운 하루가 기다려요"
+        }
+    };
+
+    static int slotOf(long now) {
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        c.setTimeInMillis(now);
+        int h = c.get(java.util.Calendar.HOUR_OF_DAY);
+        return h >= 4 && h < 7 ? 0 : h >= 7 && h < 11 ? 1 : h >= 11 && h < 14 ? 2 : h >= 14 && h < 18 ? 3 : h >= 18 && h < 21 ? 4 : 5;
+    }
+
+    /** 맨 위 흐르는 문구 화면(길동무 /screen/hdr 와 같은 모양). */
+    synchronized String hdr() {
+        long now = lastNow == 0L ? System.currentTimeMillis() : lastNow;
+        int s = slotOf(now);
+        ArrayList<String> l = new ArrayList<String>(java.util.Arrays.asList(HOPE[s]));
+        long day = (now + java.util.TimeZone.getDefault().getOffset(now)) / 86400000L;
+        Collections.shuffle(l, new Random(day * 7L + s));
+        JSONArray m = new JSONArray();
+        for (int i = 0; i < l.size(); i++) m.put(l.get(i));
+        JSONArray body = new JSONArray();
+        body.put(nd("marq", "h", 26, "pad", pad(8, 8, 8, 9), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
+        JSONObject o = new JSONObject();
+        put(o, "ok", true);
+        put(o, "v", 1);
+        put(o, "screen", "hdr");
+        put(o, "rev", day + ":" + s);
+        put(o, "cover", "tab");
+        put(o, "head", new JSONArray());
+        put(o, "body", body);
+        put(o, "info", new JSONObject());
+        return o.toString();
+    }
+
+    synchronized boolean sceneDue(long now) {
+        return now - sceneAskT > (sceneJson.isEmpty() ? 15000L : 600000L);
+    }
+
+    synchronized void sceneAsked(long now) {
+        sceneAskT = now;
+    }
+
+    synchronized boolean hasFix() {
+        return !Double.isNaN(lat);
+    }
+
+    /** 날씨·장면을 물을 좌표 — 아직 위치를 모르면 서울 시청. */
+    synchronized double[] where() {
+        return Double.isNaN(lat) ? new double[] {37.5665, 126.978} : new double[] {lat, lng};
+    }
+
+    synchronized void setScene(String json, long now) {
+        if (json == null || json.length() < 20 || json.length() >= 5900) return;
+        try {
+            JSONObject o = new JSONObject(json);
+            if (!o.has("look") || !o.has("traits")) return;
+        } catch (Exception e) {
+            return;
+        }
+        sceneJson = json;
+        sceneGotT = now;
+    }
+
+    /** 장면·날씨를 물을 때 보낼 글 — 위치는 약 5km 칸으로 뭉개서 보낸다(날씨에는 그 정도면 충분하다). */
+    synchronized String sceneBody(long now) {
+        double[] w = where();
+        JSONObject o = new JSONObject();
+        put(o, "nowMs", now);
+        put(o, "tzOffsetMin", java.util.TimeZone.getDefault().getOffset(now) / 60000);
+        put(o, "locked", false);
+        put(o, "routeShown", false);
+        put(o, "key", "kids");
+        put(o, "here", 0);
+        put(o, "boarded", false);
+        put(o, "nodes", new JSONArray());
+        put(o, "lat", Math.round(w[0] * 20.0) / 20.0);
+        put(o, "lng", Math.round(w[1] * 20.0) / 20.0);
+        return o.toString();
+    }
+
+    private static JSONArray pad(int a, int t, int r, int d) {
+        JSONArray x = new JSONArray();
+        x.put(a);
+        x.put(t);
+        x.put(r);
+        x.put(d);
+        return x;
+    }
+
+    private static JSONObject nd(String t, Object... kv) {
+        JSONObject o = new JSONObject();
+        put(o, "t", t);
+        for (int i = 0; i + 1 < kv.length; i += 2) put(o, (String) kv[i], kv[i + 1]);
+        return o;
+    }
+
+    private static JSONObject callAct(String v) {
+        JSONObject a = new JSONObject();
+        put(a, "a", "call");
+        put(a, "v", v);
+        return a;
+    }
+
+    /** 글 안의 낱말을 파랗게 강조(시작·끝·색) — 앞에서부터 겹치지 않게 찾는다. */
+    private static JSONArray hl(String s, String... words) {
+        JSONArray r = new JSONArray();
+        int from = 0;
+        for (int i = 0; i < words.length; i++) {
+            int a = s.indexOf(words[i], from);
+            if (a < 0 || words[i].isEmpty()) continue;
+            JSONArray p = new JSONArray();
+            p.put(a);
+            p.put(a + words[i].length());
+            p.put("#1d9bf0");
+            r.put(p);
+            from = a + words[i].length();
+        }
+        return r;
+    }
+
+    private static JSONObject tx(String s, int size, boolean bold, String color, int padB, String... words) {
+        JSONObject n = nd("text", "s", s, "size", size, "bold", bold, "color", color, "pad", pad(0, 0, 0, padB), "lh", 1.4);
+        if (words.length > 0) put(n, "hl", hl(s, words));
+        return n;
     }
 
     private void pruneChat(long now) {

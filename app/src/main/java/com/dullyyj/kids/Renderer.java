@@ -19,8 +19,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import com.dullyyj.subway.MetroMapData;
-import com.dullyyj.subway.MetroMapView;
+import com.dullyyj.subway.ScreenCore;
+import com.dullyyj.subway.ScreenView;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
@@ -28,7 +28,7 @@ import com.google.zxing.qrcode.QRCodeWriter;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.InputStream;
+
 
 /** 엔진이 내려준 화면 JSON(블록 목록)을 뷰로 그린다. 판단은 하지 않고, 눌린 것은 그대로 cb 로 넘긴다. */
 final class Renderer {
@@ -43,8 +43,8 @@ final class Renderer {
     private final LinearLayout col;
     private final TextView loading;
     private final VillageView village;
-    private MetroMapView map;
-    private boolean mapLoading = false;
+    private MapPane mapPane;
+    private ScreenView home;
     private Runnable refresh;
     private String draft = "";
     private String lastHead = "";
@@ -87,11 +87,11 @@ final class Renderer {
     }
 
     void destroy() {
-        if (map != null) map.destroy();
+        if (mapPane != null) mapPane.destroy();
     }
 
     // ───────── 화면 한 장 ─────────
-    void build(String json) {
+    void build(String json, ScreenCore.Screen pre) {
         JSONObject o;
         try {
             o = new JSONObject(json);
@@ -100,11 +100,17 @@ final class Renderer {
         }
         host.setBackgroundColor(Pal.c(Pal.BG));
         loading.setTextColor(Pal.c(Pal.SUB));
-        if ("map".equals(o.optString("mode"))) {
+        String mode = o.optString("mode");
+        if ("map".equals(mode)) {
             showMap();
             return;
         }
-        if (map != null) map.setVisibility(View.GONE);
+        if (mapPane != null) mapPane.setVisibility(View.GONE);
+        if ("sv".equals(mode)) {
+            showHome(pre);
+            return;
+        }
+        if (home != null) home.setVisibility(View.GONE);
         loading.setVisibility(View.GONE);
         scroll.setVisibility(View.VISIBLE);
         scroll.setBackgroundColor(Pal.c(Pal.BG));
@@ -135,76 +141,33 @@ final class Renderer {
 
     private void showMap() {
         scroll.setVisibility(View.GONE);
-        if (map != null) {
-            loading.setVisibility(View.GONE);
-            map.setVisibility(View.VISIBLE);
-            return;
+        loading.setVisibility(View.GONE);
+        if (home != null) home.setVisibility(View.GONE);
+        if (mapPane == null) {
+            mapPane = new MapPane(ctx);
+            host.addView(mapPane, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
-        loading.setText("지도를 불러오는 중이에요…");
-        loading.setVisibility(View.VISIBLE);
-        if (mapLoading) return;
-        mapLoading = true;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                MetroMapData d = null;
-                try {
-                    InputStream in = ctx.getAssets().open("metro_native.bin");
-                    try {
-                        d = MetroMapData.parse(in);
-                    } finally {
-                        in.close();
-                    }
-                } catch (Throwable t) {
-                    d = null;
-                }
-                final MetroMapData data = d;
-                host.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        mapReady(data);
-                    }
-                });
-            }
-        }, "kids-map").start();
+        mapPane.setTheme(Pal.dark ? "dark" : "pastel");
+        mapPane.setVisibility(View.VISIBLE);
+        mapPane.onShow();
     }
 
-    private void mapReady(MetroMapData data) {
-        mapLoading = false;
-        if (data == null) {
-            loading.setText("지도를 불러오지 못했어요");
-            return;
+    /** 홈 — 길동무와 같은 그리개(ScreenView)가 엔진이 준 화면(흐르는 글 아래 큰 해변 장면 + 브리핑)을 그린다. */
+    private void showHome(ScreenCore.Screen pre) {
+        scroll.setVisibility(View.GONE);
+        loading.setVisibility(View.GONE);
+        if (home == null) {
+            home = SvHost.make(ctx, new SvHost.Cb() {
+                @Override
+                public void act(String kind, String v) {
+                    if ("call".equals(kind) && v != null) cb.call(v, "");
+                }
+            });
+            host.addView(home, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
-        map = new MetroMapView(ctx, data, ctx.getResources().getDisplayMetrics().density);
-        map.setListener(new MetroMapView.Listener() {
-            @Override
-            public void onStation(int op, float sx, float sy) {
-                // 길찾기는 쓰지 않는다 — 역을 눌러도 아무 일도 없다
-            }
-
-            @Override
-            public void onGestureStart() {
-            }
-
-            @Override
-            public void onEdgeSwipe(int dir) {
-            }
-
-            @Override
-            public void onReady() {
-            }
-
-            @Override
-            public void onError(String msg) {
-            }
-
-            @Override
-            public void onCentered(int op) {
-            }
-        });
-        map.setVisibility(View.GONE);
-        host.addView(map, 1, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        if (refresh != null) refresh.run();
+        home.setPalette(SvHost.palette(Pal.dark ? "dark" : "pastel"));
+        home.setVisibility(View.VISIBLE);
+        if (pre != null) home.setScreen(pre, true);
     }
 
     // ───────── 블록 ─────────

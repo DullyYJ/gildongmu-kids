@@ -1,10 +1,10 @@
-build/
 .gradle/
+build/
+app/build/
 local.properties
-*.iml
 .idea/
+*.iml
 captures/
 .DS_Store
-app/src/main/assets/chars3d/
-app/src/main/assets/metro_native.bin
+app/src/main/assets/
 app/src/main/java/com/dullyyj/subway/

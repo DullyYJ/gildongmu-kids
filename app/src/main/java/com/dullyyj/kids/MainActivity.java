@@ -18,6 +18,9 @@ import android.widget.LinearLayout;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
+import com.dullyyj.subway.ScreenCore;
+import com.dullyyj.subway.ScreenView;
+
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -34,12 +37,14 @@ public class MainActivity extends Activity {
     private Handler eh;
     private Renderer renderer;
     private TabBar tabbar;
+    private ScreenView hdrView;
     private LinearLayout root;
     private boolean running = false;
     // 아래 셋은 엔진 스레드에서만 쓴다
     private int lastRev = -1;
     private String lastTab = "";
     private String lastTheme = "";
+    private String lastHdr = "";
 
     private final Runnable loop = new Runnable() {
         @Override
@@ -80,6 +85,10 @@ public class MainActivity extends Activity {
         tabbar = new TabBar(this);
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        // 맨 위 흐르는 응원 문구(길동무와 같은 그리개 · 높이 43dp) — 동의 뒤에만 보인다
+        hdrView = SvHost.make(this, null);
+        hdrView.setVisibility(View.GONE);
+        root.addView(hdrView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(43f * getResources().getDisplayMetrics().density)));
         root.addView(renderer.view(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         root.addView(tabbar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(root);
@@ -129,21 +138,36 @@ public class MainActivity extends Activity {
     /** 엔진 스레드에서: 한 틱 돌리고, 바뀐 게 있으면 새 화면을 그리게 넘긴다. */
     private void step() {
         Engine en = Core.engine;
-        en.tick(System.currentTimeMillis());
+        long nowT = System.currentTimeMillis();
+        en.tick(nowT);
+        askScene(en, nowT);
         final String theme = en.theme();
         final String tab = en.tab();
         int rev = en.rev();
         final String vil = en.village();
+        final boolean cons = en.consented();
+        final String hd = cons ? en.hdr() : "";
+        if (!hd.equals(lastHdr)) {
+            lastHdr = hd;
+            final ScreenCore.Screen hs = SvHost.parse(hd);
+            ui.post(new Runnable() {
+                @Override
+                public void run() {
+                    hdrShow(hs, theme);
+                }
+            });
+        }
         if (rev != lastRev || !tab.equals(lastTab) || !theme.equals(lastTheme)) {
             lastRev = rev;
             lastTab = tab;
             lastTheme = theme;
             final String scr = en.screen(tab);
             final String bar = en.tabbar(tab);
+            final ScreenCore.Screen pre = cons && "home".equals(tab) ? SvHost.parse(scr) : null;
             ui.post(new Runnable() {
                 @Override
                 public void run() {
-                    show(theme, scr, bar, vil);
+                    show(theme, scr, bar, vil, pre);
                 }
             });
         } else {
@@ -156,11 +180,36 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void show(String theme, String scr, String bar, String vil) {
+    /** 장면(해변 친구들)과 날씨는 길동무 서버가 정한 값을 받아 올 뿐이다 — 뒤 스레드에서 받아 엔진에 넘긴다. */
+    private void askScene(Engine en, long now) {
+        if (!en.consented() || !en.sceneDue(now)) return;
+        en.sceneAsked(now);
+        final String body = en.sceneBody(now);
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                String r = Wire.post("/scene", body, 8000);
+                if (r != null) Core.engine.setScene(r, System.currentTimeMillis());
+            }
+        });
+    }
+
+    private void hdrShow(ScreenCore.Screen hs, String theme) {
+        if (hs == null) {
+            hdrView.setVisibility(View.GONE);
+            return;
+        }
+        hdrView.setPalette(SvHost.palette(theme));
+        hdrView.setScreen(hs, true);
+        hdrView.setVisibility(View.VISIBLE);
+    }
+
+    private void show(String theme, String scr, String bar, String vil, ScreenCore.Screen pre) {
         Pal.set(theme);
         applyBars();
         root.setBackgroundColor(Pal.c(Pal.BG));
-        renderer.build(scr);
+        hdrView.setPalette(SvHost.palette(theme));
+        renderer.build(scr, pre);
         renderer.village(vil);
         tabbar.set(bar, new TabBar.Cb() {
             @Override
