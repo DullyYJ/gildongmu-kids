@@ -43,7 +43,6 @@ final class AvatarView extends View {
         file = Chars.file(id);
         label = name == null ? "" : name;
         dpr = c.getResources().getDisplayMetrics().density;
-        setBackground(Ui.box(c, Pal.c(Pal.CARD), 16, Pal.c(Pal.BORDER)));
         tp.setTextAlign(Paint.Align.CENTER);
         tp.setFakeBoldText(true);
         tp.setTextSize(15f * dpr);

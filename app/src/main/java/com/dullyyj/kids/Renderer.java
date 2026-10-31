@@ -304,6 +304,7 @@ final class Renderer {
         if ("text".equals(t)) return text(b);
         if ("card".equals(t)) return card(b);
         if ("village".equals(t)) return villageBlock(b);
+        if ("box".equals(t)) return box(b);
         if ("avatar".equals(t)) {
             View av = new AvatarView(ctx, b.optString("id"), b.optString("name"));
             av.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dpi(ctx, 170), 6));
@@ -322,6 +323,26 @@ final class Renderer {
             return v;
         }
         return null;
+    }
+
+    /** 안에 다른 블록을 담는 둥근 박스(꾸미기 창의 '친구 고르기' · '아이템 고르기'). */
+    private View box(JSONObject b) {
+        LinearLayout r = new LinearLayout(ctx);
+        r.setOrientation(LinearLayout.VERTICAL);
+        int pad = Ui.dpi(ctx, 12);
+        r.setPadding(pad, pad, pad, pad);
+        r.setBackground(Ui.box(ctx, Pal.c(Pal.CARD), 18, Pal.c(Pal.BORDER)));
+        JSONArray k = b.optJSONArray("kids");
+        if (k != null) {
+            for (int i = 0; i < k.length(); i++) {
+                JSONObject x = k.optJSONObject(i);
+                if (x == null) continue;
+                View v = block(x);
+                if (v != null) r.addView(v);
+            }
+        }
+        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 12));
+        return r;
     }
 
     private View head(JSONObject b) {

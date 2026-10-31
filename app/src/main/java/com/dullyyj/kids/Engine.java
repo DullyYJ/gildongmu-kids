@@ -690,12 +690,17 @@ final class Engine {
         F cur = find(dressSel);
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "길동무 친구들 꾸미기"));
-        a.put(b("avatar", "id", cur.id, "name", cur.name));
+        JSONArray k1 = new JSONArray();
+        k1.put(b("avatar", "id", cur.id, "name", cur.name));
         JSONArray chips = new JSONArray();
         for (int i = 0; i < fs.size(); i++) chips.put(item(fs.get(i).name, "dress.sel:" + fs.get(i).id, fs.get(i).id.equals(cur.id) ? "1" : "0"));
         JSONObject c = b("chips");
         put(c, "items", chips);
-        a.put(c);
+        k1.put(c);
+        JSONObject bx1 = b("box");
+        put(bx1, "kids", k1);
+        a.put(bx1);
+        JSONArray k2 = new JSONArray();
         String[][] tabs = {{"hat", "모자"}, {"cloth", "옷"}, {"item", "소지품"}};
         JSONArray tc = new JSONArray();
         String tname = "모자";
@@ -706,8 +711,11 @@ final class Engine {
         }
         JSONObject tcs = b("chips");
         put(tcs, "items", tc);
-        a.put(tcs);
-        a.put(b("card", "title", tname, "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
+        k2.put(tcs);
+        k2.put(b("card", "title", tname, "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
+        JSONObject bx2 = b("box");
+        put(bx2, "kids", k2);
+        a.put(bx2);
         a.put(b("gap", "h", "8"));
         JSONArray it = new JSONArray();
         it.put(b("i", "label", "닫기", "act", "dress.close", "on", "0"));
@@ -788,19 +796,24 @@ final class Engine {
         long now = lastNow;
         JSONArray body = new JSONArray();
         String[] w = weatherParts();                                   // ① 날씨 · ② 애니메이션(장면) · ③ 길동무 친구들 — 세 칸으로 나눈다
-        JSONObject wl = nd("text", "s", w[0], "size", 20, "bold", true, "color", "text", "pad", pad(18, 12, 18, w[1].isEmpty() ? 6 : 2), "lh", 1.3);   // 박스 없이 맨 위 한 문장: "아라동 7도예요. 맑아요."
+        JSONArray wk = new JSONArray();
+        JSONObject wl = tx(w[0], 18, true, "text", w[1].isEmpty() ? 0 : 3);                    // 날씨 박스: "아라동 7도예요. 맑아요."
         put(wl, "hl", hl(w[0], w[2], w[3]));
-        body.put(wl);
-        if (!w[1].isEmpty()) body.put(nd("text", "s", w[1], "size", 12, "color", "sub", "pad", pad(18, 0, 18, 6), "lh", 1.4));
+        wk.put(wl);
+        if (!w[1].isEmpty()) wk.put(tx(w[1], 11, false, "sub", 0));
+        body.put(nd("panel", "pad", pad(12, 8, 12, 0), "ip", pad(14, 12, 14, 12), "kids", wk));
+        body.put(nd("lth", "s", "길동무 길거리", "dot", "#34c759", "live", true, "pad", pad(16, 12, 16, 2)));
         String sc = sceneOut(now);
         if (!sc.isEmpty()) {
-            int sh = viewDp > 0 ? Math.max(200, Math.min(720, viewDp - 290)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
+            int sh = viewDp > 0 ? Math.max(200, Math.min(720, viewDp - 335)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
             body.put(nd("scene", "h", sh, "r", 16, "pad", pad(12, 6, 12, 6), "sc", sc));
         } else {
             JSONArray ph = new JSONArray();
             ph.put(tx("해변을 불러오는 중이에요…", 14, true, "sub", 0));
             body.put(nd("panel", "pad", pad(12, 6, 12, 6), "ip", pad(14, 40, 14, 40), "kids", ph));
         }
+        body.put(nd("button", "s", "🎨 길동무 친구들 꾸미기", "act", callAct("kid.dress"), "h", 46, "size", 14, "bold", true,
+                "fill", "card", "line", "border", "tc", "text", "r", 16, "pad", pad(12, 2, 12, 2)));
         body.put(nd("lth", "s", "길동무 친구들과 놀기", "dot", "#34c759", "live", true, "pad", pad(16, 10, 16, 4)));
         JSONArray kids = new JSONArray();
         ArrayList<F> g = new ArrayList<F>();                            // 지금 화면에 나와 있는 친구(장면이 알려 준다) · 나머지는 쉬는 중
@@ -825,9 +838,7 @@ final class Engine {
             kids.put(tx(sb.toString(), 13, false, "sub", 5));
         }
         kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 11, false, "sub", 6));
-        body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 8), "kids", kids));
-        body.put(nd("button", "s", "🎨 길동무 친구들 꾸미기", "act", callAct("kid.dress"), "h", 46, "size", 14, "bold", true,
-                "fill", "card", "line", "border", "tc", "text", "r", 16, "pad", pad(12, 0, 12, 10)));
+        body.put(nd("panel", "pad", pad(12, 0, 12, 10), "ip", pad(14, 12, 14, 8), "kids", kids));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);
