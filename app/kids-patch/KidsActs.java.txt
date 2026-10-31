@@ -19,9 +19,10 @@ final class KidsActs {
     /** 친구를 건드렸다. 공부 중이면 바로 화를 낸다. */
     static void poke(SceneCore S, Actor a) {
         if (a == null || a.held || a.dead) return;
-        if (!com.dullyyj.kids.Poke.studying(a.id)) return;
+        int pk = com.dullyyj.kids.Poke.kind(a.id);
+        if (pk == 0) return;
         a.pr = null; a.cut = Double.NaN; a.sx = 1; a.sy = 1; a.ox = 0; a.ang = 0; a.stk = null; a.feetScale = false; a.heart = 0; a.chain = null;
-        S.startAct(a, "kangry");
+        S.startAct(a, pk == 2 ? "kwake" : "kangry");
     }
 
     static void register(final SceneCore S) {
@@ -80,6 +81,14 @@ final class KidsActs {
             double b = Math.abs(Math.sin(T * 9.5)); a.y = -b * h * .16 * amp; a.sy = 1 - .12 * (1 - b) * amp; a.sx = 1 + .08 * (1 - b) * amp; a.ox = Math.sin(T * 38) * 1.4 * amp; a.ang = Math.sin(T * 19) * .05 * amp;
             if (S.once(A, "st")) { S.stk(a, "angry", 3.4); S.haptic("angry"); }
             if (S.every(A, "say", 1.3)) S.say(a, new String[] {"공부 중이잖아!!", "건드리지 마!", "집중해야 해!", "시끄러워!"}[(int) ((S.t * 3) % 4)], 1.3);
+            if (S.every(A, "pf", .17)) S.ptx("puff", a.x + (S.rnd() - .5) * h * .5, S.feetY(a) - h * 1.0, 1, po().a(-PI * .85, -PI * .15).s(14, 30).g(-10).l(.4, .7).r(1.1).jx(3));
+        }, null);
+        // 자는 중에 깨우면 화내고, 다시 잔다
+        SceneActs.A_(S, "kwake", 4.2, null, (a, u, dt, A) -> {
+            double h = S.HH(a), T = S.t, tt = u * 4.2, amp = 1 - ease(clamp((tt - 3.5) / .7, 0, 1)); S.standF(a); a.pose = 5; a.cell = amp < .3 ? 14 : (int) (T * 7) % 2 == 0 ? 15 : 9;
+            double b = Math.abs(Math.sin(T * 9.5)); a.y = -b * h * .16 * amp; a.sy = 1 - .12 * (1 - b) * amp; a.sx = 1 + .08 * (1 - b) * amp; a.ox = Math.sin(T * 38) * 1.4 * amp; a.ang = Math.sin(T * 19) * .05 * amp;
+            if (S.once(A, "st")) { S.stk(a, "angry", 3.4); S.haptic("angry"); }
+            if (S.every(A, "say", 1.3)) S.say(a, new String[] {"깨우지 마… 졸려!", "더 잘 거야!", "으… 왜 깨워!", "쿨쿨 중이었어!"}[(int) ((S.t * 3) % 4)], 1.3);
             if (S.every(A, "pf", .17)) S.ptx("puff", a.x + (S.rnd() - .5) * h * .5, S.feetY(a) - h * 1.0, 1, po().a(-PI * .85, -PI * .15).s(14, 30).g(-10).l(.4, .7).r(1.1).jx(3));
         }, null);
     }

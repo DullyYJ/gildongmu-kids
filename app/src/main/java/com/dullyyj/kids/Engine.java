@@ -36,6 +36,14 @@ final class Engine {
     static final long STUDY_MS = 5L * 60L * 1000L;      // 공부하기는 5분 동안 이어진다
     static final long SLEEP_MS = 3L * 60L * 1000L;      // 잠자기는 3분 동안 이어진다
     static final long ANGRY_MS = 10000L;                // 공부 중에 건드리면 화를 내는 시간
+    // 하루 일과(기기의 현지 시각 기준) — 기상 5:00~6:00 · 아침 6:30~7:30 · 점심 11:00~13:00 · 밤 11시 취침. 친구마다·날마다 시각이 다르다.
+    static final int SLEEP_AT_MIN = 23 * 60;
+    static final int MEAL_WIN_MIN = 90;                     // 밥때가 된 뒤 이만큼 안에 앱이 켜져 있으면 밥을 달라고 한다
+    static final long MEAL_RISE_MS = 90L * 60L * 1000L;     // 밥을 달라고 한 뒤 70점에서 100점까지 오르는 시간
+    static final long MEAL_GIVEUP_MS = 150L * 60L * 1000L;  // 이만큼 지나면 그 끼니는 넘어간다
+    static final long POOP_MIN_MS = 2L * 3600L * 1000L;     // 밥 먹고 2~3시간 뒤에 응가
+    static final long POOP_SPAN_MS = 3600L * 1000L;
+    static final long DAY_MS = 86400000L;
     // 동작 시트(_act) 칸 번호 — 종류별. -1 이면 그 동작 칸이 없어 걷기 시트로 대신한다.
     static final int[][] CELLS = {
         {-1, 1, 13, 6, 6, 0, 15, 5, -1},   // 0 강아지·고양이
@@ -67,6 +75,10 @@ final class Engine {
         long nextEvt;
         long nextLong;
         long angerUntil;
+        String pend = "";                  // 밥을 기다리는 끼니("b" 아침 · "l" 점심)
+        long pendT;
+        long bfDay = -1L, lunchDay = -1L;  // 그 끼니를 시작한 날(현지 날짜 번호)
+        long poopAt;                       // 밥 먹고 난 뒤 정해 둔 응가 시각
     }
 
     private final Store store;
@@ -156,6 +168,11 @@ final class Engine {
                 f.starved = s.optInt("st", 0) == 1;
                 f.poopNeg = s.optInt("pn", 0) == 1;
                 f.sulkUntil = s.optLong("su", 0L);
+                f.pend = s.optString("pd", "");
+                f.pendT = s.optLong("pt", 0L);
+                f.bfDay = s.optLong("bd", -1L);
+                f.lunchDay = s.optLong("ld", -1L);
+                f.poopAt = s.optLong("pa", 0L);
             } else {
                 f.hunger = 35 + rnd.nextInt(30);
             }
@@ -196,6 +213,11 @@ final class Engine {
                 x.put("st", f.starved ? 1 : 0);
                 x.put("pn", f.poopNeg ? 1 : 0);
                 x.put("su", f.sulkUntil);
+                x.put("pd", f.pend);
+                x.put("pt", f.pendT);
+                x.put("bd", f.bfDay);
+                x.put("ld", f.lunchDay);
+                x.put("pa", f.poopAt);
                 a.put(x);
             }
             o.put("fr", a);
@@ -273,6 +295,7 @@ final class Engine {
         lastTickT = now;
         for (int i = 0; i < fs.size(); i++) step(fs.get(i), now, dt);
         Poke.setStudy(studyCsv(now));
+        Poke.setSleep(sleepCsv(now));
         if (now - lastPrune > 60000L) {
             lastPrune = now;
             pruneChat(now);
@@ -290,8 +313,90 @@ final class Engine {
         if (now - lastSave > 5000L) save();
     }
 
+    private static long tzOf(long now) {
+        return java.util.TimeZone.getDefault().getOffset(now);
+    }
+
+    /** 친구 f 의 그날 일과(하루 중 분): {기상, 아침, 점심}. 친구마다·날마다 다르게 나오되 같은 날엔 늘 같다. */
+    private static int[] plan(F f, long day) {
+        long z = f.id.hashCode() * 1000003L + day * 7919L + 17L;
+        z = (z ^ (z >>> 30)) * 0xbf58476d1ce4e5b9L;
+        z = (z ^ (z >>> 27)) * 0x94d049bb133111ebL;
+        z ^= z >>> 31;
+        Random r = new Random(z);
+        return new int[] {300 + r.nextInt(61), 390 + r.nextInt(61), 660 + r.nextInt(121)};
+    }
+
+    /** 지금이 밤(밤 11시~기상)이면 깨어날 시각(ms), 낮이면 0. */
+    private long wakeAt(F f, long now) {
+        long tz = tzOf(now), loc = now + tz, day = loc / DAY_MS;
+        int m = (int) ((loc % DAY_MS) / 60000L);
+        if (m >= SLEEP_AT_MIN) return (day + 1L) * DAY_MS + plan(f, day + 1L)[0] * 60000L - tz;
+        int w = plan(f, day)[0];
+        if (m < w) return day * DAY_MS + w * 60000L - tz;
+        return 0L;
+    }
+
+    /** 하루 일과: 밤엔 자고, 아침·점심엔 밥을 달라고 하고, 밥 먹고 2~3시간 뒤엔 응가한다. */
+    private void schedule(F f, long now, long dt) {
+        long wk = wakeAt(f, now);
+        if (wk != 0L) {
+            if (!"sleep".equals(f.tm) || f.tmUntil != wk) setTm(f, "sleep", wk);
+            f.pend = "";
+            return;
+        }
+        long tz = tzOf(now), loc = now + tz, day = loc / DAY_MS;
+        int m = (int) ((loc % DAY_MS) / 60000L);
+        int[] p = plan(f, day);
+        if (f.pend.isEmpty() && !f.sick) {
+            if (f.bfDay != day && m >= p[1] && m < p[1] + MEAL_WIN_MIN) startMeal(f, "b", day, now);
+            else if (f.lunchDay != day && m >= p[2] && m < p[2] + MEAL_WIN_MIN) startMeal(f, "l", day, now);
+        }
+        if (!f.pend.isEmpty()) {
+            if (now - f.pendT > MEAL_GIVEUP_MS) {
+                f.pend = "";
+                f.hunger = Math.min(f.hunger, 40.0);
+                f.starved = false;
+            } else if (!f.sick && f.hunger < 100.0) {
+                f.hunger = Math.min(100.0, f.hunger + dt * 30.0 / (double) MEAL_RISE_MS);
+            }
+        }
+        if (f.poopAt != 0L && now >= f.poopAt) {
+            f.poopAt = 0L;
+            if (f.poop < 3) {
+                if (f.poop == 0) f.poopSince = now;
+                f.poop++;
+            }
+            setTm(f, "poop", now + 4000L);
+        }
+    }
+
+    private void startMeal(F f, String k, long day, long now) {
+        f.pend = k;
+        f.pendT = now;
+        f.starved = false;
+        f.hunger = Math.max(f.hunger, (double) BEG_AT);
+        if ("b".equals(k)) f.bfDay = day;
+        else f.lunchDay = day;
+    }
+
+    /** 밥을 준다. 밥때(졸랐을 때)면 배가 불러 응가 시각이 정해지고, 아니면 간식처럼 조금만 채운다. 자는 밤엔 깨우지 않는다. */
+    private void feedOne(F f, long now) {
+        if (wakeAt(f, now) != 0L) return;
+        boolean meal = !f.pend.isEmpty();
+        f.hunger = meal ? 0.0 : Math.max(0.0, f.hunger - 50.0);
+        if (f.hunger < 100) f.starved = false;
+        if (f.sulkUntil > now) f.sulkUntil = 0L;
+        if (meal) {
+            f.pend = "";
+            if (f.poopAt == 0L) f.poopAt = now + POOP_MIN_MS + (long) (rnd.nextDouble() * POOP_SPAN_MS);
+        }
+        if (f.sick) recover(f, now);
+        if (!f.sick) setTm(f, "eat", now + 4000L);
+    }
+
     private void step(F f, long now, long dt) {
-        if (!f.sick && f.hunger < 100) f.hunger = Math.min(100.0, f.hunger + dt / (double) HUNGER_STEP_MS);
+        schedule(f, now, dt);
         if (f.hunger >= 100 && !f.starved) {
             f.starved = true;
             neglect(f, now);
@@ -312,7 +417,7 @@ final class Engine {
         if (f.nextLong == 0L) f.nextLong = now + rnd.nextInt(5 * 60 * 1000);
         if (now >= f.nextEvt) {
             f.nextEvt = now + EVT_MIN + rnd.nextInt((int) (EVT_MAX - EVT_MIN));
-            if (!f.sick && f.sulkUntil <= now && f.tm.isEmpty()) event(f, now);
+            if (!f.sick && f.sulkUntil <= now && f.tm.isEmpty() && f.hunger < BEG_AT) event(f, now);
         }
     }
 
@@ -330,18 +435,10 @@ final class Engine {
 
     private void event(F f, long now) {
         int r = rnd.nextInt(100);
-        if (r < 25) {
-            if (f.poop < 3) {
-                if (f.poop == 0) f.poopSince = now;
-                f.poop++;
-            }
-            setTm(f, "poop", now + 4000L);
-        } else if (r < 50) {
+        if (r < 50) {
             playTogether(f, now, 45000L + rnd.nextInt(30000));
-        } else if (r < 64 && now >= f.nextLong) {
+        } else if (r < 70 && now >= f.nextLong) {
             startLong(f, "study", now + STUDY_MS, now);
-        } else if (r < 78 && now >= f.nextLong) {
-            startLong(f, "sleep", now + SLEEP_MS, now);
         }
     }
 
@@ -395,7 +492,7 @@ final class Engine {
             F f = fs.get(i);
             sb.append('|').append(moodOf(f, lastNow)).append(',').append((int) (f.hunger / 5)).append(',')
                     .append(f.poop).append(',').append(f.neg).append(f.angerUntil > lastNow ? 'a' : '-')
-                    .append(f.tm.isEmpty() ? 0L : (f.tmUntil - lastNow) / 60000L);
+                    .append(f.tm.isEmpty() ? 0L : Math.min(f.tmUntil - lastNow, 6L * 60000L) / 60000L);
         }
         return sb.toString();
     }
@@ -582,8 +679,8 @@ final class Engine {
         kids.put(tx(w[0], 22, true, "text", w[1].isEmpty() ? 8 : 2));
         if (!w[1].isEmpty()) kids.put(tx(w[1], 12, false, "sub", 8));
         ArrayList<F> g = onScreen();
-        String[] keys = {"angry", "sick", "sulk", "beg", "poop", "eat", "study", "sleep", "play", "ok"};
-        String[] lab = {"😤 공부 중에 건드려서 화났어요", "🤒 아파요", "😤 삐졌어요", "🍚 배고파요", "💩 응가했어요", "😋 냠냠 먹는 중이에요",
+        String[] keys = {"angry", "wake", "sick", "sulk", "beg", "poop", "eat", "study", "sleep", "play", "ok"};
+        String[] lab = {"😤 공부 중에 건드려서 화났어요", "😠 자다가 깨서 화났어요", "🤒 아파요", "😤 삐졌어요", "🍚 배고파요", "💩 응가했어요", "😋 냠냠 먹는 중이에요",
                 "📖 공부 중이에요", "😴 쿨쿨 자는 중이에요", "🤝 같이 놀아요", "😊 잘 지내요"};
         for (int k = 0; k < keys.length; k++) {
             ArrayList<String> names = new ArrayList<String>();
@@ -596,7 +693,8 @@ final class Engine {
             }
             if (names.isEmpty()) continue;
             StringBuilder sb = new StringBuilder(lab[k]);
-            if (("study".equals(keys[k]) || "sleep".equals(keys[k])) && left != Long.MAX_VALUE) sb.append(" · ").append(left / 60000L + 1L).append("분 남음");
+            if (left != Long.MAX_VALUE && "sleep".equals(keys[k]) && left > SLEEP_MS + 60000L) sb.append(" · 아침까지");
+            else if (left != Long.MAX_VALUE && ("study".equals(keys[k]) || "sleep".equals(keys[k]))) sb.append(" · ").append(left / 60000L + 1L).append("분 남음");
             sb.append(" — ");
             for (int i = 0; i < names.size(); i++) sb.append(i > 0 ? ", " : "").append(names.get(i));
             kids.put(tx(sb.toString(), 13, !"ok".equals(keys[k]), "ok".equals(keys[k]) ? "sub" : "text", 5, names.toArray(new String[0])));
@@ -806,14 +904,7 @@ final class Engine {
             groupSet(now, "sleep", SLEEP_MS);
         } else if (v.equals("home.feed")) {
             ArrayList<F> g = onScreen();
-            for (int i = 0; i < g.size(); i++) {
-                F f = g.get(i);
-                f.hunger = Math.max(0.0, f.hunger - 50.0);
-                if (f.hunger < 100) f.starved = false;
-                if (f.sulkUntil > now) f.sulkUntil = 0L;
-                if (f.sick) recover(f, now);
-                if (!f.sick) setTm(f, "eat", now + 4000L);
-            }
+            for (int i = 0; i < g.size(); i++) feedOne(g.get(i), now);
         } else if (v.equals("home.clean")) {
             ArrayList<F> g = onScreen();
             for (int i = 0; i < g.size(); i++) {
@@ -837,12 +928,7 @@ final class Engine {
             }
             recover(f, now);
         } else if (v.equals("care.feed")) {
-            F f = find(sel);
-            f.hunger = Math.max(0.0, f.hunger - 50.0);
-            if (f.hunger < 100) f.starved = false;
-            if (f.sulkUntil > now) f.sulkUntil = 0L;
-            if (f.sick) recover(f, now);
-            if (!f.sick) setTm(f, "eat", now + 4000L);
+            feedOne(find(sel), now);
         } else if (v.equals("care.pet")) {
             F f = find(sel);
             f.sulkUntil = 0L;
@@ -1061,7 +1147,7 @@ final class Engine {
 
     private String stateOf(F f, long now) {
         if (f.sick) return "sick";
-        if (f.angerUntil > now) return "angry";
+        if (f.angerUntil > now) return "sleep".equals(f.tm) ? "wake" : "angry";
         if (f.sulkUntil > now) return "sulk";
         if (!f.tm.isEmpty() && (f.tm.equals("study") || f.tm.equals("sleep") || f.tm.equals("play") || f.tm.equals("eat"))) return f.tm;
         if (f.hunger >= BEG_AT) return "beg";
@@ -1070,6 +1156,8 @@ final class Engine {
     }
 
     private static String[] actsFor(String st) {
+        if ("angry".equals(st)) return new String[] {"kangry", "rest", "kangry"};
+        if ("wake".equals(st)) return new String[] {"kwake", "rest", "kwake"};
         if ("study".equals(st)) return new String[] {"kstudy", "kstudy", "rest", "kstudy"};
         if ("sleep".equals(st)) return new String[] {"ksleep", "ksleep", "ksleep"};
         if ("play".equals(st)) return new String[] {"walk", "kplay", "walk", "kplay", "hop"};
@@ -1083,7 +1171,19 @@ final class Engine {
 
     private String studyCsv(long now) {
         StringBuilder sb = new StringBuilder(",");
-        for (int i = 0; i < fs.size(); i++) if ("study".equals(stateOf(fs.get(i), now))) sb.append(fs.get(i).id).append(',');
+        for (int i = 0; i < fs.size(); i++) {
+            String s = stateOf(fs.get(i), now);
+            if ("study".equals(s) || "angry".equals(s)) sb.append(fs.get(i).id).append(',');
+        }
+        return sb.toString();
+    }
+
+    private String sleepCsv(long now) {
+        StringBuilder sb = new StringBuilder(",");
+        for (int i = 0; i < fs.size(); i++) {
+            String s = stateOf(fs.get(i), now);
+            if ("sleep".equals(s) || "wake".equals(s)) sb.append(fs.get(i).id).append(',');
+        }
         return sb.toString();
     }
 
@@ -1123,7 +1223,7 @@ final class Engine {
         ArrayList<F> g = onScreen();
         for (int i = 0; i < g.size(); i++) {
             F f = g.get(i);
-            if (f.sick || f.sulkUntil > now) continue;
+            if (f.sick || f.sulkUntil > now || wakeAt(f, now) != 0L) continue;
             setTm(f, m, now + ms);
             if (!"play".equals(m)) f.nextLong = now + 8L * 60L * 1000L;
         }
