@@ -1,0 +1,127 @@
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+        for (int i = 0; i < l.size(); i++) m.put(l.get(i));
+        JSONArray body = new JSONArray();
+        body.put(nd("marq", "h", 26, "pad", pad(10, 1, 10, 2), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
+        JSONObject o = new JSONObject();
+        put(o, "ok", true);
+@@ new
+        for (int i = 0; i < l.size(); i++) m.put(l.get(i));
+        JSONArray body = new JSONArray();
+        body.put(nd("marq", "h", 26, "pad", pad(8, 8, 8, 9), "msgs", m, "pass", 16000, "grad", 6000, "line", true));
+        JSONObject o = new JSONObject();
+        put(o, "ok", true);
+=== EDIT: app/src/main/java/com/dullyyj/kids/MainActivity.java ===
+@@ old
+import android.os.HandlerThread;
+import android.os.Looper;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
+import android.widget.LinearLayout;
+
+@@ new
+import android.os.HandlerThread;
+import android.os.Looper;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/MainActivity.java ===
+@@ old
+        hdrView = SvHost.make(this, null);
+        hdrView.setVisibility(View.GONE);
+        root.addView(hdrView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(30f * getResources().getDisplayMetrics().density)));
+        root.addView(renderer.view(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(tabbar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        setContentView(root);
+    }
+
+@@ new
+        hdrView = SvHost.make(this, null);
+        hdrView.setVisibility(View.GONE);
+        root.addView(hdrView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(43f * getResources().getDisplayMetrics().density)));
+        root.addView(renderer.view(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(tabbar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(56f * getResources().getDisplayMetrics().density)));
+        // 상태 표시줄 · 내비게이션 막대 자리를 비우고, 상태 표시줄 자리는 길동무처럼 늘 검정으로 채운다
+        final FrameLayout outer = new FrameLayout(this);
+        outer.setBackgroundColor(0xFF000000);
+        final View sbStrip = new View(this);
+        sbStrip.setBackgroundColor(0xFF000000);
+        outer.addView(root, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        outer.addView(sbStrip, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, Gravity.TOP));
+        outer.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public WindowInsets onApplyWindowInsets(View v, WindowInsets in) {
+                root.setPadding(in.getSystemWindowInsetLeft(), in.getSystemWindowInsetTop(), in.getSystemWindowInsetRight(), in.getSystemWindowInsetBottom());
+                ViewGroup.LayoutParams lp = sbStrip.getLayoutParams();
+                if (lp.height != in.getSystemWindowInsetTop()) {
+                    lp.height = in.getSystemWindowInsetTop();
+                    sbStrip.setLayoutParams(lp);
+                }
+                return in;
+            }
+        });
+        setContentView(outer);
+    }
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/MainActivity.java ===
+@@ old
+    private void applyBars() {
+        Window w = getWindow();
+        w.setStatusBarColor(Pal.c(Pal.BG));
+        w.setNavigationBarColor(Pal.c(Pal.NAV));
+        WindowInsetsControllerCompat ic = WindowCompat.getInsetsController(w, w.getDecorView());
+        ic.setAppearanceLightStatusBars(!Pal.dark);
+        ic.setAppearanceLightNavigationBars(!Pal.dark);
+    }
+@@ new
+    private void applyBars() {
+        Window w = getWindow();
+        w.setStatusBarColor(0xFF000000);                       // 상태 표시줄은 길동무처럼 늘 검정 + 흰 아이콘
+        w.setNavigationBarColor(Pal.c(Pal.NAV));
+        WindowInsetsControllerCompat ic = WindowCompat.getInsetsController(w, w.getDecorView());
+        ic.setAppearanceLightStatusBars(false);
+        ic.setAppearanceLightNavigationBars(!Pal.dark);
+    }
+=== EDIT: app/kids-patch/swaps.txt ===
+@@ old
+mqp.setTextSize(20.25f * dpr);
+@@ new
+mqp.setTextSize(13.5f * dpr);
+=== EDIT: app/src/main/java/com/dullyyj/kids/TabBar.java ===
+@@ old
+Math.round(dp(58f))
+@@ new
+Math.round(dp(56f))
+=== EDIT: app/src/main/java/com/dullyyj/kids/TabBar.java ===
+@@ old
+Math.max(1f, dp(0.6f))
+@@ new
+Math.max(1f, dp(1f))
+=== EDIT: app/src/main/java/com/dullyyj/kids/TabBar.java ===
+@@ old
+ic = dp(24f);
+@@ new
+ic = dp(20f);
+=== EDIT: app/src/main/java/com/dullyyj/kids/TabBar.java ===
+@@ old
+c.translate(cx - ic / 2f, dp(8f));
+@@ new
+c.translate(cx - ic / 2f, dp(9f));
+=== EDIT: app/src/main/java/com/dullyyj/kids/TabBar.java ===
+@@ old
+            p.setTextSize(dp(10.5f));
+            p.setFakeBoldText(on);
+            c.drawText(labels.get(i), cx, dp(48f), p);
+@@ new
+            p.setTextSize(dp(10f));
+            p.setFakeBoldText(on);
+            Paint.FontMetrics fm = p.getFontMetrics();
+            c.drawText(labels.get(i), cx, dp(40f) - (fm.ascent + fm.descent) / 2f, p);
