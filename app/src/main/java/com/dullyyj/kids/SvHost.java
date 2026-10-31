@@ -111,7 +111,7 @@ final class SvHost {
         }
         if (v.isEmpty()) return false;
         if (v.equals("mp.start") || v.equals("mp.dest") || v.equals("mp.tt")) return true;
-        return "cat".equals(a) && (v.startsWith("m:") || v.startsWith("r:"));
+        return "cat".equals(a) && v.startsWith("r:");
     }
 
     private static boolean container(String key) {
