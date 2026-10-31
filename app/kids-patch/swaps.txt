@@ -1,4 +1,9 @@
 SceneCore.java|||SceneActs.register(this);|||SceneActs.register(this); KidsActs.register(this);
+SceneArt.java|||if (L.place != null && !"street".equals(L.place)) return ScenePlaces.build(root, L, g, dpr, season, dark);|||if (KidsRooms.is(L)) return KidsRooms.build(root, L, g, dpr, season, dark); if (L.place != null && !"street".equals(L.place)) return ScenePlaces.build(root, L, g, dpr, season, dark);
+SceneCore.java|||void drawSkyFx(SceneCv c, double tt) {|||void drawSkyFx(SceneCv c, double tt) { if (KidsRooms.is(L)) return;
+SceneCore.java|||void drawWxFront(SceneCv c, double tt) {|||void drawWxFront(SceneCv c, double tt) { if (KidsRooms.is(L)) return;
+SceneCore.java|||SceneFx.ambient(this, c, t);|||if (!KidsRooms.is(L)) SceneFx.ambient(this, c, t);
+SceneCore.java|||SceneFx.cold(this, c); SceneFx.sun(this, c, t); SceneFx.heat(this, c, t); SceneFx.wind(this, c, t);|||if (!KidsRooms.is(L)) { SceneFx.cold(this, c); SceneFx.sun(this, c, t); SceneFx.heat(this, c, t); SceneFx.wind(this, c, t); }
 SceneCore.java|||double kk = PH < 150 ? Math.max(.55, PH / 150) : clamp(Math.min(PH / 190, PW / 200), 1, 2);|||double kk = KidsActs.ZOOM * (PH < 150 ? Math.max(.55, PH / 150) : clamp(Math.min(PH / 190, PW / 200), 1, 2));
 SceneCore.java|||Actor a = hitActor(xdp / k, ydp / k); if (a == null) return false;|||if (KidsActs.menuDown(this, xdp / k, ydp / k)) return true; Actor a = hitActor(xdp / k, ydp / k); if (a == null) return false; KidsActs.poke(this, a);
 SceneCore.java|||public void up() { PEND = null; if (DRAG != null) release(); }|||public void up() { if (PEND != null) KidsActs.tap(this, PEND.a); PEND = null; if (DRAG != null) release(); }

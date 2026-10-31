@@ -59,6 +59,7 @@ tasks.register('kidsScenePatch') {
         }
         if (!done) tg.each { k, v -> new File(dir, k).setText(v, 'UTF-8') }
         new File(dir, 'KidsActs.java').setText(file('kids-patch/KidsActs3.java.txt').getText('UTF-8'), 'UTF-8')
+new File(dir, 'KidsRooms.java').setText(file('kids-patch/KidsRooms.java.txt').getText('UTF-8'), 'UTF-8')
     }
 }
 tasks.configureEach { t ->

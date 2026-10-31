@@ -67,6 +67,8 @@ final class MapPane extends LinearLayout {
     private boolean busShown = false, busTicking = false;
     private final LinkedHashMap<String, String> busRes = new LinkedHashMap<String, String>();
     private final ArrayList<String> lastStops = new ArrayList<String>();
+private final LinkedHashMap<String, ScreenCore.Screen> headCache = new LinkedHashMap<String, ScreenCore.Screen>();
+private int slideGen = 0;
     private String favRaw = null, alRaw = null;
     private int favMax = 12, aliasMax = 10;
     private String favAdd = "", favRm = "", favFull = "";
@@ -113,7 +115,7 @@ final class MapPane extends LinearLayout {
             @Override
             public boolean onSwipe(ScreenView v, int dir) {
                 if (dir == -1 && "bus".equals(mode)) {
-                    v.slideNext(dir);
+                    // 옆으로 밀리는 그림은 setMode 가 그린다
                     setMode("subway");
                 }
                 return true;
@@ -146,7 +148,12 @@ final class MapPane extends LinearLayout {
         applyTheme();
     }
 
-    void setTheme(String t) {
+    /** 홈에서 미리 불러 둔다 — 지도 자료만 읽어 두고 화면은 보이지 않는다. */
+void warm() {
+if (data == null && !dataLoading) loadData();
+}
+
+void setTheme(String t) {
         String nt = "dark".equals(t) ? "dark" : "pastel";
         if (nt.equals(theme)) return;
         theme = nt;
@@ -177,7 +184,68 @@ final class MapPane extends LinearLayout {
     }
 
     /** 🚌 버스 / 🚇 지하철 바꾸기. */
-    private void setMode(String m) {
+    private String headKey() {
+return ("bus".equals(mode) ? "b" : "s") + "|" + flt + "|" + theme;
+}
+
+/** 길동무처럼 버스 ↔ 지하철을 옆으로 밀며 바꾼다. 머리 화면과 버스 화면은 이전 것을 그대로 두었다가 곧바로 보여 주고, 새 자료는 뒤에서 조용히 받는다. */
+private void setMode(String m) {
+if (m.equals(mode)) return;
+closeSheet();
+final boolean b = "bus".equals(m);
+View outV;
+if (b) outV = (metro != null && metro.getVisibility() == View.VISIBLE) ? (View) metro : (View) note;
+else outV = bus.getVisibility() == View.VISIBLE ? (View) bus : (View) note;
+mode = m;
+headBox.setVisibility(View.VISIBLE);
+ScreenCore.Screen hc = headCache.get(headKey());
+if (hc != null) {
+head.setScreen(hc, true);
+headLoaded = true;
+} else {
+headLoaded = false;
+loadHead(null, null, null);
+}
+View inV;
+if (b) {
+busSel = -1;
+busAt = 0L;
+loadBus(false);
+inV = busShown && Core.engine.hasFix() ? (View) bus : (View) note;
+busTickStart();
+} else {
+busSeq++;
+if (data == null) note.setText("지도를 불러오는 중이에요…");
+inV = metro != null ? (View) metro : (View) note;
+onShow();
+}
+slideTo(inV, outV, b ? 1 : -1);
+}
+
+private void slideTo(final View in, final View out, int dir) {
+final int gen = ++slideGen;
+final float w = Math.max(1f, (float) holder.getWidth());
+android.view.animation.PathInterpolator ip = new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f);
+in.animate().cancel();
+out.animate().cancel();
+in.setVisibility(View.VISIBLE);
+if (in == out) {
+in.setTranslationX(0f);
+return;
+}
+in.setTranslationX(dir * w);
+in.animate().translationX(0f).setDuration(260L).setInterpolator(ip).start();
+out.animate().translationX(-dir * w).setDuration(260L).setInterpolator(ip).withEndAction(new Runnable() {
+@Override
+public void run() {
+if (gen != slideGen) return;
+out.setVisibility(out == metro ? View.INVISIBLE : View.GONE);
+out.setTranslationX(0f);
+}
+}).start();
+}
+
+private void setModeOld(String m) {
         if (m.equals(mode)) return;
         closeSheet();
         mode = m;
@@ -307,6 +375,7 @@ final class MapPane extends LinearLayout {
     private void loadHead(String q, double[] gps, final Done done) {
         final String body = req("h", q, gps);
         final int seq = ++headSeq;
+final String hk = (q == null || q.isEmpty()) ? headKey() : "";
         Wire.EX.execute(new Runnable() {
             @Override
             public void run() {
@@ -346,7 +415,8 @@ final class MapPane extends LinearLayout {
                     public void run() {
                         if (seq != headSeq) return;
                         if (sc != null) {
-                            head.setScreen(sc, true);
+                            if (!hk.isEmpty()) headCache.put(hk, sc);
+head.setScreen(sc, true);
                             headLoaded = true;
                         }
                         if (done != null) done.run(ff, nn);

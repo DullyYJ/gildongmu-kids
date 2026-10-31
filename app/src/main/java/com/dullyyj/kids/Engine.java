@@ -515,7 +515,7 @@ final class Engine {
         if ("chat".equals(tab)) sb.append('|').append(remGet("chat").hashCode());
         if ("settings".equals(tab)) sb.append('|').append(lastFixT / 60000L);
         if ("quest".equals(tab)) sb.append('|').append(questTab).append(remGet("quest:" + questTab).hashCode());
-        if ("home".equals(tab)) sb.append('|').append(sceneGotT / 1000L).append(Double.isNaN(lat) ? 'n' : 'y').append(viewDp).append(Poke.shown());
+        if ("home".equals(tab)) sb.append('|').append(sceneGotT / 1000L).append(Double.isNaN(lat) ? 'n' : 'y').append(viewDp).append(Poke.shown()).append(String.valueOf(sceneRoom(lastNow)));
         for (int i = 0; i < fs.size(); i++) {
             F f = fs.get(i);
             sb.append('|').append(moodOf(f, lastNow)).append(',').append((int) (f.hunger / 5)).append(',')
@@ -1570,9 +1570,59 @@ final class Engine {
     }
 
     /** 장면은 서버가 준 값 그대로(친구 모두가 늘 나온다). 친구들의 지금 상태(공부·잠·밥·응가…)는 Poke 로 따로 건네서 그림이 이어진다 — 글이 바뀌어도 장면이 다시 만들어지지 않는다. */
-    private String sceneOut(long now) {
+    /** 밤 방(0~6) 번호. 누군가 밤 일과로 자는 중이면 그날 밤의 방, 아니면 -1. 자정을 넘겨도 같은 밤은 같은 방이다. */
+private int roomOf(long now) {
+boolean night = false;
+for (int i = 0; i < fs.size(); i++) {
+if (wakeAt(fs.get(i), now) != 0L) {
+night = true;
+break;
+}
+}
+if (!night) return -1;
+long loc = now + tzOf(now), day = loc / DAY_MS;
+if ((int) ((loc % DAY_MS) / 60000L) < SLEEP_AT_MIN) day--;
+return (int) (((day % 7L) + 7L) % 7L);
+}
+
+private boolean napping(long now) {
+for (int i = 0; i < fs.size(); i++) {
+F f = fs.get(i);
+if ("sleep".equals(f.tm) && f.tmUntil > now) return true;
+}
+return false;
+}
+
+private String holdPlace = "";
+
+private String basePlace() {
+try {
+JSONObject lk = new JSONObject(sceneJson).optJSONObject("look");
+return lk == null ? "" : lk.optString("place", "");
+} catch (Exception e) {
+return "";
+}
+}
+
+/** 잠자는 동안 장면의 장소를 정한다. 밤에는 집 안 방, 낮잠 중에는 지금 장소를 붙잡아 둔다 — 장소가 바뀌면 친구들이 걸어 나가며 잠이 깨기 때문이다. 해당 없으면 null(서버 장소 그대로). */
+private String sceneRoom(long now) {
+int r = roomOf(now);
+if (r >= 0) {
+holdPlace = "";
+return "kroom" + r;
+}
+if (napping(now)) {
+if (holdPlace.isEmpty()) holdPlace = basePlace();
+return holdPlace.isEmpty() ? null : holdPlace;
+}
+holdPlace = "";
+return null;
+}
+
+private String sceneOut(long now) {
         if (sceneJson.isEmpty()) return "";
-        String key = String.valueOf(sceneGotT);
+        final String rmP = sceneRoom(now);
+String key = sceneGotT + "|" + (rmP == null ? "" : rmP);
         if (key.equals(drawKey)) return drawJson;
         String out = sceneJson;
         try {
@@ -1580,6 +1630,14 @@ final class Engine {
             JSONArray c = new JSONArray();
             for (int i = 0; i < CAST.length; i++) c.put(CAST[i][0]);
             o.put("cast", c);
+if (rmP != null) {
+JSONObject lk = o.optJSONObject("look");
+if (lk == null) {
+lk = new JSONObject();
+o.put("look", lk);
+}
+lk.put("place", rmP);
+}
             out = o.toString();
         } catch (Exception e) {
             out = sceneJson;

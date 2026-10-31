@@ -67,7 +67,46 @@ final class Renderer {
         scroll = new ScrollView(c) {
             private float x0, y0;
 
-            private boolean swiped(android.view.MotionEvent e) {
+            private boolean drag;
+
+/** 퀘스트처럼 좌우로 넘기는 칸이면 손가락을 따라 아래 박스가 움직이고, 충분히 밀면 다음 칸으로 넘어간다. */
+private boolean swiped(android.view.MotionEvent e) {
+if (swipeActs == null || swipeActs.size() < 2) return swipedOld(e);
+int act = e.getActionMasked();
+if (act == android.view.MotionEvent.ACTION_DOWN) {
+x0 = e.getX();
+y0 = e.getY();
+drag = false;
+return false;
+}
+if (Float.isNaN(x0)) return false;
+float dx = e.getX() - x0, dy = e.getY() - y0;
+if (act == android.view.MotionEvent.ACTION_MOVE) {
+if (!drag && Math.abs(dx) > Ui.dp(getContext(), 24f) && Math.abs(dx) > Math.abs(dy) * 1.8f) drag = true;
+if (drag) {
+LinearLayout tl = tailHold;
+if (tl != null) tl.setTranslationX(dx * 0.45f);
+return true;
+}
+return false;
+}
+if (act == android.view.MotionEvent.ACTION_UP || act == android.view.MotionEvent.ACTION_CANCEL) {
+boolean was = drag;
+drag = false;
+if (!was) return false;
+x0 = Float.NaN;
+if (act == android.view.MotionEvent.ACTION_UP && Math.abs(dx) > Ui.dp(getContext(), 72f)) {
+swipeBy(dx < 0 ? 1 : -1);
+} else {
+LinearLayout tl = tailHold;
+if (tl != null) tl.animate().translationX(0f).setDuration(180L).start();
+}
+return true;
+}
+return false;
+}
+
+private boolean swipedOld(android.view.MotionEvent e) {
                 int act = e.getActionMasked();
                 if (act == android.view.MotionEvent.ACTION_DOWN) {
                     x0 = e.getX();
@@ -127,7 +166,69 @@ final class Renderer {
     private View segView;
     private long slideAt;
 
-    private void swipeBy(int dir) {
+    private LinearLayout tailHold;
+private boolean warmed = false;
+
+/** 칩 줄 아래 칸들을 한 덩어리로 묶는다. 칸이 바뀌면 옛 덩어리는 밀려 나가고 새 덩어리가 밀려 들어온다(칩 줄은 그대로 있다). */
+private int tailBuild(int segAt) {
+LinearLayout old = tailHold;
+tailHold = null;
+if (segAt < 0 || segAt > col.getChildCount()) return segAt;
+final LinearLayout tail = new LinearLayout(ctx);
+tail.setOrientation(LinearLayout.VERTICAL);
+int n = col.getChildCount();
+for (int i = segAt; i < n; i++) {
+View c = col.getChildAt(segAt);
+col.removeViewAt(segAt);
+tail.addView(c);
+}
+final FrameLayout fr = new FrameLayout(ctx);
+fr.addView(tail, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+col.addView(fr, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+tailHold = tail;
+if (old != null && slideDir != 0 && android.os.SystemClock.uptimeMillis() - slideAt < 900L) {
+final LinearLayout oldF = old;
+final int d = slideDir;
+if (old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
+float w = Math.max(1f, ctx.getResources().getDisplayMetrics().widthPixels - 2f * Ui.dpi(ctx, 16));
+float from = old.getTranslationX();
+android.view.animation.PathInterpolator ip = new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f);
+fr.addView(old, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+old.setAlpha(1f);
+old.setTranslationX(from);
+old.animate().translationX(-d * w).alpha(0f).setDuration(260L).setInterpolator(ip).withEndAction(new Runnable() {
+@Override
+public void run() {
+fr.removeView(oldF);
+}
+}).start();
+tail.setTranslationX(d * w);
+tail.animate().translationX(0f).setDuration(260L).setInterpolator(ip).start();
+}
+return segAt;
+}
+
+/** 홈이 뜬 뒤 잠깐 있다가 노선도 화면과 지도 자료를 미리 만들어 둔다 — 노선도 탭을 처음 열 때 멈칫하지 않도록. */
+private void warmMap() {
+if (warmed || mapPane != null) return;
+warmed = true;
+host.postDelayed(new Runnable() {
+@Override
+public void run() {
+if (mapPane != null) return;
+try {
+mapPane = new MapPane(ctx);
+mapPane.setVisibility(View.GONE);
+host.addView(mapPane, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+mapPane.warm();
+} catch (Throwable t) {
+mapPane = null;
+}
+}
+}, 2500L);
+}
+
+private void swipeBy(int dir) {
         java.util.ArrayList<String> a = swipeActs;
         if (a == null || a.size() < 2) return;
         int n = a.size();
@@ -282,6 +383,7 @@ final class Renderer {
         if (mapPane != null) mapPane.setVisibility(View.GONE);
         if ("sv".equals(mode)) {
             showHome(pre);
+warmMap();
             return;
         }
         if (home != null) home.setVisibility(View.GONE);
@@ -310,7 +412,8 @@ final class Renderer {
                 }
             }
         }
-        if (slideDir != 0 && segAt >= 0 && android.os.SystemClock.uptimeMillis() - slideAt < 900L) {
+        segAt = tailBuild(segAt);
+if (false) {
             for (int i = segAt; i < col.getChildCount(); i++) {
                 View c = col.getChildAt(i);
                 c.setAlpha(0f);
@@ -378,7 +481,12 @@ final class Renderer {
             av.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dpi(ctx, 170), 6));
             return av;
         }
-        if ("chips".equals(t)) return chips(b);
+        if ("stars".equals(t)) {
+View sv = QuestStars.make(ctx, b);
+sv.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8));
+return sv;
+}
+if ("chips".equals(t)) return chips(b);
         if ("btns".equals(t)) return btns(b);
         if ("stat".equals(t)) return stat(b);
         if ("switch".equals(t)) return toggleRow(b);
@@ -526,7 +634,7 @@ final class Renderer {
         final View thumb = new View(ctx);
         thumb.setBackground(Ui.box(ctx, Pal.c(Pal.GOLD), 20, 0));
         final int inset = Ui.dpi(ctx, 3);
-        FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT);
+        FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(0, 1);
         tl.setMargins(inset, inset, 0, inset);
         fr.addView(thumb, tl);
         LinearLayout row = new LinearLayout(ctx);
@@ -567,6 +675,7 @@ final class Renderer {
                 int cw = (w - 2 * inset) / n;
                 FrameLayout.LayoutParams lp2 = (FrameLayout.LayoutParams) thumb.getLayoutParams();
                 lp2.width = cw;
+lp2.height = Math.max(1, bt - t - 2 * inset);
                 thumb.setLayoutParams(lp2);
                 if (anim) {
                     thumb.setTranslationX(prev * cw);
