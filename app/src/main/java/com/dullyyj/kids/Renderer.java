@@ -146,7 +146,7 @@ final class Renderer {
             float r = Ui.dpi(ctx, 24);
             g.setCornerRadius(r);
             box.setBackground(g);
-            final int capPx = Math.round(ctx.getResources().getDisplayMetrics().heightPixels * 0.78f);
+            final int capPx = Math.round(ctx.getResources().getDisplayMetrics().heightPixels * (dismissible ? 0.8f : 0.78f));
             sheetScroll = new ScrollView(ctx) {
                 @Override
                 protected void onMeasure(int wSpec, int hSpec) {
@@ -185,7 +185,12 @@ final class Renderer {
             Window w = d.getWindow();
             int wpx = ctx.getResources().getDisplayMetrics().widthPixels - 2 * Ui.dpi(ctx, 20);
             w.setLayout(wpx, ViewGroup.LayoutParams.WRAP_CONTENT);
-            w.setGravity(Gravity.CENTER);
+            w.setGravity(dismissible ? Gravity.BOTTOM : Gravity.CENTER);
+            if (dismissible) {
+                WindowManager.LayoutParams wl = w.getAttributes();
+                wl.y = Ui.dpi(ctx, 72);
+                w.setAttributes(wl);
+            }
             w.setBackgroundDrawable(new ColorDrawable(0));
             w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             w.setDimAmount(0.45f);
@@ -338,10 +343,14 @@ final class Renderer {
                 JSONObject x = k.optJSONObject(i);
                 if (x == null) continue;
                 View v = block(x);
-                if (v != null) r.addView(v);
+                if (v == null) continue;
+                if (v instanceof AvatarView) r.addView(v, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+                else r.addView(v);
             }
         }
-        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 12));
+        int hp = (int) b.optDouble("hp", 0);
+        int hpx = hp > 0 ? ctx.getResources().getDisplayMetrics().heightPixels * hp / 100 : ViewGroup.LayoutParams.WRAP_CONTENT;
+        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, hpx, 12));
         return r;
     }
 

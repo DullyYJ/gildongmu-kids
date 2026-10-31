@@ -108,7 +108,7 @@ final class AvatarView extends View {
     protected void onDraw(Canvas cv) {
         super.onDraw(cv);
         float w = getWidth(), h = getHeight();
-        float room = h - 40f * dpr;
+        float room = Math.min(h - 40f * dpr, w * 0.8f);
         Bitmap s = sheet;
         if (s != null && room > 0f) {
             int cell = s.getWidth() / 4;

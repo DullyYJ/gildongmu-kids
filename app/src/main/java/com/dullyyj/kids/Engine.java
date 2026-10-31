@@ -697,7 +697,7 @@ final class Engine {
         JSONObject c = b("chips");
         put(c, "items", chips);
         k1.put(c);
-        JSONObject bx1 = b("box");
+        JSONObject bx1 = b("box", "hp", "25");
         put(bx1, "kids", k1);
         a.put(bx1);
         JSONArray k2 = new JSONArray();
@@ -713,7 +713,7 @@ final class Engine {
         put(tcs, "items", tc);
         k2.put(tcs);
         k2.put(b("card", "title", tname, "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
-        JSONObject bx2 = b("box");
+        JSONObject bx2 = b("box", "hp", "33");
         put(bx2, "kids", k2);
         a.put(bx2);
         a.put(b("gap", "h", "8"));
@@ -838,7 +838,7 @@ final class Engine {
             kids.put(tx(sb.toString(), 13, false, "sub", 5));
         }
         kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 11, false, "sub", 6));
-        body.put(nd("panel", "pad", pad(12, 0, 12, 10), "ip", pad(14, 12, 14, 8), "kids", kids));
+        body.put(nd("panel", "pad", pad(12, 0, 12, 14), "ip", pad(14, 12, 14, 8), "fillRest", true, "kids", kids));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);

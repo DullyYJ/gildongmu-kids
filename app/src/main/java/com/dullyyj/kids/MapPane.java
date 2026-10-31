@@ -167,6 +167,7 @@ final class MapPane extends LinearLayout {
     /** 노선도 탭이 보일 때마다 부른다 — 처음이면 자료와 머리 화면을 받아 온다. */
     void onShow() {
         if ("bus".equals(mode)) {
+            if (!headLoaded) loadHead(null, null, null);
             if (System.currentTimeMillis() - busAt > 20000L) loadBus(busAt > 0L);
             busTickStart();
             return;
@@ -181,13 +182,15 @@ final class MapPane extends LinearLayout {
         closeSheet();
         mode = m;
         boolean b = "bus".equals(m);
-        headBox.setVisibility(b ? View.GONE : View.VISIBLE);
+        headBox.setVisibility(View.VISIBLE);
         bus.setVisibility(b ? View.VISIBLE : View.GONE);
         if (metro != null) metro.setVisibility(b ? View.GONE : View.VISIBLE);
         note.setVisibility(View.GONE);
         if (b) {
             busSel = -1;
             busAt = 0L;
+            headLoaded = false;
+            loadHead(null, null, null);
             loadBus(false);
             busTickStart();
         } else {
@@ -282,7 +285,7 @@ final class MapPane extends LinearLayout {
         try {
             JSONObject f = new JSONObject();
             f.put("part", part);
-            f.put("mode", "subway");
+            f.put("mode", "bus".equals(mode) ? "bus" : "subway");
             f.put("reg", "seoul");
             f.put("flt", flt);
             f.put("th", theme);
