@@ -55,6 +55,33 @@ jobs:
           du -sh app/src/main/assets
           ls -la app/src/main/assets/chars3d
 
+      - name: Bundle Noto Sans KR for native screens
+        run: |
+          pip install --quiet fonttools
+          mkdir -p /tmp/fnt app/src/main/assets/fonts
+          curl -sS -L --retry 4 --retry-delay 5 -m 300 -o /tmp/fnt/v.ttf "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanskr/NotoSansKR%5Bwght%5D.ttf"
+          python3 - <<'PYEOF'
+          from fontTools.ttLib import TTFont
+          from fontTools.varLib import instancer
+          from fontTools import subset
+          uni = (list(range(0x20, 0x7f)) + list(range(0xa0, 0x100)) + list(range(0x2000, 0x2070)) + [0x20a9, 0x20ac] + list(range(0x2190, 0x2200))
+                 + list(range(0x2460, 0x2500)) + list(range(0x25a0, 0x2600)) + list(range(0x3000, 0x3040)) + list(range(0x3130, 0x3190))
+                 + list(range(0xac00, 0xd7a4)) + list(range(0xff00, 0xfff0)))
+          for name, w in (("Regular", 400), ("Bold", 700)):
+              f = instancer.instantiateVariableFont(TTFont("/tmp/fnt/v.ttf"), {"wght": w}, inplace=False)
+              f.save("/tmp/fnt/i.ttf")
+              o = subset.Options(); o.layout_features = ["*"]; o.notdef_outline = True; o.hinting = False; o.name_IDs = [1, 2, 3, 4, 6]
+              ss = subset.Subsetter(o); ss.populate(unicodes=uni)
+              g = TTFont("/tmp/fnt/i.ttf"); ss.subset(g)
+              out = "app/src/main/assets/fonts/NotoSansKR-" + name + ".ttf"
+              g.save(out)
+              c = g.getBestCmap()
+              assert 0xac00 in c and "fvar" not in g, "font build failed: " + name
+              import os
+              print(name, os.path.getsize(out), "bytes", len(c), "glyph-codes")
+          PYEOF
+          ls -la app/src/main/assets/fonts
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
