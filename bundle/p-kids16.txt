@@ -1,0 +1,96 @@
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+        body.put(nd("panel", "pad", pad(12, 0, 12, 10), "ip", pad(14, 12, 14, 8), "kids", kids));
+
+@@ new
+        body.put(nd("panel", "pad", pad(12, 0, 12, 14), "ip", pad(14, 12, 14, 8), "fillRest", true, "kids", kids));
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+JSONObject bx1 = b("box");
+@@ new
+JSONObject bx1 = b("box", "hp", "25");
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+JSONObject bx2 = b("box");
+@@ new
+JSONObject bx2 = b("box", "hp", "33");
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+            f.put("part", part);
+            f.put("mode", "subway");
+@@ new
+            f.put("part", part);
+            f.put("mode", "bus".equals(mode) ? "bus" : "subway");
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+        headBox.setVisibility(b ? View.GONE : View.VISIBLE);
+
+@@ new
+        headBox.setVisibility(View.VISIBLE);
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+            loadBus(false);
+            busTickStart();
+        } else {
+@@ new
+            headLoaded = false;
+            loadHead(null, null, null);
+            loadBus(false);
+            busTickStart();
+        } else {
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+            if (System.currentTimeMillis() - busAt > 20000L) loadBus(busAt > 0L);
+            busTickStart();
+            return;
+@@ new
+            if (!headLoaded) loadHead(null, null, null);
+            if (System.currentTimeMillis() - busAt > 20000L) loadBus(busAt > 0L);
+            busTickStart();
+            return;
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+heightPixels * 0.78f);
+@@ new
+heightPixels * (dismissible ? 0.8f : 0.78f));
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+            w.setGravity(Gravity.CENTER);
+
+@@ new
+            w.setGravity(dismissible ? Gravity.BOTTOM : Gravity.CENTER);
+            if (dismissible) {
+                WindowManager.LayoutParams wl = w.getAttributes();
+                wl.y = Ui.dpi(ctx, 72);
+                w.setAttributes(wl);
+            }
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+                if (v != null) r.addView(v);
+            }
+        }
+        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 12));
+
+@@ new
+                if (v == null) continue;
+                if (v instanceof AvatarView) r.addView(v, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+                else r.addView(v);
+            }
+        }
+        int hp = (int) b.optDouble("hp", 0);
+        int hpx = hp > 0 ? ctx.getResources().getDisplayMetrics().heightPixels * hp / 100 : ViewGroup.LayoutParams.WRAP_CONTENT;
+        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, hpx, 12));
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/AvatarView.java ===
+@@ old
+float room = h - 40f * dpr;
+@@ new
+float room = Math.min(h - 40f * dpr, w * 0.8f);
+=== EDIT: HANDOFF.md ===
+@@ old
+- 노선도: 길동무와 같은 화면 그리개로 버스/지하철.
+@@ new
+- 노선도: 길동무와 같은 화면 그리개로 버스/지하철(상단 버스/지하철 탭은 두 모드 모두에서 보인다).
