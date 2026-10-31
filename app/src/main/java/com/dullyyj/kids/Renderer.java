@@ -64,7 +64,37 @@ final class Renderer {
         this.ctx = c;
         this.cb = cb;
         host = new FrameLayout(c);
-        scroll = new ScrollView(c);
+        scroll = new ScrollView(c) {
+            private float x0, y0;
+
+            private boolean swiped(android.view.MotionEvent e) {
+                int act = e.getActionMasked();
+                if (act == android.view.MotionEvent.ACTION_DOWN) {
+                    x0 = e.getX();
+                    y0 = e.getY();
+                } else if (act == android.view.MotionEvent.ACTION_UP && swipeActs != null && swipeActs.size() > 1) {
+                    float dx = e.getX() - x0, dy = e.getY() - y0;
+                    if (Math.abs(dx) > Ui.dp(getContext(), 72f) && Math.abs(dx) > Math.abs(dy) * 1.8f) {
+                        x0 = Float.NaN;
+                        swipeBy(dx < 0 ? 1 : -1);
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            @Override
+            public boolean onInterceptTouchEvent(android.view.MotionEvent e) {
+                if (swiped(e)) return true;
+                return super.onInterceptTouchEvent(e);
+            }
+
+            @Override
+            public boolean onTouchEvent(android.view.MotionEvent e) {
+                if (swiped(e)) return true;
+                return super.onTouchEvent(e);
+            }
+        };
         scroll.setVerticalScrollBarEnabled(false);
         col = new LinearLayout(c);
         col.setOrientation(LinearLayout.VERTICAL);
@@ -87,6 +117,22 @@ final class Renderer {
 
     View view() {
         return host;
+    }
+
+    // 좌우로 밀어 넘기는 칸(퀘스트): 칩 줄이 loop 를 켜 두면 그 행동 목록을 돌려 쓴다.
+    private java.util.ArrayList<String> swipeActs;
+    private int swipeCur;
+    private int slideDir;
+    private long slideAt;
+
+    private void swipeBy(int dir) {
+        java.util.ArrayList<String> a = swipeActs;
+        if (a == null || a.size() < 2) return;
+        int n = a.size();
+        int to = ((swipeCur + dir) % n + n) % n;
+        slideDir = dir;
+        slideAt = android.os.SystemClock.uptimeMillis();
+        cb.call(a.get(to), "");
     }
 
     void setRefresh(Runnable r) {
@@ -247,6 +293,7 @@ final class Renderer {
         lastHead = head;
         final int sy = same ? scroll.getScrollY() : 0;
         final boolean bottom = "1".equals(o.optString("bottom"));
+        swipeActs = null;
         col.removeAllViews();
         if (bl != null) {
             for (int i = 0; i < bl.length(); i++) {
@@ -256,6 +303,16 @@ final class Renderer {
                 if (v != null) col.addView(v);
             }
         }
+        col.animate().cancel();
+        if (slideDir != 0 && android.os.SystemClock.uptimeMillis() - slideAt < 900L) {
+            col.setAlpha(0f);
+            col.setTranslationX(slideDir * Ui.dp(ctx, 48f));
+            col.animate().alpha(1f).translationX(0f).setDuration(240L).setInterpolator(new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f)).start();
+        } else {
+            col.setAlpha(1f);
+            col.setTranslationX(0f);
+        }
+        slideDir = 0;
         scroll.post(new Runnable() {
             @Override
             public void run() {
@@ -423,7 +480,44 @@ final class Renderer {
         return v;
     }
 
+    /** 칸 가득 같은 폭으로 나란히 놓인 분류 칩(눌러도 옆으로 밀어도 바뀐다). */
+    private View segs(JSONObject b, JSONArray a) {
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final java.util.ArrayList<String> acts = new java.util.ArrayList<String>();
+        int cur = 0;
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject it = a.optJSONObject(i);
+            if (it == null) continue;
+            boolean on = "1".equals(it.optString("on"));
+            if (on) cur = acts.size();
+            TextView p = pill(it.optString("label"), on);
+            final String act = it.optString("act");
+            final int mine = acts.size();
+            acts.add(act);
+            p.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    slideDir = mine > swipeCur ? 1 : (mine < swipeCur ? -1 : 0);
+                    slideAt = android.os.SystemClock.uptimeMillis();
+                    cb.call(act, "");
+                }
+            });
+            LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i > 0) pl.leftMargin = Ui.dpi(ctx, 8);
+            row.addView(p, pl);
+        }
+        if ("1".equals(b.optString("loop"))) {
+            swipeActs = acts;
+            swipeCur = cur;
+        }
+        row.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 10));
+        return row;
+    }
+
     private View chips(JSONObject b) {
+        JSONArray eq = b.optJSONArray("items");
+        if ("1".equals(b.optString("eq")) && eq != null && eq.length() > 0) return segs(b, eq);
         HorizontalScrollView hs = new HorizontalScrollView(ctx);
         hs.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(ctx);
@@ -541,6 +635,7 @@ final class Renderer {
         et.setHintTextColor(Pal.c(Pal.SUB));
         et.setTextColor(Pal.c(Pal.TEXT));
         et.setTextSize(15f);
+        et.setTypeface(Ui.face(ctx, false));
         et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         et.setMaxLines(3);
         int pad = Ui.dpi(ctx, 12);

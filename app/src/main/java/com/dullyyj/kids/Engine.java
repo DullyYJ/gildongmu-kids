@@ -664,7 +664,7 @@ final class Engine {
         JSONArray chips = new JSONArray();
         chips.put(item("자녀 미션 " + nc, "quest.tab:c", kid ? "1" : "0"));
         chips.put(item("부모님 미션 " + np, "quest.tab:p", kid ? "0" : "1"));
-        JSONObject c = b("chips");
+        JSONObject c = b("chips", "eq", "1", "loop", "1");
         put(c, "items", chips);
         a.put(c);
         a.put(b("text", "text", kid ? "부모님이 길동무 앱에서 보내 주신 미션이에요. 해냈으면 눌러서 알려요." : "내가 부모님께 보내는 미션이에요. 부모님이 해내면 여기에 표시돼요.", "sub", "1"));

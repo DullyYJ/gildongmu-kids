@@ -25,12 +25,34 @@ final class Ui {
         return g;
     }
 
+    private static Typeface faceR, faceB;
+    private static boolean faceTried;
+
+    /** 길동무와 같은 Noto Sans KR(빌드 때 assets/fonts 에 넣는다). 없으면 기기 기본 글꼴. */
+    static synchronized Typeface face(Context c, boolean bold) {
+        if (!faceTried) {
+            faceTried = true;
+            try {
+                faceR = Typeface.createFromAsset(c.getAssets(), "fonts/NotoSansKR-Regular.ttf");
+            } catch (Throwable t) {
+                faceR = null;
+            }
+            try {
+                faceB = Typeface.createFromAsset(c.getAssets(), "fonts/NotoSansKR-Bold.ttf");
+            } catch (Throwable t) {
+                faceB = null;
+            }
+        }
+        Typeface f = bold ? faceB : faceR;
+        return f != null ? f : (bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+    }
+
     static TextView text(Context c, String s, float sp, int color, boolean bold) {
         TextView t = new TextView(c);
         t.setText(s);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         t.setTextColor(color);
-        t.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        t.setTypeface(face(c, bold));
         t.setLineSpacing(0f, 1.15f);
         return t;
     }

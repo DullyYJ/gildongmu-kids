@@ -44,7 +44,7 @@ final class AvatarView extends View {
         label = name == null ? "" : name;
         dpr = c.getResources().getDisplayMetrics().density;
         tp.setTextAlign(Paint.Align.CENTER);
-        tp.setFakeBoldText(true);
+        tp.setTypeface(Ui.face(c, true));
         tp.setTextSize(15f * dpr);
         tp.setColor(Pal.c(Pal.TEXT));
     }

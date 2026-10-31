@@ -736,6 +736,7 @@ final class MapPane extends LinearLayout {
         String needLine = "", needDay = "", asked = "";
         ScreenView sv;
         Dialog d;
+        View dv;
 
         TtSheet(String n) {
             name = n;
@@ -760,7 +761,10 @@ final class MapPane extends LinearLayout {
                 w.setGravity(Gravity.BOTTOM);
                 w.setBackgroundDrawable(new ColorDrawable(pal[0]));
                 w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-                w.setWindowAnimations(android.R.style.Animation_InputMethod);
+                w.setWindowAnimations(0);
+                dv = w.getDecorView();
+                dv.setAlpha(0f);
+                dv.setTranslationY(hpx * 0.35f);
                 if (metro != null) metro.setCover(hpx);
                 final Dialog me = d;
                 d.setOnDismissListener(new DialogInterface.OnDismissListener() {
@@ -774,7 +778,12 @@ final class MapPane extends LinearLayout {
                 });
                 sheet = d;
                 d.show();
+                dv.animate().alpha(1f).translationY(0f).setDuration(340L).setInterpolator(new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f)).start();
             } catch (Throwable t) {
+                if (dv != null) {
+                    dv.setAlpha(1f);
+                    dv.setTranslationY(0f);
+                }
                 sheet = null;
                 tt = null;
                 return;
@@ -786,7 +795,7 @@ final class MapPane extends LinearLayout {
         void onAct(String v) {
             if (v == null) return;
             if ("mp.close".equals(v)) {
-                closeSheet();
+                closeSheetAnim();
             } else if ("mt.retry".equals(v)) {
                 state = "loading";
                 asked = "";
@@ -989,6 +998,30 @@ final class MapPane extends LinearLayout {
                 }
             });
         }
+    }
+
+    /** 길동무처럼 시간표 창을 아래로 부드럽게 내린 뒤 닫는다(160~240ms 감속). */
+    private void closeSheetAnim() {
+        final TtSheet ts = tt;
+        final Dialog dlg = sheet;
+        if (ts == null || dlg == null || ts.dv == null) {
+            closeSheet();
+            return;
+        }
+        tt = null;
+        ts.gen++;
+        sheet = null;
+        if (metro != null) metro.setCover(0f);
+        ts.dv.animate().alpha(0f).translationY(ts.dv.getHeight() * 0.35f).setDuration(200L).setInterpolator(new android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)).withEndAction(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    dlg.dismiss();
+                } catch (Throwable t) {
+                    // 이미 닫힘
+                }
+            }
+        }).start();
     }
 
     private void closeSheet() {

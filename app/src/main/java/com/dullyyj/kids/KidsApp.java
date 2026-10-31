@@ -7,5 +7,14 @@ public class KidsApp extends Application {
     public void onCreate() {
         super.onCreate();
         Core.init(this);
+        final android.content.Context app = this;
+        Thread th = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                com.dullyyj.subway.ScreenView.preloadFaces(app);
+            }
+        });
+        th.setDaemon(true);
+        th.start();
     }
 }
