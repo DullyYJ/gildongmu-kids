@@ -8,11 +8,15 @@ public final class Poke {
     private static volatile String study = ",";
     private static volatile String sleep = ",";
     private static volatile String states = ";";
+    private static volatile String shown = ",";
     private static volatile Sink sink;
     private Poke() {}
     public static void setStudy(String csv) { study = csv == null ? "," : csv; }
     public static void setSleep(String csv) { sleep = csv == null ? "," : csv; }
     public static void setSink(Sink s) { sink = s; }
+    /** 지금 화면에 나와 있는 친구들(장면 그리개가 놓고 엔진이 읽는다) — 형식 ",id,id,". */
+    public static void setShown(String csv) { shown = csv == null ? "," : csv; }
+    public static String shown() { return shown; }
     /** 형식 ";id:상태:응가수;id:상태:응가수;" */
     public static void setStates(String s) { states = s == null ? ";" : s; }
     private static String field(String id, int n) {

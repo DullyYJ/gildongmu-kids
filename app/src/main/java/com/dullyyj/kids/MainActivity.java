@@ -194,6 +194,7 @@ public class MainActivity extends Activity {
         android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
         en.setView(Math.round(renderer.view().getHeight() / dm.density));
         askScene(en, nowT);
+        askDong(en, nowT);
         final String theme = en.theme();
         final String tab = en.tab();
         int rev = en.rev();
@@ -232,13 +233,13 @@ public class MainActivity extends Activity {
             });
         }
         // 처음 켰을 때의 동의 창은 홈 화면 위로 올라온다(동의하면 내려간다)
-        final String sheet = cons ? "" : en.consentSheet();
+        final String sheet = cons ? en.dressSheet() : en.consentSheet();
         if (!sheet.equals(lastSheet)) {
             lastSheet = sheet;
             ui.post(new Runnable() {
                 @Override
                 public void run() {
-                    renderer.consent(sheet);
+                    renderer.consent(sheet, cons);
                 }
             });
         }
@@ -254,6 +255,22 @@ public class MainActivity extends Activity {
             public void run() {
                 String r = Wire.post("/scene", body, 8000);
                 if (r != null) Core.engine.setScene(r, System.currentTimeMillis());
+            }
+        });
+    }
+
+    /** 동네 이름은 길동무 서버에 좌표를 보내 받아 온다 — 뒤 스레드에서 받아 엔진에 넘길 뿐이다. */
+    private void askDong(final Engine en, long now) {
+        if (!en.dongDue(now)) return;
+        en.dongAsked(now);
+        final double[] w = en.where();
+        final String url = en.dongUrl();
+        if (w == null || url.isEmpty()) return;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                String r = Wire.get(url, 6000);
+                if (r != null) Core.engine.setDong(r, w[0], w[1]);
             }
         });
     }

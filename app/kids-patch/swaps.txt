@@ -11,7 +11,7 @@ SceneCore.java|||friends != null && !friends.isEmpty() && R.next() < .42 ?|||fri
 SceneCore.java|||int want = W < 260 ? 2 : 3, alive = 0;|||int want = KidsActs.want(this), alive = 0;
 SceneCore.java|||a2.x = left ? -a2.w * .9 : W + a2.w * .9;|||a2.x = KidsActs.startX(this, a2, left ? -a2.w * .9 : W + a2.w * .9);
 SceneCore.java|||a2.born = t; actors.add(a2); spawnAt = t + rnd(.9, 2.4);|||a2.born = t; a2.life = 1e9; actors.add(a2); spawnAt = t + .12;
-ScreenView.java|||mqp.setTextSize(13.5f * dpr);|||mqp.setTextSize(13.5f * dpr);
+ScreenView.java|||mqp.setTextSize(13.5f * dpr);|||mqp.setTextSize(20.25f * dpr);
 ScreenCore.java|||n.h = optNum(m, "h", 150f, 80f, 360f); n.r|||n.h = optNum(m, "h", 150f, 80f, 900f); n.r
 SceneCore.java|||if (!dup && SceneModel.D3.containsKey(cand)) { id = cand; break; }|||if (!dup && SceneModel.D3.containsKey(cand) && KidsActs.avail(this, cand)) { id = cand; break; }
 ScreenCore.java|||public Node fitNode;|||public Node fitNode; public Node fillNode;

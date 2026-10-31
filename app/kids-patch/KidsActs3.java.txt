@@ -218,7 +218,27 @@ final class KidsActs {
     }
 
     // ───────── 매 프레임: 엔진이 정한 상태대로 동작을 맞춘다 ─────────
+    static String shownLast = "";
+    /** 화면 안에 나와 있는 친구들을 엔진에 알린다(바뀔 때만). */
+    static void publishShown(SceneCore S) {
+        java.util.TreeSet<String> ids = new java.util.TreeSet<String>();
+        for (int i = 0; i < S.actors.size(); i++) {
+            Actor a = S.actors.get(i);
+            if (a.hero || a.dead || a.leaving || a.id == null) continue;
+            if (a.x < 0 || a.x > S.W) continue;
+            ids.add(a.id);
+        }
+        StringBuilder b = new StringBuilder(",");
+        for (String id : ids) b.append(id).append(',');
+        String s = b.toString();
+        if (!s.equals(shownLast)) {
+            shownLast = s;
+            Poke.setShown(s);
+        }
+    }
+
     static void tick(SceneCore S, double dt) {
+        publishShown(S);
         if (!S.running || S.tv >= 0 || S.pan >= 0 || S.hello != null || !"idle".equals(S.mode)) return;
         if (menuA != null && (S.t - menuT0 > MENU_TTL || !S.actors.contains(menuA) || menuA.held)) closeMenu();
         for (int i = 0; i < S.actors.size(); i++) {

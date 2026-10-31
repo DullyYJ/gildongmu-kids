@@ -104,7 +104,7 @@ final class Renderer {
 
     // ───────── 처음 켰을 때 홈 위로 올라오는 동의 창 ─────────
     /** 동의 창 내용(블록 목록 JSON)을 보여 준다. 빈 글이면 창을 내린다. */
-    void consent(String json) {
+    void consent(String json, boolean dismissible) {
         if (json == null || json.isEmpty()) {
             closeConsent();
             return;
@@ -115,7 +115,7 @@ final class Renderer {
         } catch (Exception e) {
             return;
         }
-        if (sheet == null) openConsent();
+        if (sheet == null) openConsent(dismissible);
         if (sheet == null || sheetCol == null) return;
         final int sy = sheetScroll.getScrollY();
         sheetCol.removeAllViews();
@@ -136,7 +136,7 @@ final class Renderer {
         });
     }
 
-    private void openConsent() {
+    private void openConsent(final boolean dismissible) {
         try {
             final Dialog d = new Dialog(ctx, android.R.style.Theme_Material_Light_Dialog_NoActionBar);
             LinearLayout box = new LinearLayout(ctx);
@@ -161,18 +161,27 @@ final class Renderer {
             sheetScroll.addView(sheetCol, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             box.addView(sheetScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             d.setContentView(box);
-            d.setCancelable(false);
-            d.setCanceledOnTouchOutside(false);
-            d.setOnKeyListener(new DialogInterface.OnKeyListener() {
-                @Override
-                public boolean onKey(DialogInterface di, int code, KeyEvent e) {
-                    if (code == KeyEvent.KEYCODE_BACK && e.getAction() == KeyEvent.ACTION_UP) {
-                        if (ctx instanceof Activity) ((Activity) ctx).finish();
-                        return true;
+            d.setCancelable(dismissible);
+            d.setCanceledOnTouchOutside(dismissible);
+            if (dismissible) {
+                d.setOnCancelListener(new DialogInterface.OnCancelListener() {
+                    @Override
+                    public void onCancel(DialogInterface di) {
+                        cb.call("dress.close", "");
                     }
-                    return false;
-                }
-            });
+                });
+            } else {
+                d.setOnKeyListener(new DialogInterface.OnKeyListener() {
+                    @Override
+                    public boolean onKey(DialogInterface di, int code, KeyEvent e) {
+                        if (code == KeyEvent.KEYCODE_BACK && e.getAction() == KeyEvent.ACTION_UP) {
+                            if (ctx instanceof Activity) ((Activity) ctx).finish();
+                            return true;
+                        }
+                        return false;
+                    }
+                });
+            }
             Window w = d.getWindow();
             int wpx = ctx.getResources().getDisplayMetrics().widthPixels - 2 * Ui.dpi(ctx, 20);
             w.setLayout(wpx, ViewGroup.LayoutParams.WRAP_CONTENT);

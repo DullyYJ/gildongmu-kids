@@ -102,6 +102,11 @@ final class Engine {
     private double lat = Double.NaN, lng = Double.NaN;
     private long fixT = 0L;
     private boolean sceneWx = false;
+    private String dong = "";
+    private double dongLa = Double.NaN, dongLo = Double.NaN;
+    private long dongTryAt = 0L;
+    private boolean dressOpen = false;
+    private String dressSel = "";
     private String drawKey = "", drawJson = "";
     private int viewDp = 0;                 // 화면 높이(dp) — 장면 높이를 고정으로 정할 때만 쓴다(줄 수가 바뀌어도 장면이 다시 만들어지지 않게)
 
@@ -489,7 +494,7 @@ final class Engine {
                 .append(store.get("cp", "0")).append(store.get("cc", "0")).append(loc ? 1 : 0)
                 .append('|').append(sel).append('|').append(pairCode).append('|').append(chat.length());
         if ("settings".equals(tab)) sb.append('|').append(lastFixT / 60000L);
-        if ("home".equals(tab)) sb.append('|').append(sceneGotT / 1000L).append(Double.isNaN(lat) ? 'n' : 'y').append(viewDp);
+        if ("home".equals(tab)) sb.append('|').append(sceneGotT / 1000L).append(Double.isNaN(lat) ? 'n' : 'y').append(viewDp).append(Poke.shown());
         for (int i = 0; i < fs.size(); i++) {
             F f = fs.get(i);
             sb.append('|').append(moodOf(f, lastNow)).append(',').append((int) (f.hunger / 5)).append(',')
@@ -643,6 +648,78 @@ final class Engine {
         return wrap("scroll", a);
     }
 
+    /** 홈 위로 올라오는 '길동무 친구들 꾸미기' 창 — 위쪽에서 친구를 고르고 아래에 꾸미는 아이템이 들어온다. */
+    synchronized String dressSheet() {
+        if (!dressOpen || !consented() || fs.isEmpty()) return "";
+        F cur = find(dressSel);
+        JSONArray a = new JSONArray();
+        a.put(b("head", "text", "길동무 친구들 꾸미기"));
+        a.put(b("text", "text", "꾸며 줄 친구를 골라요", "sub", "1"));
+        JSONArray chips = new JSONArray();
+        for (int i = 0; i < fs.size(); i++) chips.put(item(fs.get(i).name, "dress.sel:" + fs.get(i).id, fs.get(i).id.equals(cur.id) ? "1" : "0"));
+        JSONObject c = b("chips");
+        put(c, "items", chips);
+        a.put(c);
+        a.put(b("text", "text", cur.name + "에게 입혀 줄 아이템"));
+        a.put(b("card", "title", "옷 입히기", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
+        a.put(b("card", "title", "모자 · 리본", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
+        a.put(b("card", "title", "마을 꾸미기", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
+        a.put(b("gap", "h", "8"));
+        JSONArray it = new JSONArray();
+        it.put(b("i", "label", "닫기", "act", "dress.close", "on", "0"));
+        JSONObject bt = b("btns");
+        put(bt, "items", it);
+        a.put(bt);
+        return wrap("scroll", a);
+    }
+
+    // ── 동네 이름: 길동무 서버가 좌표 → 행정동을 알려 준다(위치를 새로 잡았을 때만 · 300m 안에서는 다시 묻지 않는다) ──
+    synchronized boolean dongDue(long now) {
+        if (Double.isNaN(lat) || now - dongTryAt < 30000L) return false;
+        return dong.isEmpty() || Double.isNaN(dongLa) || Math.abs(dongLa - lat) > 0.003 || Math.abs(dongLo - lng) > 0.003;
+    }
+
+    synchronized void dongAsked(long now) {
+        dongTryAt = now;
+    }
+
+    synchronized String dongUrl() {
+        String qs = String.format(Locale.US, "x=%.3f&y=%.3f", lng, lat);
+        try {
+            return "https://gentle-lab-7e47subway-api.phg0643.workers.dev/kakao-local?path=" + java.net.URLEncoder.encode("geo/coord2regioncode.json", "UTF-8") + "&qs=" + java.net.URLEncoder.encode(qs, "UTF-8");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    synchronized void setDong(String body, double la, double lo) {
+        if (body == null || body.length() < 2) return;
+        try {
+            JSONArray d = new JSONObject(body).optJSONArray("documents");
+            if (d == null) return;
+            String h3 = "", b3 = "", any3 = "", any2 = "";
+            for (int i = 0; i < d.length(); i++) {
+                JSONObject m = d.optJSONObject(i);
+                if (m == null) continue;
+                String t = m.optString("region_type", ""), r3 = m.optString("region_3depth_name", "").trim(), r2 = m.optString("region_2depth_name", "").trim();
+                if ("H".equals(t) && h3.isEmpty()) h3 = r3;
+                if ("B".equals(t) && b3.isEmpty()) b3 = r3;
+                if (any3.isEmpty()) any3 = r3;
+                if (any2.isEmpty()) any2 = r2;
+            }
+            String r = !h3.isEmpty() ? h3 : !b3.isEmpty() ? b3 : !any3.isEmpty() ? any3 : any2;
+            if (r.isEmpty()) return;
+            if (r.length() > 20) r = r.substring(0, 20);
+            boolean ch = !r.equals(dong);
+            dong = r;
+            dongLa = la;
+            dongLo = lo;
+            if (ch) rev++;
+        } catch (Exception e) {
+            // 못 읽으면 이름 없이 둔다
+        }
+    }
+
     private String consentScreen() {
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "시작하기 전에 읽어 주세요"));
@@ -676,7 +753,7 @@ final class Engine {
         body.put(nd("panel", "pad", pad(12, 6, 12, 0), "ip", pad(14, 10, 14, 10), "kids", wk));
         String sc = sceneOut(now);
         if (!sc.isEmpty()) {
-            int sh = viewDp > 0 ? Math.max(240, Math.min(720, viewDp - 205)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
+            int sh = viewDp > 0 ? Math.max(200, Math.min(720, viewDp - 290)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
             body.put(nd("scene", "h", sh, "r", 16, "pad", pad(12, 6, 12, 6), "sc", sc));
         } else {
             JSONArray ph = new JSONArray();
@@ -685,28 +762,30 @@ final class Engine {
         }
         body.put(nd("lth", "s", "길동무 친구들과 놀기", "dot", "#34c759", "live", true, "pad", pad(16, 10, 16, 4)));
         JSONArray kids = new JSONArray();
-        ArrayList<F> g = onScreen();
-        String[] keys = {"angry", "wake", "sick", "sulk", "beg", "poop", "eat", "study", "sleep", "play", "ok"};
-        String[] lab = {"😤 공부 중에 건드려서 화났어요", "😠 자다가 깨서 화났어요", "🤒 아파요", "😤 삐졌어요", "🍚 배고파요 · 밥을 주세요", "💩 응가했어요 · 치워 주세요", "😋 냠냠 먹는 중이에요",
-                "📖 공부 중이에요", "😴 쿨쿨 자는 중이에요", "🤝 같이 놀아요", "😊 잘 지내요"};
-        for (int k = 0; k < keys.length; k++) {
-            ArrayList<String> names = new ArrayList<String>();
-            long left = Long.MAX_VALUE;
+        ArrayList<F> g = new ArrayList<F>();                            // 지금 화면에 나와 있는 친구(장면이 알려 준다) · 나머지는 쉬는 중
+        ArrayList<F> rest = new ArrayList<F>();
+        String shownNow = Poke.shown();
+        for (int i = 0; i < fs.size(); i++) (shownNow.indexOf("," + fs.get(i).id + ",") >= 0 ? g : rest).add(fs.get(i));
+        if (g.isEmpty()) {
+            kids.put(tx("🤝 같이 놀아요 — 친구들이 모이는 중이에요", 13, true, "text", 5));
+        } else {
+            StringBuilder sb = new StringBuilder("🤝 같이 놀아요 — ");
+            String[] nm = new String[g.size()];
             for (int i = 0; i < g.size(); i++) {
                 F f = g.get(i);
-                if (!keys[k].equals(stateOf(f, now))) continue;
-                names.add(f.name);
-                if (f.tmUntil > 0L) left = Math.min(left, f.tmUntil - now);
+                nm[i] = f.name;
+                sb.append(i > 0 ? ", " : "").append(f.name).append(stateTag(stateOf(f, now)));
             }
-            if (names.isEmpty()) continue;
-            StringBuilder sb = new StringBuilder(lab[k]);
-            if (left != Long.MAX_VALUE && "sleep".equals(keys[k]) && left > SLEEP_MS + 60000L) sb.append(" · 아침까지");
-            else if (left != Long.MAX_VALUE && ("study".equals(keys[k]) || "sleep".equals(keys[k]))) sb.append(" · ").append(left / 60000L + 1L).append("분 남음");
-            sb.append(" — ");
-            for (int i = 0; i < names.size(); i++) sb.append(i > 0 ? ", " : "").append(names.get(i));
-            kids.put(tx(sb.toString(), 13, !"ok".equals(keys[k]), "ok".equals(keys[k]) ? "sub" : "text", 5, names.toArray(new String[0])));
+            kids.put(tx(sb.toString(), 13, true, "text", 5, nm));
+        }
+        if (!rest.isEmpty()) {
+            StringBuilder sb = new StringBuilder("💤 친구들이 휴식 중이에요 — ");
+            for (int i = 0; i < rest.size(); i++) sb.append(i > 0 ? ", " : "").append(rest.get(i).name);
+            kids.put(tx(sb.toString(), 13, false, "sub", 5));
         }
         kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 11, false, "sub", 6));
+        kids.put(nd("button", "s", "🎨 길동무 친구들 꾸미기", "act", callAct("kid.dress"), "h", 42, "size", 13, "bold", true,
+                "fill", "card", "line", "border", "tc", "text", "r", 14, "pad", pad(0, 6, 0, 0)));
         body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 8), "fillRest", true, "kids", kids));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
@@ -738,7 +817,13 @@ final class Engine {
             if (l != null && l.optBoolean("wxKnown", false) && !l.isNull("temp")) {
                 String wk = l.optString("wk", "clear");
                 String ic = "rain".equals(wk) ? "🌧️" : "snow".equals(wk) ? "❄️" : "fog".equals(wk) ? "🌫️" : "overcast".equals(wk) ? "☁️" : "cloudy".equals(wk) ? "⛅" : "☀️";
-                return new String[] {ic + " " + l.optString("wxKo", "") + "  " + l.optInt("temp") + "°C", stale ? "마지막으로 잡은 위치 기준이에요" : ""};
+                int wd = l.optInt("wind", 0);
+                StringBuilder sub = new StringBuilder();
+                if (!dong.isEmpty()) sub.append("📍 ").append(dong);
+                sub.append(sub.length() > 0 ? " · " : "").append(wd >= 2 ? "💨 바람이 세요" : wd == 1 ? "🍃 바람이 불어요" : "🍃 바람이 잔잔해요");
+                sub.append(" · ").append(l.optBoolean("hot", false) ? "🥵 더워요" : l.optBoolean("cold", false) ? "🥶 추워요" : "😊 지내기 좋아요");
+                if (stale) sub.append(" · 마지막으로 잡은 위치 기준");
+                return new String[] {ic + " " + l.optString("wxKo", "") + "  " + l.optInt("temp") + "°C", sub.toString()};
             }
         } catch (Exception e) {
             // 아래 기본 글
@@ -902,6 +987,13 @@ final class Engine {
                     // 무시
                 }
             }
+        } else if (v.equals("kid.dress")) {
+            dressOpen = true;
+            if (dressSel.isEmpty() && !fs.isEmpty()) dressSel = fs.get(0).id;
+        } else if (v.startsWith("dress.sel:")) {
+            dressSel = find(v.substring(10)).id;
+        } else if (v.equals("dress.close")) {
+            dressOpen = false;
         } else if (v.startsWith("kid.pick:")) {
             String[] p = v.substring(9).split(":");
             if (p.length == 2) pickFor(find(p[0]), p[1], now);
@@ -1152,6 +1244,16 @@ final class Engine {
         }
         if (r.isEmpty()) r.addAll(fs);
         return r;
+    }
+
+    private static String stateTag(String st) {
+        if ("study".equals(st)) return "📖";
+        if ("sleep".equals(st)) return "😴";
+        if ("beg".equals(st)) return "🍚";
+        if ("poop".equals(st)) return "💩";
+        if ("sick".equals(st)) return "🤒";
+        if ("sulk".equals(st) || "angry".equals(st) || "wake".equals(st)) return "😤";
+        return "";
     }
 
     private String stateOf(F f, long now) {

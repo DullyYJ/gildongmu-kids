@@ -69,4 +69,34 @@ final class Wire {
             if (c != null) c.disconnect();
         }
     }
+
+    /** 다른 길동무 서버 주소에서 글을 받아 온다(GET). 실패하면 null. */
+    static String get(String url, int timeoutMs) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(timeoutMs);
+            c.setReadTimeout(timeoutMs);
+            c.setRequestMethod("GET");
+            c.setInstanceFollowRedirects(false);
+            if (c.getResponseCode() != 200) return null;
+            InputStream in = c.getInputStream();
+            try {
+                ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    bo.write(buf, 0, n);
+                    if (bo.size() > MAX_RES) return null;
+                }
+                return bo.toString("UTF-8");
+            } finally {
+                in.close();
+            }
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
 }
