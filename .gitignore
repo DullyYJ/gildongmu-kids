@@ -5,3 +5,6 @@ local.properties
 .idea/
 captures/
 .DS_Store
+app/src/main/assets/chars3d/
+app/src/main/assets/metro_native.bin
+app/src/main/java/com/dullyyj/subway/
