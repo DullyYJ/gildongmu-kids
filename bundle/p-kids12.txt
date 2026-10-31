@@ -1,0 +1,130 @@
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+        JSONArray wk = new JSONArray();
+        JSONObject wl = nd("text", "s", "● 길동무 날씨", "size", 10, "bold", true, "color", "sub", "pad", pad(0, 0, 0, 3), "lh", 1.3);
+        put(wl, "hl", hl("● 길동무 날씨", "● 길동무 날씨"));
+        wk.put(wl);
+        wk.put(tx(w[0], 18, true, "text", w[1].isEmpty() ? 0 : 2));
+        if (!w[1].isEmpty()) wk.put(tx(w[1], 11, false, "sub", 0));
+        body.put(nd("panel", "pad", pad(12, 6, 12, 0), "ip", pad(14, 10, 14, 10), "kids", wk));
+@@ new
+        JSONObject wl = nd("text", "s", w[0], "size", 20, "bold", true, "color", "text", "pad", pad(18, 12, 18, w[1].isEmpty() ? 6 : 2), "lh", 1.3);   // 박스 없이 맨 위 한 문장: "아라동 7도예요. 맑아요."
+        put(wl, "hl", hl(w[0], w[2], w[3]));
+        body.put(wl);
+        if (!w[1].isEmpty()) body.put(nd("text", "s", w[1], "size", 12, "color", "sub", "pad", pad(18, 0, 18, 6), "lh", 1.4));
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+                StringBuilder sub = new StringBuilder();
+                if (!dong.isEmpty()) sub.append("📍 ").append(dong);
+                sub.append(sub.length() > 0 ? " · " : "").append(wd >= 2
+@@ new
+                StringBuilder sub = new StringBuilder();
+                sub.append(wd >= 2
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+                return new String[] {ic + " " + l.optString("wxKo", "") + "  " + l.optInt("temp") + "°C", sub.toString()};
+@@ new
+                String say = "rain".equals(wk) ? "비가 와요" : "snow".equals(wk) ? "눈이 와요" : "fog".equals(wk) ? "안개가 꼈어요" : "overcast".equals(wk) ? "흐려요" : "cloudy".equals(wk) ? "구름이 조금 있어요" : "clear".equals(wk) ? "맑아요" : l.optString("wxKo", "");
+                String dn = dong.isEmpty() ? "" : dong, tp = l.optInt("temp") + "도";
+                String head = ic + " " + (dn.isEmpty() ? "" : dn + " ") + tp + "예요. " + say + ".";
+                return new String[] {head, sub.toString(), dn, tp};
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+        if (Double.isNaN(lat)) return new String[] {"📍 위치를 켜면 날씨를 알려줘요", "설정에서 위치 공유를 켜 주세요"};
+        return new String[] {"⛅ 날씨를 불러오는 중이에요", ""};
+@@ new
+        if (Double.isNaN(lat)) return new String[] {"📍 위치를 켜면 날씨를 알려줘요", "설정에서 위치 공유를 켜 주세요", "", ""};
+        return new String[] {"⛅ 날씨를 불러오는 중이에요", "", "", ""};
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+    private String favAdd = "", favRm = "", favFull = "";
+@@ new
+    private String favAdd = "", favRm = "", favFull = "";
+    private String ordRaw = "[]";
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+        bus.setVisibility(View.GONE);
+        holder.addView(bus,
+@@ new
+        bus.setSwipeHost(new ScreenView.SwipeHost() {                  // 길동무처럼 버스 → 지하철 좌우 밀기
+            @Override
+            public boolean onSwipe(ScreenView v, int dir) {
+                if (dir == -1 && "bus".equals(mode)) {
+                    v.slideNext(dir);
+                    setMode("subway");
+                }
+                return true;
+            }
+
+            @Override
+            public boolean canSwipe() {
+                return "bus".equals(mode);
+            }
+        });
+        bus.setPullHost(new ScreenView.PullHost() {                    // 아래로 당겨 새로고침(🔄 단추와 같은 행동)
+            @Override
+            public boolean canPull() {
+                return "bus".equals(mode);
+            }
+
+            @Override
+            public void onPull() {
+                onBusAct("call", "mp.rf");
+            }
+        });
+        bus.setReorderHost(new ScreenView.ReorderHost() {              // 주변 정류장 카드 끌어서 순서 바꾸기
+            @Override
+            public void onReorder(String[] keys, int[] perm) {
+                reorderNear(keys, perm);
+            }
+        });
+        bus.setVisibility(View.GONE);
+        holder.addView(bus,
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+            public void onEdgeSwipe(int dir) {
+            }
+@@ new
+            public void onEdgeSwipe(int dir) {
+                if (dir == 1) setMode("bus");                          // 노선도 끝에서 더 밀면 버스로
+            }
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+            alRaw = sp.getString("al", "{}");
+@@ new
+            alRaw = sp.getString("al", "{}");
+            ordRaw = sp.getString("ord", "[]");
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+            b.put("ord", new JSONArray());
+@@ new
+            b.put("ord", new JSONArray(ordRaw));
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+    private int stopIdx(String v) {
+@@ new
+    /** 주변 정류장 카드를 끌어 바꾼 순서는 이 기기에 두고, 요청마다 서버에 실어 보낸다. */
+    private void reorderNear(String[] keys, int[] perm) {
+        if (!"bus".equals(mode) || !"near".equals(busVw) || keys == null || keys.length < 2 || keys.length > 40) return;
+        JSONArray a = new JSONArray();
+        for (int i = 0; i < keys.length; i++) {
+            if (keys[i] == null || keys[i].isEmpty() || keys[i].length() > 64) return;
+            a.put(keys[i]);
+        }
+        ordRaw = a.toString();
+        final String o = ordRaw;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    ctx.getSharedPreferences("kids_busmap", Context.MODE_PRIVATE).edit().putString("ord", o).apply();
+                } catch (Throwable t) {
+                    // 저장 실패는 이번 실행에서만 유지
+                }
+            }
+        });
+        busSel = -1;
+        loadBus(true);
+    }
+
+    private int stopIdx(String v) {
