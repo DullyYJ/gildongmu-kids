@@ -1,4 +1,3 @@
-=== FILE: app/src/main/java/com/dullyyj/kids/AvatarView.java ===
 package com.dullyyj.kids;
 
 import android.content.Context;
@@ -121,69 +120,3 @@ final class AvatarView extends View {
         cv.drawText(label, w / 2f, h - 14f * dpr, tp);
     }
 }
-=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
-@@ old
-    private String dressSel = "";
-@@ new
-    private String dressSel = "";
-    private String dressTab = "hat";
-=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
-@@ old
-        a.put(b("head", "text", "길동무 친구들 꾸미기"));
-        a.put(b("text", "text", "꾸며 줄 친구를 골라요", "sub", "1"));
-        JSONArray chips = new JSONArray();
-@@ new
-        a.put(b("head", "text", "길동무 친구들 꾸미기"));
-        a.put(b("avatar", "id", cur.id, "name", cur.name));
-        JSONArray chips = new JSONArray();
-=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
-@@ old
-        a.put(b("text", "text", cur.name + "에게 입혀 줄 아이템"));
-        a.put(b("card", "title", "옷 입히기", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
-        a.put(b("card", "title", "모자 · 리본", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
-        a.put(b("card", "title", "마을 꾸미기", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
-@@ new
-        String[][] tabs = {{"hat", "모자"}, {"cloth", "옷"}, {"item", "소지품"}};
-        JSONArray tc = new JSONArray();
-        String tname = "모자";
-        for (int i = 0; i < tabs.length; i++) {
-            boolean on = tabs[i][0].equals(dressTab);
-            if (on) tname = tabs[i][1];
-            tc.put(item(tabs[i][1], "dress.tab:" + tabs[i][0], on ? "1" : "0"));
-        }
-        JSONObject tcs = b("chips");
-        put(tcs, "items", tc);
-        a.put(tcs);
-        a.put(b("card", "title", tname, "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
-=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
-@@ old
-        } else if (v.equals("dress.close")) {
-@@ new
-        } else if (v.startsWith("dress.tab:")) {
-            String tb = v.substring(10);
-            if (tb.equals("hat") || tb.equals("cloth") || tb.equals("item")) dressTab = tb;
-        } else if (v.equals("dress.close")) {
-=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
-@@ old
-        kids.put(nd("button", "s", "🎨 길동무 친구들 꾸미기", "act", callAct("kid.dress"), "h", 42, "size", 13, "bold", true,
-                "fill", "card", "line", "border", "tc", "text", "r", 14, "pad", pad(0, 6, 0, 0)));
-        body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 8), "fillRest", true, "kids", kids));
-@@ new
-        body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 8), "kids", kids));
-        body.put(nd("button", "s", "🎨 길동무 친구들 꾸미기", "act", callAct("kid.dress"), "h", 46, "size", 14, "bold", true,
-                "fill", "card", "line", "border", "tc", "text", "r", 16, "pad", pad(12, 0, 12, 10)));
-=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
-@@ old
-        if ("chips".equals(t)) return chips(b);
-@@ new
-        if ("avatar".equals(t)) {
-            View av = new AvatarView(ctx, b.optString("id"), b.optString("name"));
-            av.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dpi(ctx, 170), 6));
-            return av;
-        }
-        if ("chips".equals(t)) return chips(b);
-=== EDIT: app/src/main/java/com/dullyyj/kids/MainActivity.java ===
-@@ old
-Math.round(43f * getResources().getDisplayMetrics().density)
-@@ new
-Math.round(35f * getResources().getDisplayMetrics().density)

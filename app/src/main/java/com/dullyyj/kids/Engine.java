@@ -107,6 +107,7 @@ final class Engine {
     private long dongTryAt = 0L;
     private boolean dressOpen = false;
     private String dressSel = "";
+    private String dressTab = "hat";
     private String drawKey = "", drawJson = "";
     private int viewDp = 0;                 // 화면 높이(dp) — 장면 높이를 고정으로 정할 때만 쓴다(줄 수가 바뀌어도 장면이 다시 만들어지지 않게)
 
@@ -654,16 +655,24 @@ final class Engine {
         F cur = find(dressSel);
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "길동무 친구들 꾸미기"));
-        a.put(b("text", "text", "꾸며 줄 친구를 골라요", "sub", "1"));
+        a.put(b("avatar", "id", cur.id, "name", cur.name));
         JSONArray chips = new JSONArray();
         for (int i = 0; i < fs.size(); i++) chips.put(item(fs.get(i).name, "dress.sel:" + fs.get(i).id, fs.get(i).id.equals(cur.id) ? "1" : "0"));
         JSONObject c = b("chips");
         put(c, "items", chips);
         a.put(c);
-        a.put(b("text", "text", cur.name + "에게 입혀 줄 아이템"));
-        a.put(b("card", "title", "옷 입히기", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
-        a.put(b("card", "title", "모자 · 리본", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
-        a.put(b("card", "title", "마을 꾸미기", "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
+        String[][] tabs = {{"hat", "모자"}, {"cloth", "옷"}, {"item", "소지품"}};
+        JSONArray tc = new JSONArray();
+        String tname = "모자";
+        for (int i = 0; i < tabs.length; i++) {
+            boolean on = tabs[i][0].equals(dressTab);
+            if (on) tname = tabs[i][1];
+            tc.put(item(tabs[i][1], "dress.tab:" + tabs[i][0], on ? "1" : "0"));
+        }
+        JSONObject tcs = b("chips");
+        put(tcs, "items", tc);
+        a.put(tcs);
+        a.put(b("card", "title", tname, "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
         a.put(b("gap", "h", "8"));
         JSONArray it = new JSONArray();
         it.put(b("i", "label", "닫기", "act", "dress.close", "on", "0"));
@@ -781,9 +790,9 @@ final class Engine {
             kids.put(tx(sb.toString(), 13, false, "sub", 5));
         }
         kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 11, false, "sub", 6));
-        kids.put(nd("button", "s", "🎨 길동무 친구들 꾸미기", "act", callAct("kid.dress"), "h", 42, "size", 13, "bold", true,
-                "fill", "card", "line", "border", "tc", "text", "r", 14, "pad", pad(0, 6, 0, 0)));
-        body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 8), "fillRest", true, "kids", kids));
+        body.put(nd("panel", "pad", pad(12, 0, 12, 6), "ip", pad(14, 12, 14, 8), "kids", kids));
+        body.put(nd("button", "s", "🎨 길동무 친구들 꾸미기", "act", callAct("kid.dress"), "h", 46, "size", 14, "bold", true,
+                "fill", "card", "line", "border", "tc", "text", "r", 16, "pad", pad(12, 0, 12, 10)));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);
@@ -991,6 +1000,9 @@ final class Engine {
             if (dressSel.isEmpty() && !fs.isEmpty()) dressSel = fs.get(0).id;
         } else if (v.startsWith("dress.sel:")) {
             dressSel = find(v.substring(10)).id;
+        } else if (v.startsWith("dress.tab:")) {
+            String tb = v.substring(10);
+            if (tb.equals("hat") || tb.equals("cloth") || tb.equals("item")) dressTab = tb;
         } else if (v.equals("dress.close")) {
             dressOpen = false;
         } else if (v.startsWith("kid.pick:")) {

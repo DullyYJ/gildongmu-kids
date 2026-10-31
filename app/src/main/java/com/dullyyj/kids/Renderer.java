@@ -304,6 +304,11 @@ final class Renderer {
         if ("text".equals(t)) return text(b);
         if ("card".equals(t)) return card(b);
         if ("village".equals(t)) return villageBlock(b);
+        if ("avatar".equals(t)) {
+            View av = new AvatarView(ctx, b.optString("id"), b.optString("name"));
+            av.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dpi(ctx, 170), 6));
+            return av;
+        }
         if ("chips".equals(t)) return chips(b);
         if ("btns".equals(t)) return btns(b);
         if ("stat".equals(t)) return stat(b);
