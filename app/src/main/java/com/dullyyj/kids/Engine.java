@@ -920,18 +920,26 @@ final class Engine {
     private String chatScreen() {
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "가족대화"));
-        a.put(b("text", "text", "글자만 보낼 수 있어요. 대화는 7일이 지나면 지워져요.", "sub", "1"));
+        JSONArray k1 = new JSONArray();
+        k1.put(b("text", "text", "글자만 보낼 수 있어요. 대화는 7일이 지나면 지워져요.", "sub", "1", "tight", "1"));
         if (chat.length() == 0) {
-            a.put(b("text", "text", "아직 대화가 없어요. 부모님이 연결되면 여기서 이야기할 수 있어요.", "sub", "1"));
+            k1.put(b("text", "text", "아직 대화가 없어요. 부모님이 연결되면 여기서 이야기할 수 있어요.", "sub", "1", "tight", "1"));
         }
+        JSONObject bx1 = b("box", "flush", "1");
+        put(bx1, "kids", k1);
+        a.put(bx1);
+        JSONArray k2 = new JSONArray();
         SimpleDateFormat fmt = new SimpleDateFormat("M/d a h:mm", Locale.KOREA);
         for (int i = 0; i < chat.length(); i++) {
             JSONObject m = chat.optJSONObject(i);
             if (m == null) continue;
-            a.put(b("msg", "text", m.optString("x"), "me", String.valueOf(m.optInt("m", 1)),
+            k2.put(b("msg", "text", m.optString("x"), "me", String.valueOf(m.optInt("m", 1)),
                     "time", fmt.format(new Date(m.optLong("t", 0L)))));
         }
-        a.put(b("input", "hint", "메시지를 입력해요", "act", "chat.send"));
+        k2.put(b("input", "hint", "메시지를 입력해요", "act", "chat.send"));
+        JSONObject bx2 = b("box", "fill", "1", "flush", "1");
+        put(bx2, "kids", k2);
+        a.put(bx2);
         JSONObject o = new JSONObject();
         put(o, "mode", "scroll");
         put(o, "bottom", "1");

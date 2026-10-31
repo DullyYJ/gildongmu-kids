@@ -117,8 +117,9 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         // 맨 위 흐르는 응원 문구(길동무와 같은 그리개 · 높이 43dp)
         hdrView = SvHost.make(this, null);
+        hdrView.setDpr(getResources().getDisplayMetrics().density * 0.7f);
         hdrView.setVisibility(View.GONE);
-        root.addView(hdrView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(35f * getResources().getDisplayMetrics().density)));
+        root.addView(hdrView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(24.5f * getResources().getDisplayMetrics().density)));
         root.addView(renderer.view(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         root.addView(tabbar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(48f * getResources().getDisplayMetrics().density)));
         // 상태 표시줄 · 내비게이션 막대 자리를 비우고, 상태 표시줄 자리는 길동무처럼 늘 검정으로 채운다

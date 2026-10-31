@@ -97,9 +97,10 @@ final class Renderer {
         };
         scroll.setVerticalScrollBarEnabled(false);
         col = new LinearLayout(c);
+        scroll.setFillViewport(true);
         col.setOrientation(LinearLayout.VERTICAL);
         int pad = Ui.dpi(c, 16);
-        col.setPadding(pad, pad, pad, pad);
+        col.setPadding(pad, Ui.dpi(c, 10), pad, Ui.dpi(c, 12));
         scroll.addView(col, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         host.addView(scroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         loading = new TextView(c);
@@ -123,6 +124,7 @@ final class Renderer {
     private java.util.ArrayList<String> swipeActs;
     private int swipeCur;
     private int slideDir;
+    private View segView;
     private long slideAt;
 
     private void swipeBy(int dir) {
@@ -294,23 +296,27 @@ final class Renderer {
         final int sy = same ? scroll.getScrollY() : 0;
         final boolean bottom = "1".equals(o.optString("bottom"));
         swipeActs = null;
+        segView = null;
+        int segAt = -1;
         col.removeAllViews();
         if (bl != null) {
             for (int i = 0; i < bl.length(); i++) {
                 JSONObject b = bl.optJSONObject(i);
                 if (b == null) continue;
                 View v = block(b);
-                if (v != null) col.addView(v);
+                if (v != null) {
+                    col.addView(v);
+                    if (v == segView) segAt = col.getChildCount();
+                }
             }
         }
-        col.animate().cancel();
-        if (slideDir != 0 && android.os.SystemClock.uptimeMillis() - slideAt < 900L) {
-            col.setAlpha(0f);
-            col.setTranslationX(slideDir * Ui.dp(ctx, 48f));
-            col.animate().alpha(1f).translationX(0f).setDuration(240L).setInterpolator(new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f)).start();
-        } else {
-            col.setAlpha(1f);
-            col.setTranslationX(0f);
+        if (slideDir != 0 && segAt >= 0 && android.os.SystemClock.uptimeMillis() - slideAt < 900L) {
+            for (int i = segAt; i < col.getChildCount(); i++) {
+                View c = col.getChildAt(i);
+                c.setAlpha(0f);
+                c.setTranslationX(slideDir * Ui.dp(ctx, 48f));
+                c.animate().alpha(1f).translationX(0f).setDuration(240L).setInterpolator(new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f)).start();
+            }
         }
         slideDir = 0;
         scroll.post(new Runnable() {
@@ -395,6 +401,25 @@ final class Renderer {
         r.setPadding(pad, pad, pad, pad);
         r.setBackground(Ui.box(ctx, Pal.c(Pal.CARD), 18, Pal.c(Pal.BORDER)));
         JSONArray k = b.optJSONArray("kids");
+        final boolean fill = "1".equals(b.optString("fill"));
+        final boolean flush = "1".equals(b.optString("flush"));
+        ViewGroup tgt = r;
+        if (fill) {
+            final ScrollView sc = new ScrollView(ctx);
+            sc.setVerticalScrollBarEnabled(false);
+            LinearLayout inner = new LinearLayout(ctx);
+            inner.setOrientation(LinearLayout.VERTICAL);
+            sc.addView(inner, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            r.addView(sc, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            sc.post(new Runnable() {
+                @Override
+                public void run() {
+                    sc.fullScroll(View.FOCUS_DOWN);
+                }
+            });
+            tgt = inner;
+        }
+        boolean first = true;
         if (k != null) {
             for (int i = 0; i < k.length(); i++) {
                 JSONObject x = k.optJSONObject(i);
@@ -402,19 +427,31 @@ final class Renderer {
                 View v = block(x);
                 if (v == null) continue;
                 if (v instanceof AvatarView) r.addView(v, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-                else r.addView(v);
+                else if (fill && "input".equals(x.optString("t"))) r.addView(v);
+                else {
+                    if (flush && first && v.getLayoutParams() instanceof LinearLayout.LayoutParams) ((LinearLayout.LayoutParams) v.getLayoutParams()).topMargin = 0;
+                    first = false;
+                    tgt.addView(v);
+                }
             }
+        }
+        if (fill) {
+            LinearLayout.LayoutParams fl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+            fl.topMargin = Ui.dpi(ctx, 10);
+            r.setLayoutParams(fl);
+            return r;
         }
         int hp = (int) b.optDouble("hp", 0);
         int hpx = hp > 0 ? ctx.getResources().getDisplayMetrics().heightPixels * hp / 100 : ViewGroup.LayoutParams.WRAP_CONTENT;
-        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, hpx, 12));
+        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, hpx, flush ? 8 : 12));
         return r;
     }
 
     private View head(JSONObject b) {
         boolean small = "1".equals(b.optString("small"));
         TextView v = Ui.text(ctx, b.optString("text"), small ? 14f : 17f, Pal.c(Pal.TEXT), true);
-        v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, small ? 6 : 2));
+        v.setIncludeFontPadding(false);
+        v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, small ? 6 : 0));
         return v;
     }
 
@@ -425,7 +462,9 @@ final class Renderer {
         int color = tone ? Pal.c(Pal.ORANGE) : (sub ? Pal.c(Pal.SUB) : Pal.c(Pal.TEXT));
         TextView v = Ui.text(ctx, b.optString("text"), big ? 17f : (sub ? 11f : 13f), color, tone || big);
         if (big) v.setGravity(Gravity.CENTER);
-        v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8));
+        boolean tight = "1".equals(b.optString("tight"));
+        if (tight) v.setIncludeFontPadding(false);
+        v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, tight ? 4 : 8));
         return v;
     }
 
@@ -480,8 +519,16 @@ final class Renderer {
         return v;
     }
 
-    /** 칸 가득 같은 폭으로 나란히 놓인 분류 칩(눌러도 옆으로 밀어도 바뀐다). */
+    /** 칸 가득 같은 폭으로 나란히 놓인 분류 칸. 고른 칸의 바탕이 미끄러지듯 옮겨 가고(밀거나 눌러도), 아래 목록만 같이 밀려 들어온다. */
     private View segs(JSONObject b, JSONArray a) {
+        final FrameLayout fr = new FrameLayout(ctx);
+        fr.setBackground(Ui.box(ctx, Pal.c(Pal.CARD2), 20, Pal.c(Pal.BORDER)));
+        final View thumb = new View(ctx);
+        thumb.setBackground(Ui.box(ctx, Pal.c(Pal.GOLD), 20, 0));
+        final int inset = Ui.dpi(ctx, 3);
+        FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT);
+        tl.setMargins(inset, inset, 0, inset);
+        fr.addView(thumb, tl);
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
         final java.util.ArrayList<String> acts = new java.util.ArrayList<String>();
@@ -491,7 +538,9 @@ final class Renderer {
             if (it == null) continue;
             boolean on = "1".equals(it.optString("on"));
             if (on) cur = acts.size();
-            TextView p = pill(it.optString("label"), on);
+            TextView p = Ui.text(ctx, it.optString("label"), 12.5f, on ? Pal.c(Pal.ONGOLD) : Pal.c(Pal.TEXT), true);
+            p.setGravity(Gravity.CENTER);
+            p.setPadding(0, Ui.dpi(ctx, 10), 0, Ui.dpi(ctx, 10));
             final String act = it.optString("act");
             final int mine = acts.size();
             acts.add(act);
@@ -503,16 +552,37 @@ final class Renderer {
                     cb.call(act, "");
                 }
             });
-            LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            if (i > 0) pl.leftMargin = Ui.dpi(ctx, 8);
-            row.addView(p, pl);
+            row.addView(p, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         }
+        fr.addView(row, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        final int n = Math.max(1, acts.size()), now = cur, prev = swipeCur;
+        final boolean anim = slideDir != 0 && android.os.SystemClock.uptimeMillis() - slideAt < 900L;
+        final boolean[] done = new boolean[1];
+        fr.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int bt, int ol, int ot, int or, int ob) {
+                int w = r - l;
+                if (done[0] || w <= 0) return;
+                done[0] = true;
+                int cw = (w - 2 * inset) / n;
+                FrameLayout.LayoutParams lp2 = (FrameLayout.LayoutParams) thumb.getLayoutParams();
+                lp2.width = cw;
+                thumb.setLayoutParams(lp2);
+                if (anim) {
+                    thumb.setTranslationX(prev * cw);
+                    thumb.animate().translationX(now * cw).setDuration(240L).setInterpolator(new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f)).start();
+                } else {
+                    thumb.setTranslationX(now * cw);
+                }
+            }
+        });
         if ("1".equals(b.optString("loop"))) {
             swipeActs = acts;
             swipeCur = cur;
+            segView = fr;
         }
-        row.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 10));
-        return row;
+        fr.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8));
+        return fr;
     }
 
     private View chips(JSONObject b) {
