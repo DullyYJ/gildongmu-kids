@@ -50,7 +50,7 @@ final class Ui {
     static TextView text(Context c, String s, float sp, int color, boolean bold) {
         TextView t = new TextView(c);
         t.setText(s);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_DIP, sp);
         t.setTextColor(color);
         t.setTypeface(face(c, bold));
         t.setLineSpacing(0f, 1.15f);

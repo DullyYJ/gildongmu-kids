@@ -797,7 +797,7 @@ final class Engine {
         JSONArray body = new JSONArray();
         String[] w = weatherParts();                                   // ① 날씨 · ② 애니메이션(장면) · ③ 길동무 친구들 — 세 칸으로 나눈다
         JSONArray wk = new JSONArray();
-        JSONObject wl = tx(w[0], 18, true, "text", w[1].isEmpty() ? 0 : 3);                    // 날씨 박스: "아라동 7도예요. 맑아요."
+        JSONObject wl = tx(w[0], 15, true, "text", w[1].isEmpty() ? 0 : 3);                    // 날씨 박스: "아라동 7도예요. 맑아요."
         put(wl, "hl", hl(w[0], w[2], w[3]));
         wk.put(wl);
         if (!w[1].isEmpty()) wk.put(tx(w[1], 11, false, "sub", 0));
@@ -809,10 +809,10 @@ final class Engine {
             body.put(nd("scene", "h", sh, "r", 16, "pad", pad(12, 6, 12, 6), "sc", sc));
         } else {
             JSONArray ph = new JSONArray();
-            ph.put(tx("해변을 불러오는 중이에요…", 14, true, "sub", 0));
+            ph.put(tx("해변을 불러오는 중이에요…", 12, true, "sub", 0));
             body.put(nd("panel", "pad", pad(12, 6, 12, 6), "ip", pad(14, 40, 14, 40), "kids", ph));
         }
-        body.put(nd("button", "s", "🎨 길동무 친구들 꾸미기", "act", callAct("kid.dress"), "h", 46, "size", 14, "bold", true,
+        body.put(nd("button", "s", "🎨 길동무 친구들 꾸미기", "act", callAct("kid.dress"), "h", 44, "size", 13, "bold", true,
                 "fill", "card", "line", "border", "tc", "text", "r", 16, "pad", pad(12, 2, 12, 2)));
         body.put(nd("lth", "s", "길동무 친구들과 놀기", "dot", "#34c759", "live", true, "pad", pad(16, 10, 16, 4)));
         JSONArray kids = new JSONArray();
@@ -821,7 +821,7 @@ final class Engine {
         String shownNow = Poke.shown();
         for (int i = 0; i < fs.size(); i++) (shownNow.indexOf("," + fs.get(i).id + ",") >= 0 ? g : rest).add(fs.get(i));
         if (g.isEmpty()) {
-            kids.put(tx("🤝 같이 놀아요 — 친구들이 모이는 중이에요", 13, true, "text", 5));
+            kids.put(tx("🤝 같이 놀아요 — 친구들이 모이는 중이에요", 12, true, "text", 5));
         } else {
             StringBuilder sb = new StringBuilder("🤝 같이 놀아요 — ");
             String[] nm = new String[g.size()];
@@ -830,14 +830,14 @@ final class Engine {
                 nm[i] = f.name;
                 sb.append(i > 0 ? ", " : "").append(f.name).append(stateTag(stateOf(f, now)));
             }
-            kids.put(tx(sb.toString(), 13, true, "text", 5, nm));
+            kids.put(tx(sb.toString(), 12, true, "text", 5, nm));
         }
         if (!rest.isEmpty()) {
             StringBuilder sb = new StringBuilder("💤 친구들이 휴식 중이에요 — ");
             for (int i = 0; i < rest.size(); i++) sb.append(i > 0 ? ", " : "").append(rest.get(i).name);
-            kids.put(tx(sb.toString(), 13, false, "sub", 5));
+            kids.put(tx(sb.toString(), 12, false, "sub", 5));
         }
-        kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 11, false, "sub", 6));
+        kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 10, false, "sub", 6));
         body.put(nd("panel", "pad", pad(12, 0, 12, 14), "ip", pad(14, 12, 14, 8), "fillRest", true, "kids", kids));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
@@ -855,7 +855,7 @@ final class Engine {
     private static JSONObject btnRow(String[][] items, int padB) {
         JSONArray k = new JSONArray();
         for (int i = 0; i < items.length; i++) {
-            k.put(nd("button", "s", items[i][0], "act", callAct(items[i][1]), "h", 42, "size", 13, "bold", true,
+            k.put(nd("button", "s", items[i][0], "act", callAct(items[i][1]), "h", 40, "size", 12, "bold", true,
                     "fill", "card", "line", "border", "tc", "text", "r", 14));
         }
         return nd("row", "gap", 8, "pad", pad(12, 0, 12, padB), "kids", k);

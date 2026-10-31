@@ -45,7 +45,7 @@ final class AvatarView extends View {
         dpr = c.getResources().getDisplayMetrics().density;
         tp.setTextAlign(Paint.Align.CENTER);
         tp.setTypeface(Ui.face(c, true));
-        tp.setTextSize(15f * dpr);
+        tp.setTextSize(13f * dpr);
         tp.setColor(Pal.c(Pal.TEXT));
     }
 

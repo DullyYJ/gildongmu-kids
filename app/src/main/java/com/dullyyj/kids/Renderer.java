@@ -413,7 +413,7 @@ final class Renderer {
 
     private View head(JSONObject b) {
         boolean small = "1".equals(b.optString("small"));
-        TextView v = Ui.text(ctx, b.optString("text"), small ? 16f : 22f, Pal.c(Pal.TEXT), true);
+        TextView v = Ui.text(ctx, b.optString("text"), small ? 14f : 17f, Pal.c(Pal.TEXT), true);
         v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, small ? 6 : 2));
         return v;
     }
@@ -423,7 +423,7 @@ final class Renderer {
         boolean tone = "1".equals(b.optString("tone"));
         boolean big = "1".equals(b.optString("big"));
         int color = tone ? Pal.c(Pal.ORANGE) : (sub ? Pal.c(Pal.SUB) : Pal.c(Pal.TEXT));
-        TextView v = Ui.text(ctx, b.optString("text"), big ? 22f : (sub ? 13f : 15f), color, tone || big);
+        TextView v = Ui.text(ctx, b.optString("text"), big ? 17f : (sub ? 11f : 13f), color, tone || big);
         if (big) v.setGravity(Gravity.CENTER);
         v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8));
         return v;
@@ -446,8 +446,8 @@ final class Renderer {
         LinearLayout tc = new LinearLayout(ctx);
         tc.setOrientation(LinearLayout.VERTICAL);
         boolean tone = "1".equals(b.optString("tone"));
-        tc.addView(Ui.text(ctx, b.optString("title"), 15f, Pal.c(Pal.TEXT), true));
-        TextView sub = Ui.text(ctx, b.optString("text"), 13f, tone ? Pal.c(Pal.ORANGE) : Pal.c(Pal.SUB), tone);
+        tc.addView(Ui.text(ctx, b.optString("title"), 13f, Pal.c(Pal.TEXT), true));
+        TextView sub = Ui.text(ctx, b.optString("text"), 11f, tone ? Pal.c(Pal.ORANGE) : Pal.c(Pal.SUB), tone);
         LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         sl.topMargin = Ui.dpi(ctx, 2);
         tc.addView(sub, sl);
@@ -472,9 +472,9 @@ final class Renderer {
     }
 
     private TextView pill(String label, boolean on) {
-        TextView v = Ui.text(ctx, label, 14f, on ? Pal.c(Pal.ONGOLD) : Pal.c(Pal.TEXT), true);
+        TextView v = Ui.text(ctx, label, 12.5f, on ? Pal.c(Pal.ONGOLD) : Pal.c(Pal.TEXT), true);
         v.setGravity(Gravity.CENTER);
-        int ph = Ui.dpi(ctx, 16), pv = Ui.dpi(ctx, 9);
+        int ph = Ui.dpi(ctx, 14), pv = Ui.dpi(ctx, 8);
         v.setPadding(ph, pv, ph, pv);
         v.setBackground(on ? Ui.box(ctx, Pal.c(Pal.GOLD), 20, 0) : Ui.box(ctx, Pal.c(Pal.CARD2), 20, Pal.c(Pal.BORDER)));
         return v;
@@ -576,8 +576,8 @@ final class Renderer {
         r.setOrientation(LinearLayout.VERTICAL);
         LinearLayout top = new LinearLayout(ctx);
         top.setOrientation(LinearLayout.HORIZONTAL);
-        top.addView(Ui.text(ctx, b.optString("label"), 13f, Pal.c(Pal.SUB), false), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        top.addView(Ui.text(ctx, val + "%", 13f, Pal.c(Pal.TEXT), true));
+        top.addView(Ui.text(ctx, b.optString("label"), 11.5f, Pal.c(Pal.SUB), false), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        top.addView(Ui.text(ctx, val + "%", 11.5f, Pal.c(Pal.TEXT), true));
         r.addView(top);
         Bar bar = new Bar(ctx, val);
         LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dpi(ctx, 10));
@@ -594,7 +594,7 @@ final class Renderer {
         int pad = Ui.dpi(ctx, 14);
         r.setPadding(pad, pad, pad, pad);
         r.setBackground(Ui.box(ctx, Pal.c(Pal.CARD), 16, Pal.c(Pal.BORDER)));
-        TextView lb = Ui.text(ctx, b.optString("label"), 15f, Pal.c(Pal.TEXT), false);
+        TextView lb = Ui.text(ctx, b.optString("label"), 13f, Pal.c(Pal.TEXT), false);
         r.addView(lb, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(Ui.dpi(ctx, 48), Ui.dpi(ctx, 28));
         tl.leftMargin = Ui.dpi(ctx, 12);
@@ -615,13 +615,13 @@ final class Renderer {
         LinearLayout r = new LinearLayout(ctx);
         r.setOrientation(LinearLayout.VERTICAL);
         r.setGravity(me ? Gravity.END : Gravity.START);
-        TextView t = Ui.text(ctx, b.optString("text"), 15f, me ? Pal.c(Pal.ONGOLD) : Pal.c(Pal.TEXT), false);
+        TextView t = Ui.text(ctx, b.optString("text"), 13f, me ? Pal.c(Pal.ONGOLD) : Pal.c(Pal.TEXT), false);
         int ph = Ui.dpi(ctx, 14), pv = Ui.dpi(ctx, 9);
         t.setPadding(ph, pv, ph, pv);
         t.setMaxWidth(ctx.getResources().getDisplayMetrics().widthPixels * 3 / 4);
         t.setBackground(me ? Ui.box(ctx, Pal.c(Pal.GOLD), 18, 0) : Ui.box(ctx, Pal.c(Pal.CARD), 18, Pal.c(Pal.BORDER)));
         r.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        r.addView(Ui.text(ctx, b.optString("time"), 10.5f, Pal.c(Pal.SUB), false));
+        r.addView(Ui.text(ctx, b.optString("time"), 9.5f, Pal.c(Pal.SUB), false));
         r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8));
         return r;
     }
@@ -634,7 +634,7 @@ final class Renderer {
         et.setHint(b.optString("hint"));
         et.setHintTextColor(Pal.c(Pal.SUB));
         et.setTextColor(Pal.c(Pal.TEXT));
-        et.setTextSize(15f);
+        et.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 13f);
         et.setTypeface(Ui.face(ctx, false));
         et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         et.setMaxLines(3);
