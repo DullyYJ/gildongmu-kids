@@ -1,0 +1,783 @@
+=== FILE: app/kids-patch/KidsRooms.java.txt ===
+package com.dullyyj.subway;
+
+import static com.dullyyj.subway.SceneUtil.*;
+
+/**
+ * 길동무 키즈 전용 — 친구들이 잠자는 시간에 보이는 집 안 배경 7곳(거실 · 이층침대 방 · 온돌방 · 다락방 · 텐트 방 · 별빛 창가방 · 책 읽는 방).
+ * 어느 방을 보일지는 엔진(키즈 Engine)이 look.place = "kroom0" ~ "kroom6" 으로 정한다. 여기는 받은 이름대로 벽 · 가구 · 바닥을 그릴 뿐이다.
+ * 창밖 하늘은 시간대 색(L.c)을 그대로 쓰고, 날씨 효과(비 · 눈 · 별똥별 · 구름)는 그리지 않는다(엔진이 look 에서 날씨를 맑음으로 고쳐 보낸다).
+ * 길동무 원본(SceneArt/ScenePlaces)은 고치지 않는다. android.* 를 쓰지 않는다.
+ */
+final class KidsRooms {
+    private KidsRooms() {}
+
+    static final int N = 7;
+    static final String[] NAMES = {"거실", "이층침대 방", "온돌방", "다락방", "텐트 방", "별빛 창가방", "책 읽는 방"};
+
+    static boolean is(SceneArt.Pal L) { return L != null && L.place != null && L.place.startsWith("kroom"); }
+    static int idx(SceneArt.Pal L) {
+        try { return Math.floorMod(Integer.parseInt(L.place.substring(5)), N); } catch (RuntimeException e) { return 0; }
+    }
+
+    // ── 밝기: 밤엔 어둡게(등불만 따뜻하게) ──
+    static double dk(SceneArt.Pal L) { return L.night ? .42 : "dawn".equals(L.slot) ? .26 : "evening".equals(L.slot) ? .16 : .04; }
+    static int d(double k, int col) { return mix(col, 0xFF0a0e2c, k); }
+    static int d(double k, String col) { return d(k, css(col)); }
+    static void glow(SceneCv c, double x, double y, double r, int cr, int cg, int cb, double al) { ScenePlaces.glowSpot(c, x, y, r, cr, cg, cb, al); }
+
+    public static SceneArt.Bg build(SceneCv root, SceneArt.Pal L, SceneArt.Geom g, double dpr, String season, boolean dark) {
+        double W = g.W, H = g.H, hy = g.hy; int tw = (int) Math.ceil(W * 1.7);
+        SceneArt.Bg bg = new SceneArt.Bg(); bg.tw = tw;
+        bg.sky = root.newLayer(W, H, dpr); bg.far = root.newLayer(tw, H, dpr); bg.mid = root.newLayer(tw, H, dpr); bg.gnd = root.newLayer(W, H + g.ext, dpr);
+        int k = idx(L); double dm = dk(L);
+        Seeded rng = new Seeded(k * 7919 + L.slot.length() * 131 + 17);
+        SceneCv ws = bg.sky.cv(), fr = bg.far.cv(), md = bg.mid.cv(), fl = bg.gnd.cv();
+        switch (k) {
+            case 0: living(ws, fr, md, fl, L, g, dm, rng); break;
+            case 1: bunk(ws, fr, md, fl, L, g, dm, rng); break;
+            case 2: ondol(ws, fr, md, fl, L, g, dm, rng); break;
+            case 3: attic(ws, fr, md, fl, L, g, dm, rng); break;
+            case 4: tent(ws, fr, md, fl, L, g, dm, rng); break;
+            case 5: starRoom(ws, fr, md, fl, L, g, dm, rng); break;
+            default: study(ws, fr, md, fl, L, g, dm, rng);
+        }
+        return bg;
+    }
+
+    // ═══ 공통 도구 ═══
+    static void wall(SceneCv c, SceneArt.Geom g, double dm, int top, int bot) {
+        SceneCv.Grad gr = c.linear(0, 0, 0, g.hy + 4).stop(0, d(dm, top)).stop(1, d(dm, bot)); c.fillGrad(gr); c.fillRect(0, 0, g.W, g.H);
+    }
+    /** 벽 아래 걸레받이 + 바닥 경계(바닥 그림이 hy+3 부터 덮는다) */
+    static void baseboard(SceneCv c, SceneArt.Geom g, double dm, String col) {
+        c.fillStyle(d(dm, col)); c.fillRect(0, g.hy - 7, g.W, 8);
+        c.fillStyle(rgba(0, 0, 0, .14)); c.fillRect(0, g.hy + 1, g.W, 3);
+    }
+    /** 바닥: 원근 가로줄 + 판자 이음 */
+    static void floor(SceneCv c, SceneArt.Geom g, double dm, String near, String far, boolean planks, double seamAlpha) {
+        double W = g.W, H = g.H, hy = g.hy, bot = H + g.ext;
+        SceneCv.Grad gr = c.linear(0, hy, 0, bot).stop(0, d(dm, far)).stop(1, d(dm, near)); c.fillGrad(gr); c.fillRect(0, hy + 3, W, bot - hy - 3);
+        c.strokeStyle(rgba(0, 0, 0, seamAlpha)); c.lineWidth(1);
+        for (double yy : SceneArt.gridRows(hy + 3, H - hy - 3, 1.6, 6, H, g.ext)) { c.beginPath(); c.moveTo(0, yy); c.lineTo(W, yy); c.stroke(); }
+        if (planks) for (int i = -10; i <= 10; i++) { c.beginPath(); c.moveTo(W / 2 + i * 22, hy + 3); c.lineTo(W / 2 + i * (22 + 40 * (bot - hy) / (H - hy)), bot); c.stroke(); }
+        SceneCv.Grad sh = c.linear(0, hy + 3, 0, hy + 30).stop(0, rgba(0, 0, 0, .20)).stop(1, rgba(0, 0, 0, 0)); c.fillGrad(sh); c.fillRect(0, hy + 3, W, 27);
+    }
+    static void rug(SceneCv c, double cx, double cy, double rx, double ry, String a, String b, double dm) {
+        c.fillStyle(rgba(0, 0, 0, .12)); c.beginPath(); c.ellipse(cx + 2, cy + 3, rx, ry, 0, 0, PI2); c.fill();
+        c.fillStyle(d(dm, a)); c.beginPath(); c.ellipse(cx, cy, rx, ry, 0, 0, PI2); c.fill();
+        c.fillStyle(d(dm, b)); c.beginPath(); c.ellipse(cx, cy, rx * .72, ry * .72, 0, 0, PI2); c.fill();
+        c.fillStyle(d(dm, a)); c.beginPath(); c.ellipse(cx, cy, rx * .42, ry * .42, 0, 0, PI2); c.fill();
+    }
+    static void shadow(SceneCv c, double cx, double y, double rx, double ry) { c.fillStyle(rgba(0, 0, 0, .16)); c.beginPath(); c.ellipse(cx, y, rx, ry, 0, 0, PI2); c.fill(); }
+
+    /** 창문: 프레임 + 하늘(시간대 색) + 달/별 + 십자살 */
+    static void window(SceneCv c, SceneArt.Pal L, double x, double y, double w, double h, double dm, boolean arch, String frame, Seeded rng) {
+        c.fillStyle(d(dm, frame));
+        if (arch) { c.beginPath(); c.moveTo(x - 4, y + h + 4); c.lineTo(x - 4, y + w / 2); c.arc(x + w / 2, y + w / 2, w / 2 + 4, PI, PI2); c.lineTo(x + w + 4, y + h + 4); c.closePath(); c.fill(); }
+        else { rr(c, x - 4, y - 4, w + 8, h + 8, 5); c.fill(); }
+        c.save();
+        if (arch) { c.beginPath(); c.moveTo(x, y + h); c.lineTo(x, y + w / 2); c.arc(x + w / 2, y + w / 2, w / 2, PI, PI2); c.lineTo(x + w, y + h); c.closePath(); } else rr(c, x, y, w, h, 3);
+        c.clip();
+        SceneCv.Grad gr = c.linear(0, y, 0, y + h).stop(0, d(dm * .35, L.c[0])).stop(.6, d(dm * .35, L.c[1])).stop(1, d(dm * .35, L.c[2])); c.fillGrad(gr); c.fillRect(x, y, w, h);
+        if (L.night || "dawn".equals(L.slot)) {
+            c.fillStyle("rgba(255,255,255,.85)");
+            for (int i = 0; i < 14; i++) { double sx = x + rng.r() * w, sy = y + rng.r() * h * .8, sr = .6 + rng.r() * 1.1; c.beginPath(); c.arc(sx, sy, sr, 0, PI2); c.fill(); }
+            if (L.moon) { c.fillStyle("#f4f1dc"); c.beginPath(); c.arc(x + w * .68, y + h * .24, Math.min(w, h) * .11, 0, PI2); c.fill(); }
+        } else { c.fillStyle("rgba(255,255,255,.7)"); c.beginPath(); c.ellipse(x + w * .3, y + h * .3, w * .2, h * .06, 0, 0, PI2); c.ellipse(x + w * .42, y + h * .27, w * .13, h * .05, 0, 0, PI2); c.fill(); }
+        c.restore();
+        c.strokeStyle(d(dm, frame)); c.lineWidth(2.4);
+        c.beginPath(); c.moveTo(x + w / 2, y); c.lineTo(x + w / 2, y + h); c.moveTo(x, y + h * .52); c.lineTo(x + w, y + h * .52); c.stroke();
+        c.fillStyle(d(dm, shade(css(frame), -.12))); c.fillRect(x - 8, y + h + 3, w + 16, 4);
+    }
+    static void curtain(SceneCv c, double x, double y, double w, double h, String col, double dm, boolean left) {
+        c.fillStyle(d(dm, col)); c.beginPath(); c.moveTo(x, y); c.lineTo(x + w, y); c.lineTo(left ? x + w * .78 : x + w, y + h); c.lineTo(left ? x : x + w * .22, y + h); c.closePath(); c.fill();
+        c.strokeStyle(rgba(0, 0, 0, .12)); c.lineWidth(1);
+        for (int i = 1; i < 4; i++) { c.beginPath(); c.moveTo(x + w * i / 4, y); c.lineTo(x + w * i / 4 + (left ? -2 : 2), y + h); c.stroke(); }
+        c.fillStyle(d(dm, "#b8956a")); c.fillRect(x - 3, y - 4, w + 6, 4);
+    }
+    static void frameArt(SceneCv c, double x, double y, double w, double h, double dm, String frame, int a, int b) {
+        c.fillStyle(d(dm, frame)); rr(c, x, y, w, h, 2); c.fill();
+        c.fillStyle(d(dm, a)); c.fillRect(x + 3, y + 3, w - 6, h - 6);
+        c.fillStyle(d(dm, b)); c.beginPath(); c.moveTo(x + 3, y + h - 3); c.lineTo(x + w * .38, y + h * .45); c.lineTo(x + w * .62, y + h * .7); c.lineTo(x + w * .78, y + h * .5); c.lineTo(x + w - 3, y + h - 3); c.closePath(); c.fill();
+        c.fillStyle(d(dm, "#ffe9a8")); c.beginPath(); c.arc(x + w * .72, y + h * .3, Math.min(w, h) * .09, 0, PI2); c.fill();
+    }
+    static void bookshelf(SceneCv c, double x, double base, double w, double h, double dm, String wood, Seeded rng, int rows) {
+        double top = base - h;
+        c.fillStyle(rgba(0, 0, 0, .13)); c.fillRect(x - 2, top + 3, w + 6, h);
+        c.fillStyle(d(dm, wood)); c.fillRect(x, top, w, h);
+        c.fillStyle(d(dm, shade(css(wood), -.25))); c.fillRect(x + 3, top + 3, w - 6, h - 6);
+        String[] bc = {"#d9534f", "#f0ad4e", "#5bc0de", "#5cb85c", "#9b6bd1", "#e86f9f", "#3f6fb5", "#e8d28a"};
+        double rh = (h - 6) / rows;
+        for (int r = 0; r < rows; r++) {
+            double ry = top + 3 + r * rh; double bx = x + 5;
+            while (bx < x + w - 9) {
+                double bw = 3 + rng.r() * 5, bh = rh * (.55 + rng.r() * .38);
+                c.fillStyle(d(dm, bc[rng.pick(bc.length)])); c.fillRect(bx, ry + rh - 3 - bh, bw, bh); bx += bw + .6;
+            }
+            c.fillStyle(d(dm, wood)); c.fillRect(x + 2, ry + rh - 3, w - 4, 3);
+        }
+    }
+    static void sofa(SceneCv c, double x, double base, double w, double h, String col, double dm) {
+        int a = d(dm, col), b = d(dm, shade(css(col), .12)), s = d(dm, shade(css(col), -.18));
+        shadow(c, x + w / 2, base + 3, w * .55, 5);
+        c.fillStyle(s); rr(c, x, base - h * .95, w, h * .8, 9); c.fill();
+        c.fillStyle(a); rr(c, x + w * .08, base - h * .98, w * .84, h * .5, 8); c.fill();
+        c.fillStyle(b); rr(c, x + w * .06, base - h * .52, w * .88, h * .36, 8); c.fill();
+        c.fillStyle(s); rr(c, x - 2, base - h * .62, w * .12, h * .6, 6); c.fill(); rr(c, x + w * .9, base - h * .62, w * .12, h * .6, 6); c.fill();
+        c.fillStyle(d(dm, "#5a4636")); c.fillRect(x + 4, base - h * .06, 4, h * .08); c.fillRect(x + w - 8, base - h * .06, 4, h * .08);
+        c.strokeStyle(rgba(0, 0, 0, .12)); c.lineWidth(1); c.beginPath(); c.moveTo(x + w / 2, base - h * .5); c.lineTo(x + w / 2, base - h * .16); c.stroke();
+    }
+    static void cushion(SceneCv c, double x, double y, double s, String col, double dm, double rot) {
+        c.save(); c.translate(x, y); c.rotate(rot); c.fillStyle(d(dm, col)); rr(c, -s / 2, -s / 2, s, s, s * .22); c.fill();
+        c.fillStyle(rgba(255, 255, 255, .16)); rr(c, -s * .38, -s * .38, s * .5, s * .22, s * .1); c.fill(); c.restore();
+    }
+    static void lampFloor(SceneCv c, double x, double base, double h, double dm, double glowAlpha) {
+        glow(c, x, base - h * .86, h * 1.05, 255, 214, 140, glowAlpha);
+        c.fillStyle(d(dm * .5, "#6b4f35")); c.fillRect(x - 1.4, base - h * .82, 2.8, h * .82); c.fillRect(x - 7, base - 3, 14, 3.4);
+        c.fillStyle(d(dm * .35, "#fff1c4")); c.beginPath(); c.moveTo(x - 10, base - h * .7); c.lineTo(x - 5, base - h); c.lineTo(x + 5, base - h); c.lineTo(x + 10, base - h * .7); c.closePath(); c.fill();
+    }
+    static void plant(SceneCv c, double x, double base, double h, double dm) {
+        c.fillStyle(d(dm, "#c77b50")); c.beginPath(); c.moveTo(x - h * .16, base - h * .26); c.lineTo(x + h * .16, base - h * .26); c.lineTo(x + h * .11, base); c.lineTo(x - h * .11, base); c.closePath(); c.fill();
+        String[] lc = {"#3f9a5a", "#4fa866", "#62b878"};
+        for (int i = 0; i < 6; i++) { double a = -PI / 2 + (i - 2.5) * .34; c.fillStyle(d(dm, lc[i % 3])); c.beginPath(); c.ellipse(x + Math.cos(a) * h * .26, base - h * .3 + Math.sin(a) * h * .42, h * .08, h * .22, a + PI / 2, 0, PI2); c.fill(); }
+    }
+    static void clock(SceneCv c, double x, double y, double r, double dm) {
+        c.fillStyle(d(dm, "#7a5a3a")); c.beginPath(); c.arc(x, y, r + 2.5, 0, PI2); c.fill();
+        c.fillStyle(d(dm * .5, "#fff7e6")); c.beginPath(); c.arc(x, y, r, 0, PI2); c.fill();
+        c.strokeStyle(d(dm, "#3a2e26")); c.lineWidth(1.6); c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - r * .62); c.moveTo(x, y); c.lineTo(x + r * .42, y + r * .18); c.stroke();
+    }
+    static void stars(SceneCv c, double W, double hy, Seeded rng, int n, double dm) {
+        c.fillStyle(rgba(255, 238, 170, .75 - dm * .3));
+        for (int i = 0; i < n; i++) { double sx = rng.r() * W, sy = 8 + rng.r() * (hy - 40); starShape(c, sx, sy, 2.2 + rng.r() * 2.2); }
+    }
+    static void starShape(SceneCv c, double x, double y, double r) {
+        c.beginPath(); for (int i = 0; i < 10; i++) { double a = -PI / 2 + i * PI / 5, rr2 = i % 2 == 0 ? r : r * .45; double px = x + Math.cos(a) * rr2, py = y + Math.sin(a) * rr2; if (i == 0) c.moveTo(px, py); else c.lineTo(px, py); } c.closePath(); c.fill();
+    }
+    static void fairy(SceneCv c, double x0, double x1, double y, double sag, double dm, Seeded rng, int n) {
+        c.strokeStyle(d(dm, "#5a4636")); c.lineWidth(1); c.beginPath(); c.moveTo(x0, y);
+        for (int i = 1; i <= 24; i++) { double u = i / 24.0; c.lineTo(x0 + (x1 - x0) * u, y + Math.sin(u * PI) * sag); } c.stroke();
+        String[] cc = {"#ffd86b", "#ff9fb8", "#9fd8ff", "#b6f2a4"};
+        for (int i = 0; i < n; i++) { double u = (i + .5) / n, bx = x0 + (x1 - x0) * u, by = y + Math.sin(u * PI) * sag + 4; String col = cc[i % 4]; int rgb = css(col);
+            glow(c, bx, by, 15, (rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, .55); c.fillStyle(css(col)); c.beginPath(); c.arc(bx, by, 2.4, 0, PI2); c.fill(); }
+    }
+    static void toyBlocks(SceneCv c, double x, double base, double s, double dm) {
+        String[] cc = {"#e85d5d", "#4d9de0", "#f2c14e", "#5fbf7a"};
+        for (int i = 0; i < 3; i++) { c.fillStyle(d(dm, cc[i])); c.fillRect(x + i * (s + 1), base - s, s, s); c.fillStyle(rgba(255, 255, 255, .22)); c.fillRect(x + i * (s + 1), base - s, s, 2); }
+        c.fillStyle(d(dm, cc[3])); c.fillRect(x + (s + 1) * .5, base - s * 2 - 1, s, s);
+    }
+
+    // ═══ 0 거실 ═══
+    static void living(SceneCv w, SceneCv far, SceneCv mid, SceneCv fl, SceneArt.Pal L, SceneArt.Geom g, double dm, Seeded rng) {
+        double W = g.W, hy = g.hy; double u = Math.max(.7, hy / 190);
+        wall(w, g, dm, css("#efdcc0"), css("#e3c9a4")); baseboard(w, g, dm, "#fbf3e4");
+        w.fillStyle(rgba(120, 80, 40, .06)); for (double x = 0; x < W; x += 26) w.fillRect(x, 0, 13, hy);
+        window(w, L, W * .64, hy * .2, W * .24, hy * .5, dm, false, "#fbf3e4", rng);
+        frameArt(w, W * .12, hy * .22, W * .13, hy * .26, dm, "#8a6a4a", css("#a9d4f0"), css("#5fa36a"));
+        frameArt(w, W * .29, hy * .3, W * .1, hy * .2, dm, "#8a6a4a", css("#f6c9a6"), css("#c97a5a"));
+        clock(w, W * .5, hy * .2, 9 * u, dm);
+        floor(fl, g, dm, "#c8935f", "#a97a4c", true, .1);
+        rug(fl, W * .45, hy + (g.H - hy) * .44, W * .3, (g.H - hy) * .2, "#cf6b6b", "#f1d0a0", dm);
+        curtain(mid, W * .59, hy * .12, W * .06, hy * .66, "#d98a8a", dm, true); curtain(mid, W * .88, hy * .12, W * .06, hy * .66, "#d98a8a", dm, false);
+        bookshelf(far, W * .02, hy + 4, W * .13, hy * .78, dm, "#8a6a4a", rng, 4);
+        sofa(mid, W * .19, hy + 4, W * .31, hy * .42, "#6f8fb5", dm);
+        cushion(mid, W * .27, hy - hy * .26, 17 * u, "#f2c14e", dm, -.18); cushion(mid, W * .42, hy - hy * .26, 17 * u, "#e07a7a", dm, .16);
+        plant(mid, W * .965, hy + 4, hy * .46, dm);
+        lampFloor(mid, W * .54, hy + 5, hy * .78, dm, .8);
+        glow(fl, W * .54, hy + 30, hy * .6, 255, 214, 140, .22 * (1 - dm * .6));
+    }
+
+    // ═══ 1 이층침대 방 ═══
+    static void bunk(SceneCv w, SceneCv far, SceneCv mid, SceneCv fl, SceneArt.Pal L, SceneArt.Geom g, double dm, Seeded rng) {
+        double W = g.W, hy = g.hy; double u = Math.max(.7, hy / 190);
+        wall(w, g, dm, css("#bcd9ef"), css("#a9c9e6")); baseboard(w, g, dm, "#ffffff");
+        w.fillStyle(rgba(255, 255, 255, .5)); stars(w, W, hy, rng, 16, dm);
+        window(w, L, W * .7, hy * .16, W * .22, hy * .42, dm, false, "#ffffff", rng);
+        frameArt(w, W * .46, hy * .2, W * .1, hy * .2, dm, "#ffffff", css("#ffe9a8"), css("#6fbf73"));
+        floor(fl, g, dm, "#d9b88c", "#c39f72", true, .08);
+        rug(fl, W * .55, hy + (g.H - hy) * .5, W * .28, (g.H - hy) * .19, "#7fb2e0", "#fff0b8", dm);
+        // 이층침대
+        double bx = W * .03, bw = W * .4, bh = hy * .92, base = hy + 4;
+        shadow(mid, bx + bw / 2, base + 3, bw * .55, 5);
+        mid.fillStyle(d(dm, "#c28a55")); mid.fillRect(bx, base - bh, 6, bh); mid.fillRect(bx + bw - 6, base - bh, 6, bh);
+        for (int lv = 0; lv < 2; lv++) {
+            double ly = base - bh * (.26 + lv * .46);
+            mid.fillStyle(d(dm, "#c28a55")); mid.fillRect(bx, ly, bw, 5);
+            mid.fillStyle(d(dm, lv == 0 ? "#f4f0ff" : "#fff6e0")); rr(mid, bx + 7, ly - bh * .1, bw - 14, bh * .12, 6); mid.fill();
+            mid.fillStyle(d(dm, lv == 0 ? "#7d6bd1" : "#e07a7a")); rr(mid, bx + bw * .28, ly - bh * .1, bw * .68, bh * .1, 6); mid.fill();
+            mid.fillStyle(d(dm, "#fffdf6")); rr(mid, bx + 10, ly - bh * .13, bw * .2, bh * .09, 5); mid.fill();
+        }
+        mid.fillStyle(d(dm, "#c28a55")); mid.fillRect(bx, base - bh, bw, 5);
+        mid.fillStyle(d(dm, "#a67140")); mid.fillRect(bx + bw - 5, base - bh * .7, 3, bh * .45);
+        glow(mid, bx + bw * .5, base - bh * .78, bh * .55, 255, 220, 150, .4);
+        bookshelf(far, W * .5, hy + 4, W * .17, hy * .52, dm, "#c28a55", rng, 3);
+        toyBlocks(fl, W * .76, hy + (g.H - hy) * .12, 10 * u, dm);
+        plant(mid, W * .95, hy + 4, hy * .5, dm);
+    }
+
+    // ═══ 2 온돌방 ═══
+    static void ondol(SceneCv w, SceneCv far, SceneCv mid, SceneCv fl, SceneArt.Pal L, SceneArt.Geom g, double dm, Seeded rng) {
+        double W = g.W, hy = g.hy; double u = Math.max(.7, hy / 190);
+        wall(w, g, dm, css("#f1e6cc"), css("#e6d6b2")); baseboard(w, g, dm, "#a77b4f");
+        // 창호(격자 문)
+        double wx = W * .38, wy = hy * .16, ww = W * .26, wh = hy * .6;
+        w.fillStyle(d(dm, "#8a5f38")); rr(w, wx - 5, wy - 5, ww + 10, wh + 10, 3); w.fill();
+        w.fillStyle(d(dm * .3, "#fff6dc")); w.fillRect(wx, wy, ww, wh);
+        glow(w, wx + ww / 2, wy + wh / 2, ww * .9, 255, 226, 160, .45 * (1 - dm));
+        w.strokeStyle(d(dm, "#8a5f38")); w.lineWidth(1.8);
+        for (int i = 1; i < 5; i++) { w.beginPath(); w.moveTo(wx + ww * i / 5, wy); w.lineTo(wx + ww * i / 5, wy + wh); w.stroke(); }
+        for (int i = 1; i < 6; i++) { w.beginPath(); w.moveTo(wx, wy + wh * i / 6); w.lineTo(wx + ww, wy + wh * i / 6); w.stroke(); }
+        frameArt(w, W * .12, hy * .22, W * .1, hy * .28, dm, "#8a5f38", css("#f7ecd0"), css("#7a9a7a"));
+        frameArt(w, W * .25, hy * .22, W * .08, hy * .24, dm, "#8a5f38", css("#f7ecd0"), css("#b07a5a"));
+        floor(fl, g, dm, "#dba95e", "#c99647", false, .08);
+        fl.strokeStyle(rgba(120, 70, 20, .12)); fl.lineWidth(1.2);
+        for (double yy : SceneArt.gridRows(hy + 3, g.H - hy - 3, 1.6, 4, g.H, g.ext)) for (double x = (int) (yy) % 40; x < W; x += 54) { fl.beginPath(); fl.arc(x, yy + 7, 8, 0, PI); fl.stroke(); }
+        // 바닥 이불 3채
+        String[] qc = {"#e07a9a", "#6f9fd8", "#8fcf8a"};
+        for (int i = 0; i < 3; i++) {
+            double fx = W * (.14 + i * .3), fy = hy + (g.H - hy) * (.4 + (i % 2) * .12), fwid = W * .24, fh = (g.H - hy) * .24;
+            fl.fillStyle(rgba(0, 0, 0, .12)); rr(fl, fx + 2, fy + 3, fwid, fh, 6); fl.fill();
+            fl.fillStyle(d(dm, qc[i])); rr(fl, fx, fy, fwid, fh, 6); fl.fill();
+            fl.fillStyle(rgba(255, 255, 255, .2)); rr(fl, fx + fwid * .3, fy + 3, fwid * .66, fh - 6, 5); fl.fill();
+            fl.fillStyle(d(dm, "#fffaf0")); rr(fl, fx + 5, fy + fh * .18, fwid * .22, fh * .64, 5); fl.fill();
+        }
+        // 장롱
+        double cx = W * .78, cw = W * .2, ch = hy * .86;
+        shadow(mid, cx + cw / 2, hy + 7, cw * .55, 5);
+        mid.fillStyle(d(dm, "#6b3f24")); mid.fillRect(cx, hy + 4 - ch, cw, ch);
+        mid.fillStyle(d(dm, "#8a5532")); mid.fillRect(cx + 3, hy + 4 - ch + 3, cw / 2 - 4, ch - 8); mid.fillRect(cx + cw / 2 + 1, hy + 4 - ch + 3, cw / 2 - 4, ch - 8);
+        mid.fillStyle(d(dm * .5, "#e8d28a")); mid.fillRect(cx + cw / 2 - 5, hy + 4 - ch * .52, 3, 8); mid.fillRect(cx + cw / 2 + 2, hy + 4 - ch * .52, 3, 8);
+        for (int i = 0; i < 6; i++) { mid.fillStyle(rgba(255, 245, 200, .35)); mid.beginPath(); mid.arc(cx + 10 + rng.r() * (cw / 2 - 20), hy + 4 - ch * (.2 + rng.r() * .6), 1.5, 0, PI2); mid.fill(); }
+        // 개어 둔 이불
+        double sx = W * .02, sh0 = hy * .5;
+        String[] sc = {"#e07a9a", "#f2c14e", "#6f9fd8"};
+        for (int i = 0; i < 3; i++) { mid.fillStyle(d(dm, sc[i])); rr(mid, sx, hy + 4 - sh0 * (i + 1) / 3, W * .2, sh0 / 3 - 1, 5); mid.fill(); }
+        lampFloor(mid, W * .68, hy + 5, hy * .6, dm, .6);
+    }
+
+    // ═══ 3 다락방 ═══
+    static void attic(SceneCv w, SceneCv far, SceneCv mid, SceneCv fl, SceneArt.Pal L, SceneArt.Geom g, double dm, Seeded rng) {
+        double W = g.W, hy = g.hy; double u = Math.max(.7, hy / 190);
+        wall(w, g, dm, css("#a97c52"), css("#8f6743"));
+        w.strokeStyle(rgba(60, 35, 15, .28)); w.lineWidth(1);
+        for (double y = 12; y < hy; y += 16) { w.beginPath(); w.moveTo(0, y); w.lineTo(W, y); w.stroke(); }
+        // 기울어진 천장
+        w.fillStyle(d(dm, "#6b4a2e")); w.beginPath(); w.moveTo(0, 0); w.lineTo(W * .3, 0); w.lineTo(0, hy * .55); w.closePath(); w.fill();
+        w.beginPath(); w.moveTo(W, 0); w.lineTo(W * .7, 0); w.lineTo(W, hy * .55); w.closePath(); w.fill();
+        baseboard(w, g, dm, "#5a3c24");
+        window(w, L, W * .4, hy * .1, W * .2, W * .2, dm, true, "#f3e2c2", rng);
+        frameArt(w, W * .1, hy * .5, W * .09, hy * .2, dm, "#e8d2a8", css("#f6e3b8"), css("#b87a4a"));
+        floor(fl, g, dm, "#8c6642", "#7a5636", true, .14);
+        rug(fl, W * .5, hy + (g.H - hy) * .5, W * .3, (g.H - hy) * .2, "#9b5fa5", "#e8c9ef", dm);
+        // 트렁크와 상자
+        double base = hy + 5;
+        shadow(mid, W * .16, base + 2, W * .13, 4);
+        mid.fillStyle(d(dm, "#7a4a2a")); rr(mid, W * .06, base - hy * .3, W * .2, hy * .3, 5); mid.fill();
+        mid.fillStyle(d(dm, "#a06a3a")); mid.fillRect(W * .06, base - hy * .3, W * .2, 5); mid.fillStyle(d(dm * .4, "#e8d28a")); mid.fillRect(W * .15, base - hy * .22, W * .02, 7);
+        mid.fillStyle(d(dm, "#c9a26b")); mid.fillRect(W * .72, base - hy * .22, W * .13, hy * .22); mid.fillRect(W * .76, base - hy * .4, W * .11, hy * .18);
+        mid.strokeStyle(rgba(80, 50, 20, .5)); mid.lineWidth(1.2); mid.beginPath(); mid.moveTo(W * .72, base - hy * .13); mid.lineTo(W * .85, base - hy * .13); mid.stroke();
+        plant(mid, W * .92, base, hy * .5, dm);
+        // 요정 전구
+        fairy(mid, W * .02, W * .98, hy * .08, hy * .12, dm, rng, 12);
+        glow(fl, W * .5, hy + 40, hy * .7, 255, 200, 120, .16);
+    }
+
+    // ═══ 4 텐트 방 ═══
+    static void tent(SceneCv w, SceneCv far, SceneCv mid, SceneCv fl, SceneArt.Pal L, SceneArt.Geom g, double dm, Seeded rng) {
+        double W = g.W, hy = g.hy; double u = Math.max(.7, hy / 190);
+        wall(w, g, dm, css("#f4d6df"), css("#ecc3d1")); baseboard(w, g, dm, "#ffffff");
+        stars(w, W, hy, rng, 18, dm);
+        window(w, L, W * .06, hy * .2, W * .18, hy * .4, dm, false, "#ffffff", rng);
+        frameArt(w, W * .78, hy * .2, W * .12, hy * .26, dm, "#ffffff", css("#ffe6a8"), css("#7fb2e0"));
+        floor(fl, g, dm, "#e6c9a4", "#d4b48a", true, .08);
+        rug(fl, W * .5, hy + (g.H - hy) * .5, W * .36, (g.H - hy) * .24, "#b79ae0", "#fff0f5", dm);
+        // 놀이 텐트
+        double cx = W * .5, tw2 = W * .34, th = hy * .92, base = hy + 6;
+        shadow(mid, cx, base + 3, tw2 * .6, 6);
+        mid.fillStyle(d(dm, "#f2a65a")); mid.beginPath(); mid.moveTo(cx - tw2 / 2, base); mid.lineTo(cx, base - th); mid.lineTo(cx + tw2 / 2, base); mid.closePath(); mid.fill();
+        mid.fillStyle(d(dm, "#fff0d0"));
+        for (int i = 0; i < 3; i++) { double a0 = -tw2 / 2 + tw2 * i / 3 * .98; mid.beginPath(); mid.moveTo(cx, base - th); mid.lineTo(cx + a0, base); mid.lineTo(cx + a0 + tw2 / 9, base); mid.closePath(); mid.fill(); }
+        mid.fillStyle(d(dm * .2, "#ffd98a")); mid.beginPath(); mid.moveTo(cx - tw2 * .15, base); mid.lineTo(cx, base - th * .55); mid.lineTo(cx + tw2 * .15, base); mid.closePath(); mid.fill();
+        glow(mid, cx, base - th * .25, tw2 * .5, 255, 214, 130, .55);
+        mid.fillStyle(d(dm, "#e0803a")); mid.beginPath(); mid.moveTo(cx - tw2 * .15, base); mid.lineTo(cx - tw2 * .3, base); mid.lineTo(cx - tw2 * .06, base - th * .5); mid.closePath(); mid.fill();
+        mid.beginPath(); mid.moveTo(cx + tw2 * .15, base); mid.lineTo(cx + tw2 * .3, base); mid.lineTo(cx + tw2 * .06, base - th * .5); mid.closePath(); mid.fill();
+        mid.strokeStyle(d(dm, "#7a5a3a")); mid.lineWidth(2); mid.beginPath(); mid.moveTo(cx, base - th); mid.lineTo(cx, base - th - 10 * u); mid.stroke();
+        mid.fillStyle(d(dm * .4, "#ff6f7f")); mid.beginPath(); mid.moveTo(cx, base - th - 10 * u); mid.lineTo(cx + 12 * u, base - th - 6 * u); mid.lineTo(cx, base - th - 2 * u); mid.closePath(); mid.fill();
+        cushion(fl, W * .13, hy + (g.H - hy) * .12, 24 * u, "#8fcf8a", dm, -.2); cushion(fl, W * .87, hy + (g.H - hy) * .1, 24 * u, "#f2c14e", dm, .2); cushion(fl, W * .22, hy + (g.H - hy) * .17, 18 * u, "#e07a9a", dm, .3);
+        fairy(mid, W * .02, W * .98, hy * .06, hy * .1, dm, rng, 11);
+        plant(mid, W * .95, hy + 4, hy * .5, dm);
+    }
+
+    // ═══ 5 별빛 창가방 ═══
+    static void starRoom(SceneCv w, SceneCv far, SceneCv mid, SceneCv fl, SceneArt.Pal L, SceneArt.Geom g, double dm, Seeded rng) {
+        double W = g.W, hy = g.hy; double u = Math.max(.7, hy / 190);
+        wall(w, g, dm, css("#8d9ad0"), css("#7a88c2")); baseboard(w, g, dm, "#dfe4f7");
+        w.fillStyle(rgba(255, 255, 255, .5)); stars(w, W, hy, rng, 12, dm);
+        window(w, L, W * .26, hy * .06, W * .48, hy * .74, dm, true, "#eef0fb", rng);
+        // 달빛 무늬(바닥)
+        floor(fl, g, dm, "#a98a68", "#8d7152", true, .1);
+        fl.fillStyle(rgba(200, 220, 255, .18)); fl.beginPath(); fl.moveTo(W * .3, hy + 3); fl.lineTo(W * .7, hy + 3); fl.lineTo(W * .88, g.H * .9); fl.lineTo(W * .12, g.H * .9); fl.closePath(); fl.fill();
+        rug(fl, W * .5, hy + (g.H - hy) * .56, W * .28, (g.H - hy) * .19, "#5f6fb5", "#dfe4f7", dm);
+        curtain(mid, W * .1, hy * .04, W * .15, hy * .86, "#d9a0c8", dm, true); curtain(mid, W * .75, hy * .04, W * .15, hy * .86, "#d9a0c8", dm, false);
+        // 창가 의자(벤치)
+        double bx = W * .28, bw = W * .44, base = hy + 5, bh = hy * .26;
+        shadow(mid, bx + bw / 2, base + 2, bw * .55, 5);
+        mid.fillStyle(d(dm, "#d9c3a0")); mid.fillRect(bx, base - bh, bw, bh);
+        mid.fillStyle(d(dm, "#b79a76")); mid.fillRect(bx, base - bh * .15, bw, bh * .15);
+        mid.fillStyle(d(dm, "#7f8fd8")); rr(mid, bx - 3, base - bh - 8, bw + 6, 10, 5); mid.fill();
+        cushion(mid, bx + bw * .22, base - bh - 15 * u, 20 * u, "#f6d77a", dm, -.1); cushion(mid, bx + bw * .8, base - bh - 14 * u, 18 * u, "#e07aa8", dm, .15);
+        // 별 모빌
+        for (int i = 0; i < 3; i++) { double mx = W * (.18 + i * .32), len = hy * (.18 + (i % 2) * .08); mid.strokeStyle(rgba(255, 255, 255, .5)); mid.lineWidth(1); mid.beginPath(); mid.moveTo(mx, 0); mid.lineTo(mx, len); mid.stroke();
+            glow(mid, mx, len, 14, 255, 232, 150, .45); mid.fillStyle(css("#ffe38a")); starShape(mid, mx, len, 6 * u); }
+        plant(mid, W * .06, hy + 4, hy * .5, dm);
+        lampFloor(mid, W * .93, hy + 5, hy * .62, dm, .7);
+    }
+
+    // ═══ 6 책 읽는 방 ═══
+    static void study(SceneCv w, SceneCv far, SceneCv mid, SceneCv fl, SceneArt.Pal L, SceneArt.Geom g, double dm, Seeded rng) {
+        double W = g.W, hy = g.hy; double u = Math.max(.7, hy / 190);
+        wall(w, g, dm, css("#c3d6b6"), css("#b2c8a3")); baseboard(w, g, dm, "#7a5a3a");
+        window(w, L, W * .4, hy * .18, W * .2, hy * .46, dm, false, "#f4ecd8", rng);
+        clock(w, W * .5, hy * .08 + 6, 8 * u, dm);
+        floor(fl, g, dm, "#b9895a", "#9d7448", true, .12);
+        rug(fl, W * .5, hy + (g.H - hy) * .55, W * .32, (g.H - hy) * .22, "#a35f4d", "#e9d2a6", dm);
+        bookshelf(far, W * .01, hy + 4, W * .3, hy * .92, dm, "#7a5030", rng, 5);
+        bookshelf(far, W * .69, hy + 4, W * .3, hy * .92, dm, "#7a5030", rng, 5);
+        // 안락의자 + 스탠드
+        double ax = W * .38, aw = W * .24, ah = hy * .5, base = hy + 6;
+        shadow(mid, ax + aw / 2, base + 2, aw * .6, 5);
+        mid.fillStyle(d(dm, "#b55d4f")); rr(mid, ax, base - ah, aw, ah * .92, 10); mid.fill();
+        mid.fillStyle(d(dm, "#c97a68")); rr(mid, ax + aw * .12, base - ah * .55, aw * .76, ah * .42, 8); mid.fill();
+        mid.fillStyle(d(dm, "#a24f42")); rr(mid, ax - 5, base - ah * .6, aw * .16, ah * .6, 6); mid.fill(); rr(mid, ax + aw - aw * .16 + 5, base - ah * .6, aw * .16, ah * .6, 6); mid.fill();
+        cushion(mid, ax + aw * .5, base - ah * .58, 16 * u, "#f2c14e", dm, 0);
+        lampFloor(mid, W * .34, hy + 5, hy * .82, dm, .85);
+        // 지구본
+        double gx = W * .66, gy = hy + 4;
+        mid.fillStyle(d(dm, "#6b4a2e")); mid.fillRect(gx - 1.5, gy - 16 * u, 3, 16 * u); mid.fillRect(gx - 8, gy - 3, 16, 3);
+        mid.fillStyle(d(dm, "#5fa0d8")); mid.beginPath(); mid.arc(gx, gy - 24 * u, 11 * u, 0, PI2); mid.fill();
+        mid.fillStyle(d(dm, "#6fbf73")); mid.beginPath(); mid.ellipse(gx - 3, gy - 26 * u, 5 * u, 4 * u, .4, 0, PI2); mid.ellipse(gx + 4, gy - 21 * u, 3 * u, 2.4 * u, -.3, 0, PI2); mid.fill();
+        glow(fl, W * .34, hy + 34, hy * .6, 255, 214, 140, .2);
+    }
+}
+=== FILE: app/src/main/java/com/dullyyj/kids/QuestStars.java ===
+package com.dullyyj.kids;
+
+import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import org.json.JSONObject;
+
+/** 퀘스트 맨 위 스타포인트 줄 — 별 그림(직접 그린다)과 숫자. 서버가 준 값을 그리기만 하고, 값이 늘어난 순간에는 별이 한 번 톡 커진다. */
+final class QuestStars {
+    private static int last = -1;
+
+    private QuestStars() {
+    }
+
+    /** 금색 별 하나(꼭지점 5개). */
+    private static final class StarIcon extends View {
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+
+        StarIcon(Context c) {
+            super(c);
+            p.setStyle(Paint.Style.FILL);
+        }
+
+        @Override
+        protected void onDraw(Canvas cv) {
+            float w = getWidth(), h = getHeight(), cx = w / 2f, cy = h / 2f + h * 0.03f, ro = Math.min(w, h) / 2f, ri = ro * 0.46f;
+            path.reset();
+            for (int i = 0; i < 10; i++) {
+                double a = -Math.PI / 2 + i * Math.PI / 5;
+                float r = i % 2 == 0 ? ro : ri;
+                float x = cx + (float) Math.cos(a) * r, y = cy + (float) Math.sin(a) * r;
+                if (i == 0) path.moveTo(x, y);
+                else path.lineTo(x, y);
+            }
+            path.close();
+            p.setColor(Pal.c(Pal.GOLD));
+            cv.drawPath(path, p);
+            p.setColor(0x55FFFFFF);
+            cv.drawCircle(cx - ro * 0.18f, cy - ro * 0.22f, ro * 0.16f, p);
+        }
+    }
+
+    static View make(Context c, JSONObject b) {
+        int n = Math.max(0, b.optInt("n", 0));
+        LinearLayout r = new LinearLayout(c);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = Ui.dpi(c, 12);
+        r.setPadding(pad + Ui.dpi(c, 2), pad, pad + Ui.dpi(c, 2), pad);
+        r.setBackground(Ui.box(c, Pal.c(Pal.CARD), 16, Pal.c(Pal.BORDER)));
+        StarIcon icon = new StarIcon(c);
+        r.addView(icon, new LinearLayout.LayoutParams(Ui.dpi(c, 30), Ui.dpi(c, 30)));
+        LinearLayout mid = new LinearLayout(c);
+        mid.setOrientation(LinearLayout.VERTICAL);
+        mid.addView(Ui.text(c, b.optString("label", "스타포인트"), 13f, Pal.c(Pal.TEXT), true));
+        String sub = b.optString("sub", "");
+        if (!sub.isEmpty()) {
+            TextView st = Ui.text(c, sub, 11f, Pal.c(Pal.ORANGE), false);
+            LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            sl.topMargin = Ui.dpi(c, 2);
+            mid.addView(st, sl);
+        }
+        LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        ml.leftMargin = Ui.dpi(c, 10);
+        r.addView(mid, ml);
+        r.addView(Ui.text(c, String.valueOf(n), 22f, Pal.c(Pal.GOLD), true));
+        if (last >= 0 && n > last) {
+            icon.setScaleX(0.6f);
+            icon.setScaleY(0.6f);
+            icon.animate().scaleX(1f).scaleY(1f).setDuration(520L).setInterpolator(new android.view.animation.OvershootInterpolator(2.4f)).start();
+        }
+        last = n;
+        return r;
+    }
+}
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+private String sceneOut(long now) {
+@@ new
+/** 밤 방(0~6) 번호. 누군가 밤 일과로 자는 중이면 그날 밤의 방, 아니면 -1. 자정을 넘겨도 같은 밤은 같은 방이다. */
+private int roomOf(long now) {
+boolean night = false;
+for (int i = 0; i < fs.size(); i++) {
+if (wakeAt(fs.get(i), now) != 0L) {
+night = true;
+break;
+}
+}
+if (!night) return -1;
+long loc = now + tzOf(now), day = loc / DAY_MS;
+if ((int) ((loc % DAY_MS) / 60000L) < SLEEP_AT_MIN) day--;
+return (int) (((day % 7L) + 7L) % 7L);
+}
+
+private boolean napping(long now) {
+for (int i = 0; i < fs.size(); i++) {
+F f = fs.get(i);
+if ("sleep".equals(f.tm) && f.tmUntil > now) return true;
+}
+return false;
+}
+
+private String holdPlace = "";
+
+private String basePlace() {
+try {
+JSONObject lk = new JSONObject(sceneJson).optJSONObject("look");
+return lk == null ? "" : lk.optString("place", "");
+} catch (Exception e) {
+return "";
+}
+}
+
+/** 잠자는 동안 장면의 장소를 정한다. 밤에는 집 안 방, 낮잠 중에는 지금 장소를 붙잡아 둔다 — 장소가 바뀌면 친구들이 걸어 나가며 잠이 깨기 때문이다. 해당 없으면 null(서버 장소 그대로). */
+private String sceneRoom(long now) {
+int r = roomOf(now);
+if (r >= 0) {
+holdPlace = "";
+return "kroom" + r;
+}
+if (napping(now)) {
+if (holdPlace.isEmpty()) holdPlace = basePlace();
+return holdPlace.isEmpty() ? null : holdPlace;
+}
+holdPlace = "";
+return null;
+}
+
+private String sceneOut(long now) {
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+String key = String.valueOf(sceneGotT);
+@@ new
+final String rmP = sceneRoom(now);
+String key = sceneGotT + "|" + (rmP == null ? "" : rmP);
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+o.put("cast", c);
+@@ new
+o.put("cast", c);
+if (rmP != null) {
+JSONObject lk = o.optJSONObject("look");
+if (lk == null) {
+lk = new JSONObject();
+o.put("look", lk);
+}
+lk.put("place", rmP);
+}
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+.append(viewDp).append(Poke.shown());
+@@ new
+.append(viewDp).append(Poke.shown()).append(String.valueOf(sceneRoom(lastNow)));
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+private boolean swiped(android.view.MotionEvent e) {
+@@ new
+private boolean drag;
+
+/** 퀘스트처럼 좌우로 넘기는 칸이면 손가락을 따라 아래 박스가 움직이고, 충분히 밀면 다음 칸으로 넘어간다. */
+private boolean swiped(android.view.MotionEvent e) {
+if (swipeActs == null || swipeActs.size() < 2) return swipedOld(e);
+int act = e.getActionMasked();
+if (act == android.view.MotionEvent.ACTION_DOWN) {
+x0 = e.getX();
+y0 = e.getY();
+drag = false;
+return false;
+}
+if (Float.isNaN(x0)) return false;
+float dx = e.getX() - x0, dy = e.getY() - y0;
+if (act == android.view.MotionEvent.ACTION_MOVE) {
+if (!drag && Math.abs(dx) > Ui.dp(getContext(), 24f) && Math.abs(dx) > Math.abs(dy) * 1.8f) drag = true;
+if (drag) {
+LinearLayout tl = tailHold;
+if (tl != null) tl.setTranslationX(dx * 0.45f);
+return true;
+}
+return false;
+}
+if (act == android.view.MotionEvent.ACTION_UP || act == android.view.MotionEvent.ACTION_CANCEL) {
+boolean was = drag;
+drag = false;
+if (!was) return false;
+x0 = Float.NaN;
+if (act == android.view.MotionEvent.ACTION_UP && Math.abs(dx) > Ui.dp(getContext(), 72f)) {
+swipeBy(dx < 0 ? 1 : -1);
+} else {
+LinearLayout tl = tailHold;
+if (tl != null) tl.animate().translationX(0f).setDuration(180L).start();
+}
+return true;
+}
+return false;
+}
+
+private boolean swipedOld(android.view.MotionEvent e) {
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+private void swipeBy(int dir) {
+@@ new
+private LinearLayout tailHold;
+private boolean warmed = false;
+
+/** 칩 줄 아래 칸들을 한 덩어리로 묶는다. 칸이 바뀌면 옛 덩어리는 밀려 나가고 새 덩어리가 밀려 들어온다(칩 줄은 그대로 있다). */
+private int tailBuild(int segAt) {
+LinearLayout old = tailHold;
+tailHold = null;
+if (segAt < 0 || segAt > col.getChildCount()) return segAt;
+final LinearLayout tail = new LinearLayout(ctx);
+tail.setOrientation(LinearLayout.VERTICAL);
+int n = col.getChildCount();
+for (int i = segAt; i < n; i++) {
+View c = col.getChildAt(segAt);
+col.removeViewAt(segAt);
+tail.addView(c);
+}
+final FrameLayout fr = new FrameLayout(ctx);
+fr.addView(tail, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+col.addView(fr, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+tailHold = tail;
+if (old != null && slideDir != 0 && android.os.SystemClock.uptimeMillis() - slideAt < 900L) {
+final LinearLayout oldF = old;
+final int d = slideDir;
+if (old.getParent() instanceof ViewGroup) ((ViewGroup) old.getParent()).removeView(old);
+float w = Math.max(1f, ctx.getResources().getDisplayMetrics().widthPixels - 2f * Ui.dpi(ctx, 16));
+float from = old.getTranslationX();
+android.view.animation.PathInterpolator ip = new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f);
+fr.addView(old, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+old.setAlpha(1f);
+old.setTranslationX(from);
+old.animate().translationX(-d * w).alpha(0f).setDuration(260L).setInterpolator(ip).withEndAction(new Runnable() {
+@Override
+public void run() {
+fr.removeView(oldF);
+}
+}).start();
+tail.setTranslationX(d * w);
+tail.animate().translationX(0f).setDuration(260L).setInterpolator(ip).start();
+}
+return segAt;
+}
+
+/** 홈이 뜬 뒤 잠깐 있다가 노선도 화면과 지도 자료를 미리 만들어 둔다 — 노선도 탭을 처음 열 때 멈칫하지 않도록. */
+private void warmMap() {
+if (warmed || mapPane != null) return;
+warmed = true;
+host.postDelayed(new Runnable() {
+@Override
+public void run() {
+if (mapPane != null) return;
+try {
+mapPane = new MapPane(ctx);
+mapPane.setVisibility(View.GONE);
+host.addView(mapPane, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+mapPane.warm();
+} catch (Throwable t) {
+mapPane = null;
+}
+}
+}, 2500L);
+}
+
+private void swipeBy(int dir) {
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT);
+@@ new
+FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(0, 1);
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+lp2.width = cw;
+@@ new
+lp2.width = cw;
+lp2.height = Math.max(1, bt - t - 2 * inset);
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+if (slideDir != 0 && segAt >= 0 && android.os.SystemClock.uptimeMillis() - slideAt < 900L) {
+@@ new
+segAt = tailBuild(segAt);
+if (false) {
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+if ("chips".equals(t)) return chips(b);
+@@ new
+if ("stars".equals(t)) {
+View sv = QuestStars.make(ctx, b);
+sv.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8));
+return sv;
+}
+if ("chips".equals(t)) return chips(b);
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+showHome(pre);
+@@ new
+showHome(pre);
+warmMap();
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+private final ArrayList<String> lastStops = new ArrayList<String>();
+@@ new
+private final ArrayList<String> lastStops = new ArrayList<String>();
+private final LinkedHashMap<String, ScreenCore.Screen> headCache = new LinkedHashMap<String, ScreenCore.Screen>();
+private int slideGen = 0;
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+void setTheme(String t) {
+@@ new
+/** 홈에서 미리 불러 둔다 — 지도 자료만 읽어 두고 화면은 보이지 않는다. */
+void warm() {
+if (data == null && !dataLoading) loadData();
+}
+
+void setTheme(String t) {
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+private void setMode(String m) {
+@@ new
+private String headKey() {
+return ("bus".equals(mode) ? "b" : "s") + "|" + flt + "|" + theme;
+}
+
+/** 길동무처럼 버스 ↔ 지하철을 옆으로 밀며 바꾼다. 머리 화면과 버스 화면은 이전 것을 그대로 두었다가 곧바로 보여 주고, 새 자료는 뒤에서 조용히 받는다. */
+private void setMode(String m) {
+if (m.equals(mode)) return;
+closeSheet();
+final boolean b = "bus".equals(m);
+View outV;
+if (b) outV = (metro != null && metro.getVisibility() == View.VISIBLE) ? (View) metro : (View) note;
+else outV = bus.getVisibility() == View.VISIBLE ? (View) bus : (View) note;
+mode = m;
+headBox.setVisibility(View.VISIBLE);
+ScreenCore.Screen hc = headCache.get(headKey());
+if (hc != null) {
+head.setScreen(hc, true);
+headLoaded = true;
+} else {
+headLoaded = false;
+loadHead(null, null, null);
+}
+View inV;
+if (b) {
+busSel = -1;
+busAt = 0L;
+loadBus(false);
+inV = busShown && Core.engine.hasFix() ? (View) bus : (View) note;
+busTickStart();
+} else {
+busSeq++;
+if (data == null) note.setText("지도를 불러오는 중이에요…");
+inV = metro != null ? (View) metro : (View) note;
+onShow();
+}
+slideTo(inV, outV, b ? 1 : -1);
+}
+
+private void slideTo(final View in, final View out, int dir) {
+final int gen = ++slideGen;
+final float w = Math.max(1f, (float) holder.getWidth());
+android.view.animation.PathInterpolator ip = new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f);
+in.animate().cancel();
+out.animate().cancel();
+in.setVisibility(View.VISIBLE);
+if (in == out) {
+in.setTranslationX(0f);
+return;
+}
+in.setTranslationX(dir * w);
+in.animate().translationX(0f).setDuration(260L).setInterpolator(ip).start();
+out.animate().translationX(-dir * w).setDuration(260L).setInterpolator(ip).withEndAction(new Runnable() {
+@Override
+public void run() {
+if (gen != slideGen) return;
+out.setVisibility(out == metro ? View.INVISIBLE : View.GONE);
+out.setTranslationX(0f);
+}
+}).start();
+}
+
+private void setModeOld(String m) {
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+final int seq = ++headSeq;
+@@ new
+final int seq = ++headSeq;
+final String hk = (q == null || q.isEmpty()) ? headKey() : "";
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+head.setScreen(sc, true);
+@@ new
+if (!hk.isEmpty()) headCache.put(hk, sc);
+head.setScreen(sc, true);
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+v.slideNext(dir);
+@@ new
+// 옆으로 밀리는 그림은 setMode 가 그린다
+=== EDIT: app/build.gradle ===
+@@ old
+new File(dir, 'KidsActs.java').setText(file('kids-patch/KidsActs3.java.txt').getText('UTF-8'), 'UTF-8')
+@@ new
+new File(dir, 'KidsActs.java').setText(file('kids-patch/KidsActs3.java.txt').getText('UTF-8'), 'UTF-8')
+new File(dir, 'KidsRooms.java').setText(file('kids-patch/KidsRooms.java.txt').getText('UTF-8'), 'UTF-8')
+=== EDIT: app/kids-patch/swaps.txt ===
+@@ old
+SceneCore.java|||SceneActs.register(this);|||SceneActs.register(this); KidsActs.register(this);
+@@ new
+SceneCore.java|||SceneActs.register(this);|||SceneActs.register(this); KidsActs.register(this);
+SceneArt.java|||if (L.place != null && !"street".equals(L.place)) return ScenePlaces.build(root, L, g, dpr, season, dark);|||if (KidsRooms.is(L)) return KidsRooms.build(root, L, g, dpr, season, dark); if (L.place != null && !"street".equals(L.place)) return ScenePlaces.build(root, L, g, dpr, season, dark);
+SceneCore.java|||void drawSkyFx(SceneCv c, double tt) {|||void drawSkyFx(SceneCv c, double tt) { if (KidsRooms.is(L)) return;
+SceneCore.java|||void drawWxFront(SceneCv c, double tt) {|||void drawWxFront(SceneCv c, double tt) { if (KidsRooms.is(L)) return;
+SceneCore.java|||SceneFx.ambient(this, c, t);|||if (!KidsRooms.is(L)) SceneFx.ambient(this, c, t);
+SceneCore.java|||SceneFx.cold(this, c); SceneFx.sun(this, c, t); SceneFx.heat(this, c, t); SceneFx.wind(this, c, t);|||if (!KidsRooms.is(L)) { SceneFx.cold(this, c); SceneFx.sun(this, c, t); SceneFx.heat(this, c, t); SceneFx.wind(this, c, t); }
