@@ -23,6 +23,8 @@
 - 글꼴: CI가 길동무와 같은 Noto Sans KR(400/700)을 assets/fonts 로 만들고(워크플로 단계 "Bundle Noto Sans KR"), KidsApp 이 ScreenView.preloadFaces 를, Ui.face 가 블록 화면 글자를 맡는다. 시간표 창은 길동무처럼 아래에서 올라오고(340ms 감속) 내려가며 닫힌다(200ms).
 - 퀘스트 분류 칩(자녀/부모님)은 줄 전체를 같은 폭으로 나눠 쓰고, 화면을 좌우로 밀면 두 분류가 돌아가며 바뀐다(칩 블록 속성 eq, loop).
 - 설정: 위치 공유 토글, 다크 모드, 부모 연결(QR/비밀키 표시). 첫 실행 때 부모/자녀 동의 창.
+- 서버 연동(kids20): 가족대화·퀘스트 화면, 부모 연결 비밀키, 위치는 키즈 엔진(Cloudflare Worker+D1, engine/kids-worker.js, 주소 gildongmu-kids.phg0643.workers.dev)이 만들고 저장한다. 앱은 Kid.java 로 뒤 스레드에서 받아 그리기만 한다(4초마다 갱신, 오프라인이면 마지막 화면). 위의 '이 기기에만 저장' 표현은 옛 시험판 기준이다. API와 배포는 ENGINE.md.
+- 남은 일(서버): 부모 쪽 길동무 앱에 /reg(role p), /p/join(QR 스캔 또는 비밀키), /p/children, /p/loc, /p/chat, /p/quest 붙이기. 위치 공유를 끌 때 서버 위치를 바로 지우는 API. /reg 속도 제한. 정식 배포(플레이 비공개 테스트, 릴리스 서명, 갤럭시 스토어)로 삼성 '잠재적으로 유해한 앱' 경고 줄이기.
 
 ## 3. 빌드와 배포
 - 소스는 bundle/*.txt 파일을 push하면 CI(build-apk.yml)가 풀어서(=== FILE/EDIT: 경로 ===, @@ old/@@ new, old는 정확히 1번만 일치) 빌드하고 APK를 latest 프리릴리스에 올린 뒤 번들을 지운다. bundle 외 푸시는 CI를 돌리지 않는다.

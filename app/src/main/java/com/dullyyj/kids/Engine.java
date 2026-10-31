@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Random;
 import java.util.UUID;
@@ -95,6 +96,13 @@ final class Engine {
     private boolean loc = false;
     private long lastFixT = 0L;
     private String pairCode = "";
+    // ── 길동무 키즈 서버(엔진) 연결 — 가족대화·퀘스트 화면은 서버가 만들어 주고, 앱은 받아서 그리기만 한다
+    private final HashMap<String, String> rem = new HashMap<String, String>();
+    private volatile boolean regOk = false;
+    private boolean remBusy = false;
+    private long remAskT = 0L, locSentT = 0L;
+    private int linked = 0;
+    private String pairErr = "";
     private long pairExp = 0L;
     private final String cid, csec;
     private String sceneJson = "";
@@ -282,6 +290,7 @@ final class Engine {
         lng = lo;
         fixT = t;
         dirty = true;
+        kidLoc(la, lo, acc, t);
     }
 
     /** 날씨용으로 빨리 잡은 마지막 위치(부모에게 알린 것은 아니다). */
@@ -316,6 +325,7 @@ final class Engine {
             lastPrune = now;
             pruneChat(now);
         }
+        remPoll(now);
         if (pairExp != 0L && now > pairExp) {
             pairCode = "";
             pairExp = 0L;
@@ -501,9 +511,10 @@ final class Engine {
         StringBuilder sb = new StringBuilder();
         sb.append(tab).append('|').append(theme()).append('|').append(consented() ? 1 : 0)
                 .append(store.get("cp", "0")).append(store.get("cc", "0")).append(loc ? 1 : 0)
-                .append('|').append(sel).append('|').append(pairCode).append('|').append(chat.length());
+                .append('|').append(sel).append('|').append(pairCode).append('|').append(chat.length()).append(pairErr).append(linked);
+        if ("chat".equals(tab)) sb.append('|').append(remGet("chat").hashCode());
         if ("settings".equals(tab)) sb.append('|').append(lastFixT / 60000L);
-        if ("quest".equals(tab)) sb.append('|').append(questTab).append(quests.toString().hashCode());
+        if ("quest".equals(tab)) sb.append('|').append(questTab).append(remGet("quest:" + questTab).hashCode());
         if ("home".equals(tab)) sb.append('|').append(sceneGotT / 1000L).append(Double.isNaN(lat) ? 'n' : 'y').append(viewDp).append(Poke.shown());
         for (int i = 0; i < fs.size(); i++) {
             F f = fs.get(i);
@@ -651,6 +662,190 @@ final class Engine {
 
     /** 퀘스트: 왼쪽 자녀 미션(부모님이 보낸 것) · 오른쪽 부모님 미션(내가 부모님께 보낸 것). 길동무와 연결되기 전에는 이 기기에만 저장한다. */
     private String questScreen() {
+        String r = remGet("quest:" + ("p".equals(questTab) ? "p" : "c"));
+        return r.isEmpty() ? questLocal() : r;
+    }
+
+    // ───────── 키즈 서버 통로(모든 통신은 뒤 스레드) ─────────
+    private String remGet(String key) {
+        String s = rem.get(key);
+        if (s == null) {
+            s = store.get("rm." + key, "");
+            if (s == null) s = "";
+            rem.put(key, s);
+        }
+        return s;
+    }
+
+    private void remPut(String key, String json) {
+        if (json == null || json.isEmpty() || json.equals(remGet(key))) return;
+        rem.put(key, json);
+        store.put("rm." + key, json);
+        dirty = true;
+    }
+
+    private boolean ensureReg() {
+        if (regOk) return true;
+        try {
+            JSONObject o = new JSONObject();
+            o.put("id", cid);
+            o.put("sec", csec);
+            o.put("role", "c");
+            String r = Kid.call("POST", "/reg", o.toString(), null, null);
+            if (r != null && new JSONObject(r).optBoolean("ok", false)) regOk = true;
+        } catch (Exception e) {
+            regOk = false;
+        }
+        return regOk;
+    }
+
+    /** 화면 서버에서 새로 받아 온다. 가족대화·퀘스트를 보고 있으면 자주, 아니면 드물게. */
+    private void remPoll(long now) {
+        if (!consented() || remBusy) return;
+        final boolean ch = "chat".equals(tab), qu = "quest".equals(tab);
+        long gap = (ch || qu) ? 4000L : ("settings".equals(tab) ? 8000L : 40000L);
+        if (now - remAskT < gap) return;
+        remAskT = now;
+        remBusy = true;
+        final String qt = "p".equals(questTab) ? "p" : "c";
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (!ensureReg()) return;
+                    if (ch) {
+                        remGot("chat", Kid.call("GET", "/c/screen?tab=chat", null, cid, csec));
+                    } else if (qu) {
+                        remGot("quest:c", Kid.call("GET", "/c/screen?tab=quest&qt=c", null, cid, csec));
+                        remGot("quest:p", Kid.call("GET", "/c/screen?tab=quest&qt=p", null, cid, csec));
+                    } else {
+                        remGot(null, Kid.call("GET", "/c/state", null, cid, csec));
+                    }
+                } finally {
+                    remDone();
+                }
+            }
+        });
+    }
+
+    private synchronized void remDone() {
+        remBusy = false;
+    }
+
+    /** 서버가 준 화면(또는 상태)을 받아 둔다. 달라졌을 때만 화면이 다시 그려진다. */
+    private synchronized void remGot(String key, String r) {
+        if (r == null) return;
+        try {
+            JSONObject o = new JSONObject(r);
+            if (!o.optBoolean("ok", false)) return;
+            if (o.has("linked")) linked = o.optInt("linked", linked);
+            JSONObject sc = o.optJSONObject("screen");
+            if (key != null && sc != null) remPut(key, sc.toString());
+        } catch (Exception e) {
+            // 무시
+        }
+    }
+
+    /** 눌림·보내기를 서버로 보내고 돌려받은 새 화면으로 바꾼다. */
+    private void kidAct(String v, String arg) {
+        final JSONObject o = new JSONObject();
+        put(o, "v", v);
+        put(o, "arg", arg);
+        put(o, "tab", tab);
+        put(o, "qt", "p".equals(questTab) ? "p" : "c");
+        final String key = "chat".equals(tab) ? "chat" : "quest:" + ("p".equals(questTab) ? "p" : "c");
+        remAskT = 0L;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                if (!ensureReg()) return;
+                remGot(key, Kid.call("POST", "/c/act", o.toString(), cid, csec));
+            }
+        });
+    }
+
+    /** 보낸 글은 서버 답을 기다리지 않고 바로 보이게 먼저 끼워 둔다(곧 서버 화면으로 바뀐다). */
+    private void chatPatch(String s, long now) {
+        String r = remGet("chat");
+        if (r.isEmpty()) return;
+        try {
+            JSONObject o = new JSONObject(r);
+            JSONArray bl = o.getJSONArray("blocks");
+            JSONObject bx = bl.getJSONObject(2);
+            JSONArray k = bx.getJSONArray("kids");
+            JSONArray n = new JSONArray();
+            for (int i = 0; i < k.length() - 1; i++) n.put(k.get(i));
+            n.put(b("msg", "text", s, "me", "1", "time", new SimpleDateFormat("M/d a h:mm", Locale.KOREA).format(new Date(now))));
+            n.put(k.get(k.length() - 1));
+            bx.put("kids", n);
+            remPut("chat", o.toString());
+        } catch (Exception e) {
+            // 무시
+        }
+    }
+
+    private void kidPair() {
+        pairErr = "";
+        pairCode = "";
+        pairExp = 0L;
+        dirty = true;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                String r = ensureReg() ? Kid.call("POST", "/c/pair", "{}", cid, csec) : null;
+                pairGot(r);
+            }
+        });
+    }
+
+    private synchronized void pairGot(String r) {
+        String code = "";
+        try {
+            JSONObject o = new JSONObject(r == null ? "{}" : r);
+            if (o.optBoolean("ok", false)) code = o.optString("code", "");
+        } catch (Exception e) {
+            code = "";
+        }
+        if (code.isEmpty()) {
+            pairErr = "1";
+        } else {
+            pairErr = "";
+            pairCode = code;
+            pairExp = System.currentTimeMillis() + PAIR_TTL_MS;
+        }
+        dirty = true;
+    }
+
+    private void kidUnlink() {
+        linked = 0;
+        pairCode = "";
+        pairExp = 0L;
+        dirty = true;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                if (ensureReg()) Kid.call("POST", "/c/unlink", "{}", cid, csec);
+            }
+        });
+    }
+
+    /** 정확한 위치를 서버에 올린다. 서버는 연결된 부모가 있을 때만, 가장 최근 한 건만 둔다. */
+    private void kidLoc(final double la, final double lo, final float acc, long t) {
+        if (!locOn() || t - locSentT < 15000L) return;
+        locSentT = t;
+        final JSONObject o = new JSONObject();
+        put(o, "la", la);
+        put(o, "lo", lo);
+        put(o, "acc", (double) acc);
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                if (ensureReg()) remGot(null, Kid.call("POST", "/c/loc", o.toString(), cid, csec));
+            }
+        });
+    }
+
+    private String questLocal() {
         boolean kid = !"p".equals(questTab);
         int nc = 0, np = 0;
         for (int i = 0; i < quests.length(); i++) {
@@ -918,6 +1113,11 @@ final class Engine {
     }
 
     private String chatScreen() {
+        String r = remGet("chat");
+        return r.isEmpty() ? chatLocal() : r;
+    }
+
+    private String chatLocal() {
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "가족대화"));
         JSONArray k1 = new JSONArray();
@@ -964,10 +1164,11 @@ final class Engine {
         }
         JSONArray it = new JSONArray();
         it.put(b("i", "label", pairCode.isEmpty() ? "연결 QR 만들기" : "새 QR 만들기", "act", "pair.new", "on", "1"));
+        if (linked > 0) it.put(b("i", "label", "연결 모두 끊기", "act", "pair.unlink", "on", "0"));
         JSONObject bt = b("btns");
         put(bt, "items", it);
         a.put(bt);
-        a.put(b("text", "text", "서버 연결 전 시험판이에요. 지금은 부모님께 위치가 전달되지 않아요.", "sub", "1"));
+        a.put(b("text", "text", pairErr.isEmpty() ? (linked > 0 ? "연결된 부모님 " + linked + "명이 내 위치를 볼 수 있어요." : "아직 연결된 부모님이 없어요. 연결되기 전에는 위치가 서버에 저장되지 않아요.") : "서버에 연결하지 못했어요. 잠시 뒤에 다시 눌러 주세요.", "sub", "1"));
         a.put(b("gap", "h", "10"));
         JSONArray it2 = new JSONArray();
         it2.put(b("i", "label", "동의 철회하고 처음으로", "act", "consent.reset", "on", "0"));
@@ -1007,6 +1208,7 @@ final class Engine {
         String res = null;
         if (v.startsWith("tab.")) {
             if (consented()) tab = v.substring(4);
+            remAskT = 0L;
         } else if (v.equals("theme.toggle")) {
             store.put("theme", "dark".equals(theme()) ? "pastel" : "dark");
         } else if (v.equals("consent.parent")) {
@@ -1021,6 +1223,7 @@ final class Engine {
                 res = cmd("perm");
             }
         } else if (v.equals("consent.reset")) {
+            kidUnlink();
             store.put("consent", "0");
             store.put("cp", "0");
             store.put("cc", "0");
@@ -1033,45 +1236,25 @@ final class Engine {
         } else if (v.equals("loc.denied")) {
             loc = false;
         } else if (v.equals("pair.new")) {
-            pairCode = genKey();
-            pairExp = now + PAIR_TTL_MS;
+            kidPair();
+        } else if (v.equals("pair.unlink")) {
+            kidUnlink();
         } else if (v.equals("chat.send")) {
             String s = arg == null ? "" : arg.trim();
             if (s.length() > CHAT_MAX_LEN) s = s.substring(0, CHAT_MAX_LEN);
             if (!s.isEmpty()) {
-                try {
-                    JSONObject m = new JSONObject();
-                    m.put("t", now);
-                    m.put("m", 1);
-                    m.put("x", s);
-                    chat.put(m);
-                } catch (Exception e) {
-                    // 무시
-                }
+                chatPatch(s, now);
+                kidAct("chat.send", s);
             }
         } else if (v.startsWith("quest.tab:")) {
             questTab = v.substring(10).equals("p") ? "p" : "c";
+            remAskT = 0L;
         } else if (v.startsWith("quest.done:")) {
-            String qi = v.substring(11);
-            for (int i = 0; i < quests.length(); i++) {
-                JSONObject q = quests.optJSONObject(i);
-                if (q != null && qi.equals(q.optString("i")) && !"p".equals(q.optString("k"))) {
-                    put(q, "s", 1);
-                    put(q, "dt", now);
-                }
-            }
+            kidAct(v, "");
         } else if (v.equals("quest.send")) {
             String s = arg == null ? "" : arg.trim();
             if (s.length() > 100) s = s.substring(0, 100);
-            if (!s.isEmpty() && quests.length() < 200) {
-                JSONObject q = new JSONObject();
-                put(q, "i", "q" + now);
-                put(q, "k", "p");
-                put(q, "x", s);
-                put(q, "s", 0);
-                put(q, "t", now);
-                quests.put(q);
-            }
+            if (!s.isEmpty()) kidAct("quest.send", s);
         } else if (v.equals("kid.dress")) {
             dressOpen = true;
             if (dressSel.isEmpty() && !fs.isEmpty()) dressSel = fs.get(0).id;
