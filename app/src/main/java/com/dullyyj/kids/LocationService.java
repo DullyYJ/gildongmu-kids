@@ -61,7 +61,7 @@ public class LocationService extends Service {
         ht.start();
         client = LocationServices.getFusedLocationProviderClient(this);
         long iv = Core.engine.locIntervalMs();
-        LocationRequest req = new LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, iv)
+        LocationRequest req = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, iv)
                 .setMinUpdateIntervalMillis(iv / 2L)
                 .build();
         cb = new LocationCallback() {

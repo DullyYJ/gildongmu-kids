@@ -116,6 +116,11 @@ final class Engine {
         sel = o.optString("sel", CAST[0][0]);
         loc = o.optInt("loc", 0) == 1;
         lastFixT = o.optLong("lf", 0L);
+        if (o.has("la") && o.has("lo")) { // 마지막으로 잡은 정확한 위치 — 앱을 껐다 켜도 이어서 쓴다
+            lat = o.optDouble("la", Double.NaN);
+            lng = o.optDouble("lo", Double.NaN);
+        }
+
         lastTickT = o.optLong("lt", 0L);
         pairCode = o.optString("pc", "");
         pairExp = o.optLong("pe", 0L);
@@ -160,6 +165,11 @@ final class Engine {
             o.put("sel", sel);
             o.put("loc", loc ? 1 : 0);
             o.put("lf", lastFixT);
+            if (!Double.isNaN(lat) && !Double.isNaN(lng)) {
+                o.put("la", lat);
+                o.put("lo", lng);
+            }
+
             o.put("lt", lastTickT);
             o.put("pc", pairCode);
             o.put("pe", pairExp);
@@ -557,7 +567,8 @@ final class Engine {
                 String wk = l.optString("wk", "");
                 String ko = l.optString("wxKo", "");
                 String ic = "rain".equals(wk) ? "🌧️" : "snow".equals(wk) ? "❄️" : "fog".equals(wk) ? "🌫️" : "overcast".equals(wk) ? "☁️" : "cloudy".equals(wk) ? "⛅" : "☀️";
-                String a = ic + " 지금 날씨는 " + ko + ", " + t + "°C예요" + (Double.isNaN(lat) ? " (서울 기준)" : "");
+                String a = ic + " 지금 날씨는 " + ko + ", " + t + "°C예요" + (!Double.isNaN(lat) && (!loc || lastNow - lastFixT > 1800000L) ? " (마지막 위치 기준)" : "")
+;
                 String tip;
                 if ("rain".equals(wk)) tip = "비가 와요, 우산을 꼭 챙겨요 ☂️";
                 else if ("snow".equals(wk)) tip = "눈이 와요, 미끄러우니 조심조심 걸어요";
@@ -571,7 +582,9 @@ final class Engine {
         } catch (Exception e) {
             // 아래 기본 글
         }
+        if (Double.isNaN(lat)) return new String[] {"내 위치를 아직 몰라서 날씨를 못 알려줘요", "설정에서 위치 공유를 켜면 알려줄게요"};
         return new String[] {"날씨를 불러오는 중이에요…", ""};
+
     }
 
     private String locLine() {
@@ -850,10 +863,11 @@ final class Engine {
         return !Double.isNaN(lat);
     }
 
-    /** 날씨·장면을 물을 좌표 — 아직 위치를 모르면 서울 시청. */
+    /** 가장 최근에 잡은 정확한 위치(위치 권한이 꺼졌거나 못 잡는 중이어도 마지막 값을 쓴다). 한 번도 못 잡았으면 null — 임의의 도시로 정하지 않는다. */
     synchronized double[] where() {
-        return Double.isNaN(lat) ? new double[] {37.5665, 126.978} : new double[] {lat, lng};
+        return Double.isNaN(lat) ? null : new double[] {lat, lng};
     }
+
 
     synchronized void setScene(String json, long now) {
         if (json == null || json.length() < 20 || json.length() >= 5900) return;
@@ -867,7 +881,8 @@ final class Engine {
         sceneGotT = now;
     }
 
-    /** 장면·날씨를 물을 때 보낼 글 — 위치는 약 5km 칸으로 뭉개서 보낸다(날씨에는 그 정도면 충분하다). */
+    /** 장면·날씨를 물을 때 보낼 글 — 날씨를 묻는 이 순간에만 위치를 약 5km 칸으로 뭉갠다. 저장·부모 전달용 위치는 그대로 둔다. 위치를 모르면 좌표를 아예 보내지 않는다. */
+
     synchronized String sceneBody(long now) {
         double[] w = where();
         JSONObject o = new JSONObject();
@@ -879,8 +894,11 @@ final class Engine {
         put(o, "here", 0);
         put(o, "boarded", false);
         put(o, "nodes", new JSONArray());
-        put(o, "lat", Math.round(w[0] * 20.0) / 20.0);
-        put(o, "lng", Math.round(w[1] * 20.0) / 20.0);
+        if (w != null) {
+            put(o, "lat", Math.round(w[0] * 20.0) / 20.0);
+            put(o, "lng", Math.round(w[1] * 20.0) / 20.0);
+        }
+
         return o.toString();
     }
 
