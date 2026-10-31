@@ -1,0 +1,290 @@
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+JSONObject c = b("chips");
+        put(c, "items", chips);
+        a.put(c);
+        a.put(b("text", "text", kid ?
+@@ new
+JSONObject c = b("chips", "eq", "1", "loop", "1");
+        put(c, "items", chips);
+        a.put(c);
+        a.put(b("text", "text", kid ?
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+                w.setWindowAnimations(android.R.style.Animation_InputMethod);
+
+@@ new
+                w.setWindowAnimations(0);
+                dv = w.getDecorView();
+                dv.setAlpha(0f);
+                dv.setTranslationY(hpx * 0.35f);
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+        ScreenView sv;
+        Dialog d;
+
+        TtSheet(String n) {
+@@ new
+        ScreenView sv;
+        Dialog d;
+        View dv;
+
+        TtSheet(String n) {
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+                sheet = d;
+                d.show();
+            } catch (Throwable t) {
+                sheet = null;
+                tt = null;
+@@ new
+                sheet = d;
+                d.show();
+                dv.animate().alpha(1f).translationY(0f).setDuration(340L).setInterpolator(new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f)).start();
+            } catch (Throwable t) {
+                if (dv != null) {
+                    dv.setAlpha(1f);
+                    dv.setTranslationY(0f);
+                }
+                sheet = null;
+                tt = null;
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+            if ("mp.close".equals(v)) {
+                closeSheet();
+@@ new
+            if ("mp.close".equals(v)) {
+                closeSheetAnim();
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+    private void closeSheet() {
+
+@@ new
+    /** 길동무처럼 시간표 창을 아래로 부드럽게 내린 뒤 닫는다(160~240ms 감속). */
+    private void closeSheetAnim() {
+        final TtSheet ts = tt;
+        final Dialog dlg = sheet;
+        if (ts == null || dlg == null || ts.dv == null) {
+            closeSheet();
+            return;
+        }
+        tt = null;
+        ts.gen++;
+        sheet = null;
+        if (metro != null) metro.setCover(0f);
+        ts.dv.animate().alpha(0f).translationY(ts.dv.getHeight() * 0.35f).setDuration(200L).setInterpolator(new android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)).withEndAction(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    dlg.dismiss();
+                } catch (Throwable t) {
+                    // 이미 닫힘
+                }
+            }
+        }).start();
+    }
+
+    private void closeSheet() {
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+    void setRefresh(Runnable r) {
+@@ new
+    // 좌우로 밀어 넘기는 칸(퀘스트): 칩 줄이 loop 를 켜 두면 그 행동 목록을 돌려 쓴다.
+    private java.util.ArrayList<String> swipeActs;
+    private int swipeCur;
+    private int slideDir;
+    private long slideAt;
+
+    private void swipeBy(int dir) {
+        java.util.ArrayList<String> a = swipeActs;
+        if (a == null || a.size() < 2) return;
+        int n = a.size();
+        int to = ((swipeCur + dir) % n + n) % n;
+        slideDir = dir;
+        slideAt = android.os.SystemClock.uptimeMillis();
+        cb.call(a.get(to), "");
+    }
+
+    void setRefresh(Runnable r) {
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+        scroll = new ScrollView(c);
+
+@@ new
+        scroll = new ScrollView(c) {
+            private float x0, y0;
+
+            private boolean swiped(android.view.MotionEvent e) {
+                int act = e.getActionMasked();
+                if (act == android.view.MotionEvent.ACTION_DOWN) {
+                    x0 = e.getX();
+                    y0 = e.getY();
+                } else if (act == android.view.MotionEvent.ACTION_UP && swipeActs != null && swipeActs.size() > 1) {
+                    float dx = e.getX() - x0, dy = e.getY() - y0;
+                    if (Math.abs(dx) > Ui.dp(getContext(), 72f) && Math.abs(dx) > Math.abs(dy) * 1.8f) {
+                        x0 = Float.NaN;
+                        swipeBy(dx < 0 ? 1 : -1);
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            @Override
+            public boolean onInterceptTouchEvent(android.view.MotionEvent e) {
+                if (swiped(e)) return true;
+                return super.onInterceptTouchEvent(e);
+            }
+
+            @Override
+            public boolean onTouchEvent(android.view.MotionEvent e) {
+                if (swiped(e)) return true;
+                return super.onTouchEvent(e);
+            }
+        };
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+    private View chips(JSONObject b) {
+        HorizontalScrollView hs
+@@ new
+    /** 칸 가득 같은 폭으로 나란히 놓인 분류 칩(눌러도 옆으로 밀어도 바뀐다). */
+    private View segs(JSONObject b, JSONArray a) {
+        LinearLayout row = new LinearLayout(ctx);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        final java.util.ArrayList<String> acts = new java.util.ArrayList<String>();
+        int cur = 0;
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject it = a.optJSONObject(i);
+            if (it == null) continue;
+            boolean on = "1".equals(it.optString("on"));
+            if (on) cur = acts.size();
+            TextView p = pill(it.optString("label"), on);
+            final String act = it.optString("act");
+            final int mine = acts.size();
+            acts.add(act);
+            p.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    slideDir = mine > swipeCur ? 1 : (mine < swipeCur ? -1 : 0);
+                    slideAt = android.os.SystemClock.uptimeMillis();
+                    cb.call(act, "");
+                }
+            });
+            LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i > 0) pl.leftMargin = Ui.dpi(ctx, 8);
+            row.addView(p, pl);
+        }
+        if ("1".equals(b.optString("loop"))) {
+            swipeActs = acts;
+            swipeCur = cur;
+        }
+        row.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 10));
+        return row;
+    }
+
+    private View chips(JSONObject b) {
+        JSONArray eq = b.optJSONArray("items");
+        if ("1".equals(b.optString("eq")) && eq != null && eq.length() > 0) return segs(b, eq);
+        HorizontalScrollView hs
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+        col.removeAllViews();
+
+@@ new
+        swipeActs = null;
+        col.removeAllViews();
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+        scroll.post(new Runnable() {
+            @Override
+            public void run() {
+                if (bottom)
+@@ new
+        col.animate().cancel();
+        if (slideDir != 0 && android.os.SystemClock.uptimeMillis() - slideAt < 900L) {
+            col.setAlpha(0f);
+            col.setTranslationX(slideDir * Ui.dp(ctx, 48f));
+            col.animate().alpha(1f).translationX(0f).setDuration(240L).setInterpolator(new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f)).start();
+        } else {
+            col.setAlpha(1f);
+            col.setTranslationX(0f);
+        }
+        slideDir = 0;
+        scroll.post(new Runnable() {
+            @Override
+            public void run() {
+                if (bottom)
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+        et.setTextSize(15f);
+
+@@ new
+        et.setTextSize(15f);
+        et.setTypeface(Ui.face(ctx, false));
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/AvatarView.java ===
+@@ old
+        tp.setFakeBoldText(true);
+
+@@ new
+        tp.setTypeface(Ui.face(c, true));
+
+=== EDIT: app/src/main/java/com/dullyyj/kids/Ui.java ===
+@@ old
+    static TextView text(Context c, String s, float sp, int color, boolean bold) {
+@@ new
+    private static Typeface faceR, faceB;
+    private static boolean faceTried;
+
+    /** 길동무와 같은 Noto Sans KR(빌드 때 assets/fonts 에 넣는다). 없으면 기기 기본 글꼴. */
+    static synchronized Typeface face(Context c, boolean bold) {
+        if (!faceTried) {
+            faceTried = true;
+            try {
+                faceR = Typeface.createFromAsset(c.getAssets(), "fonts/NotoSansKR-Regular.ttf");
+            } catch (Throwable t) {
+                faceR = null;
+            }
+            try {
+                faceB = Typeface.createFromAsset(c.getAssets(), "fonts/NotoSansKR-Bold.ttf");
+            } catch (Throwable t) {
+                faceB = null;
+            }
+        }
+        Typeface f = bold ? faceB : faceR;
+        return f != null ? f : (bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+    }
+
+    static TextView text(Context c, String s, float sp, int color, boolean bold) {
+=== EDIT: app/src/main/java/com/dullyyj/kids/Ui.java ===
+@@ old
+        t.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+@@ new
+        t.setTypeface(face(c, bold));
+=== EDIT: app/src/main/java/com/dullyyj/kids/KidsApp.java ===
+@@ old
+        Core.init(this);
+
+@@ new
+        Core.init(this);
+        final android.content.Context app = this;
+        Thread th = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                com.dullyyj.subway.ScreenView.preloadFaces(app);
+            }
+        });
+        th.setDaemon(true);
+        th.start();
+
+=== EDIT: HANDOFF.md ===
+@@ old
+- 설정: 위치 공유 토글
+@@ new
+- 글꼴: CI가 길동무와 같은 Noto Sans KR(400/700)을 assets/fonts 로 만들고(워크플로 단계 "Bundle Noto Sans KR"), KidsApp 이 ScreenView.preloadFaces 를, Ui.face 가 블록 화면 글자를 맡는다. 시간표 창은 길동무처럼 아래에서 올라오고(340ms 감속) 내려가며 닫힌다(200ms).
+- 퀘스트 분류 칩(자녀/부모님)은 줄 전체를 같은 폭으로 나눠 쓰고, 화면을 좌우로 밀면 두 분류가 돌아가며 바뀐다(칩 블록 속성 eq, loop).
+- 설정: 위치 공유 토글
