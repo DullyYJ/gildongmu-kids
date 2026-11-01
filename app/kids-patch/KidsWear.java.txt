@@ -1,0 +1,46 @@
+package com.dullyyj.subway;
+
+import com.dullyyj.kids.Art;
+import com.dullyyj.kids.Dress;
+import com.dullyyj.kids.Wardrobe;
+
+/**
+ * 길동무 키즈 꾸미기 — 홈 장면에서 돌아다니는 친구들이 꾸민 모습 그대로 다닌다.
+ * 무엇을 입었는지(Dress)와 몸의 어디에 얼마 크게 놓을지(Wardrobe.place)는 엔진이 계산해 두고, 여기는 장면 도화지(SceneCv)에 붓질만 한다.
+ * 친구를 그리는 같은 변환(좌우 뒤집기 · 기울기 · 눌림) 안에서 그리므로 몸을 따라 함께 움직인다.
+ */
+final class KidsWear {
+    private KidsWear() {}
+
+    private static final class Pen implements Art.Pen {
+        SceneCv c;
+        @Override public void begin() { c.beginPath(); }
+        @Override public void move(float x, float y) { c.moveTo(x, y); }
+        @Override public void line(float x, float y) { c.lineTo(x, y); }
+        @Override public void quad(float cx, float cy, float x, float y) { c.quadTo(cx, cy, x, y); }
+        @Override public void close() { c.closePath(); }
+        @Override public void oval(float cx, float cy, float rx, float ry) { c.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); }
+        @Override public void fill(int argb) { c.fillStyle(argb); c.fill(); }
+        @Override public void stroke(int argb, float w) { c.strokeStyle(argb); c.lineWidth(w); c.stroke(); }
+    }
+
+    private static final Pen PEN = new Pen();
+    private static final float[] O = new float[3];
+
+    /** kind: 0 걷기 · 1 자세 · 2 동작 시트. (dx, dy) = 칸 왼쪽 위(변환된 자리), sc = 칸 한 픽셀의 장면 크기. */
+    static void draw(SceneCv c, SceneCore.Actor a, int kind, int idx, double dx, double dy, double sc) {
+        if (a == null || a.intro || a.heart > 0 || a.id == null) return;
+        Dress.Look lk = Dress.I.look(a.id);
+        if (lk == null) return;
+        int ci = Wardrobe.ci(a.id);
+        if (ci < 0) return;
+        PEN.c = c;
+        c.lineCapRound(true);
+        for (int n = 0; n < 3; n++) {
+            int slot = n == 0 ? 1 : n == 1 ? 2 : 0;          // 옷 → 소지품 → 모자
+            Art.Op[] ops = lk.ops[slot];
+            if (ops == null || !Wardrobe.place(ci, kind, idx, slot, O)) continue;
+            Art.draw(PEN, ops, (float) (dx + O[0] * sc), (float) (dy + O[1] * sc), (float) (O[2] * sc));
+        }
+    }
+}

@@ -24,3 +24,4 @@ ScreenCore.java|||public float fitH, fmin = 90f, fmax = 900f, frh = 26f;|||publi
 ScreenCore.java|||n.glow = optBool(m, "glow", false); n.swp = optBool(m, "swp", false);|||n.mh = 0f; if (optBool(m, "fillRest", false)) sc.fillNode = n; n.glow = optBool(m, "glow", false); n.swp = optBool(m, "swp", false);
 ScreenCore.java|||pn.h = (cy + n.ipB + 1f) - y;|||pn.h = (cy + n.ipB + 1f) - y + n.mh;
 ScreenCore.java|||if (fit == null || !(viewH > 0f)) return L;|||if (viewH > 0f && sc.fillNode != null) { sc.fillNode.mh = 0f; L = layout0(sc, width, m, openKey); float sl0 = viewH - L.headH - L.footH - L.bodyH; if (sl0 > 1f) { sc.fillNode.mh = sl0; L = layout0(sc, width, m, openKey); } } if (fit == null || !(viewH > 0f)) return L;
+SceneCore.java|||c.drawImage(sheet, sx, sy, 256, 256, dx, dy, D.cell * s, D.cell * s);|||c.drawImage(sheet, sx, sy, 256, 256, dx, dy, D.cell * s, D.cell * s); KidsWear.draw(c, a, ash != null ? 2 : psh != null ? 1 : 0, idx, dx, dy, sc);
