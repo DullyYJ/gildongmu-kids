@@ -114,6 +114,14 @@ public class WardrobeTest {
         }
         ok(wok && tiles > 3000, "구운 옷 조각: 두르는 옷 모든 칸에 있다(" + tiles + "개)");
         ok(!Wardrobe.wornTile(8, 0, 0, 0, wt) && !Wardrobe.wornTile(0, 0, 0, 2, wt) && !Wardrobe.wornTile(0, 3, 0, 1, wt), "구운 옷: 두르지 않는 옷 · 잘못된 값은 없다");
+        // 모자 기울기: 모든 칸에서 ±0.26 안 · 잘못된 값은 0 · 기울어지는 칸이 실제로 있다
+        boolean hok = true; int tilted = 0;
+        for (int c = 0; c < 8; c++) for (int sh = 0; sh < 3; sh++) for (int cell = 0; cell < (sh == 1 ? 8 : 16); cell++) {
+            float ha = Wardrobe.hatTilt(c, sh, cell);
+            if (Float.isNaN(ha) || Math.abs(ha) > 0.2601f) { hok = false; System.out.println("   모자 각 이상 " + c + "/" + sh + "/" + cell + " " + ha); }
+            if (Math.abs(ha) > 0.02f) tilted++;
+        }
+        ok(hok && tilted > 20 && Wardrobe.hatTilt(8, 0, 0) == 0f && Wardrobe.hatTilt(0, 3, 0) == 0f, "모자 기울기: 범위 안(" + tilted + "칸 기울어짐) · 잘못된 값은 0");
         // 엔진 동작
         Dress d = Dress.I;
         int[] cnt = {0};
