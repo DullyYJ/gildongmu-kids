@@ -1,0 +1,272 @@
+=== FILE: app/src/main/java/com/dullyyj/kids/Push.java ===
+package com.dullyyj.kids;
+
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Notification;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Build;
+
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.firebase.messaging.FirebaseMessaging;
+import com.google.firebase.messaging.FirebaseMessagingService;
+import com.google.firebase.messaging.RemoteMessage;
+
+import org.json.JSONObject;
+
+import java.util.Map;
+
+/**
+ * 푸시(FCM) — 앱이 꺼져 있거나 뒤에 있어도 부모님 말 · 장소 출발 시간 · 미션 알림이 온다.
+ * 무엇을 언제 보낼지는 전부 서버(엔진)가 정한다. 앱은 토큰을 서버에 맡기고, 받은 글(title · body)을 알림으로 보여 줄 뿐이다.
+ * 앱이 앞에 떠 있으면 실시간 대기가 이미 화면을 갱신하므로 알림은 띄우지 않는다.
+ */
+public class Push extends FirebaseMessagingService {
+    static volatile Context app;
+    static volatile boolean fg = false;
+    private static boolean started = false;
+    private static final String CH = "kids_push";
+
+    /** 엔진이 1초마다 부른다 — 동의한 뒤 한 번만 토큰을 받아 서버에 올린다(Firebase 설정 파일이 없는 빌드에서는 조용히 건너뛴다). */
+    static void ping(boolean consented) {
+        if (!consented || app == null || started) return;
+        started = true;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    FirebaseMessaging.getInstance().getToken().addOnSuccessListener(new OnSuccessListener<String>() {
+                        @Override
+                        public void onSuccess(String tk) {
+                            upload(tk);
+                        }
+                    });
+                } catch (Throwable t) {
+                    started = false; // 다음에 다시 시도
+                }
+            }
+        });
+    }
+
+    /** 토큰을 서버(D1 devices)에 매핑한다. 같은 토큰을 이미 올렸으면 다시 보내지 않는다. */
+    static void upload(final String tk) {
+        if (tk == null || tk.length() < 20 || Core.store == null || Core.engine == null) return;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (tk.equals(Core.store.get("ft.up", ""))) return;
+                    String id = Core.engine.childId(), sec = Core.engine.childSecret();
+                    JSONObject r = new JSONObject();
+                    r.put("id", id);
+                    r.put("sec", sec);
+                    r.put("role", "c");
+                    Kid.call("POST", "/reg", r.toString(), null, null);
+                    JSONObject b = new JSONObject();
+                    b.put("tk", tk);
+                    String res = Kid.call("POST", "/c/ft", b.toString(), id, sec);
+                    if (res != null && new JSONObject(res).optBoolean("ok", false)) Core.store.put("ft.up", tk);
+                } catch (Throwable t) {
+                    // 다음 실행 때 다시 올린다
+                }
+            }
+        });
+    }
+
+    @Override
+    public void onNewToken(String tk) {
+        try {
+            Core.init(getApplicationContext());
+            if (Core.engine.consented()) upload(tk);
+        } catch (Throwable t) {
+            // 무시
+        }
+    }
+
+    @Override
+    public void onMessageReceived(RemoteMessage m) {
+        try {
+            Core.init(getApplicationContext());
+            if (!Core.engine.consented()) return;
+            Map<String, String> d = m.getData();
+            if (d == null) return;
+            String title = d.get("title"), body = d.get("body"), tag = d.get("tag");
+            if (body == null || body.isEmpty()) return;
+            if (fg) return; // 앞에 떠 있으면 화면이 이미 실시간으로 바뀐다
+            show(this, title == null || title.isEmpty() ? "길동무 키즈" : title, body, tag == null ? "k" : tag);
+        } catch (Throwable t) {
+            // 알림 하나를 못 띄워도 앱은 계속 쓴다
+        }
+    }
+
+    static void show(Context c, String title, String body, String tag) {
+        NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CH) == null) {
+            NotificationChannel ch = new NotificationChannel(CH, "길동무 키즈 알림", NotificationManager.IMPORTANCE_HIGH);
+            ch.enableVibration(true);
+            ch.setVibrationPattern(new long[] {0, 180, 90, 180});
+            nm.createNotificationChannel(ch);
+        }
+        Intent it = new Intent(c, MainActivity.class);
+        it.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pi = PendingIntent.getActivity(c, 0, it, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder nb = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CH) : new Notification.Builder(c);
+        nb.setSmallIcon(c.getApplicationInfo().icon).setContentTitle(title).setContentText(body)
+                .setStyle(new Notification.BigTextStyle().bigText(body)).setAutoCancel(true).setContentIntent(pi);
+        if (Build.VERSION.SDK_INT < 26) nb.setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL);
+        nm.notify(tag, 1, nb.build());
+    }
+}
+=== FILE: app/src/main/java/com/dullyyj/kids/Buzz.java ===
+package com.dullyyj.kids;
+
+import android.content.Context;
+import android.os.Build;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.os.VibratorManager;
+
+import com.dullyyj.subway.SceneHaptics;
+
+/**
+ * 길동무와 같은 진동 무늬표(SceneHaptics)로 짧게 울린다. 무늬는 길동무와 한 벌이라 캐릭터마다 느낌이 같다.
+ * 실제 기기에서 빠지지 않게: 진동기를 매번 새로 얻고(31+는 VibratorManager) · 세기 조절이 없는 기기는 세기 없이 · 무늬가 거부되면 짧은 진동으로 대신한다.
+ */
+final class Buzz {
+    private Buzz() {
+    }
+
+    /** 캐릭터마다 다른 착지 느낌 이름(길동무의 landK 와 같은 짝). */
+    static String landOf(String id) {
+        if ("dolsom".equals(id)) return "land_cotton";
+        if ("ppopu".equals(id)) return "land_pose";
+        if ("dudung".equals(id)) return "land_dig";
+        if ("lovel".equals(id)) return "land_flip";
+        if ("sul".equals(id)) return "land_fly";
+        if ("chaeng".equals(id)) return "land_puddle";
+        return "land";
+    }
+
+    private static Vibrator vibrator(Context c) {
+        try {
+            Context a = c.getApplicationContext() == null ? c : c.getApplicationContext();
+            if (Build.VERSION.SDK_INT >= 31) {
+                VibratorManager vm = (VibratorManager) a.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+                if (vm != null) {
+                    Vibrator v = vm.getDefaultVibrator();
+                    if (v != null) return v;
+                }
+            }
+            return (Vibrator) a.getSystemService(Context.VIBRATOR_SERVICE);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    static void play(Context c, String name) {
+        if (c == null) return;
+        SceneHaptics.Pat p = null;
+        try {
+            p = SceneHaptics.get(name);
+        } catch (RuntimeException e) {
+            p = null;
+        }
+        if (p == null || p.timings == null || p.timings.length == 0) return;
+        Vibrator v = vibrator(c);
+        if (v == null) return;
+        try {
+            if (!v.hasVibrator()) return;
+        } catch (RuntimeException e) {
+            // 알 수 없으면 그대로 시도한다
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                long[] t = p.timings;
+                boolean amp = false;
+                try {
+                    amp = v.hasAmplitudeControl() && p.amps != null && p.amps.length == t.length;
+                } catch (RuntimeException e) {
+                    amp = false;
+                }
+                if (amp) {
+                    int[] a = new int[t.length];
+                    for (int i = 0; i < a.length; i++) a[i] = Math.max(0, Math.min(255, p.amps[i]));
+                    v.vibrate(VibrationEffect.createWaveform(t, a, -1));
+                } else {
+                    v.vibrate(VibrationEffect.createWaveform(t, -1));
+                }
+            } else {
+                v.vibrate(p.timings, -1);
+            }
+            return;
+        } catch (RuntimeException e) {
+            // 무늬를 못 쓰는 기기 — 아래에서 짧은 진동으로 대신한다
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createOneShot(40L, VibrationEffect.DEFAULT_AMPLITUDE));
+            else v.vibrate(40L);
+        } catch (RuntimeException e) {
+            // 진동 문제는 화면에 영향 없다
+        }
+    }
+}
+=== EDIT: app/src/main/java/com/dullyyj/kids/KidsApp.java ===
+@@ old
+Core.init(this);
+@@ new
+Core.init(this);
+        Push.app = getApplicationContext();
+=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
+@@ old
+remPoll(now);
+@@ new
+remPoll(now);
+        Push.ping(consented());
+=== EDIT: app/src/main/java/com/dullyyj/kids/MainActivity.java ===
+@@ old
+Core.engine.setFg(true);
+@@ new
+Core.engine.setFg(true);
+        Push.fg = true;
+=== EDIT: app/src/main/java/com/dullyyj/kids/MainActivity.java ===
+@@ old
+Core.engine.setFg(false);
+@@ new
+Core.engine.setFg(false);
+        Push.fg = false;
+=== EDIT: app/src/main/AndroidManifest.xml ===
+@@ old
+</application>
+@@ new
+    <service
+            android:name=".Push"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+    </application>
+=== EDIT: app/build.gradle ===
+@@ old
+// 길동무 키즈: 순수 네이티브(Java) 앱.
+@@ new
+// 푸시(FCM): app/google-services.json 이 있을 때만 구글 서비스 플러그인을 켠다(없으면 푸시만 빠지고 빌드는 그대로 된다).
+if (file('google-services.json').exists()) { apply plugin: 'com.google.gms.google-services' }
+
+// 길동무 키즈: 순수 네이티브(Java) 앱.
+=== EDIT: app/build.gradle ===
+@@ old
+implementation 'androidx.core:core:1.12.0'
+@@ new
+implementation 'androidx.core:core:1.12.0'
+    implementation platform('com.google.firebase:firebase-bom:33.5.1')
+    implementation 'com.google.firebase:firebase-messaging'
+=== EDIT: build.gradle ===
+@@ old
+id 'com.android.application' version '8.2.1' apply false
+@@ new
+id 'com.android.application' version '8.2.1' apply false
+    id 'com.google.gms.google-services' version '4.4.2' apply false
