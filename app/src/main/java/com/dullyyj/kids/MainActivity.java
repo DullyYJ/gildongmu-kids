@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
     private HandlerThread ht;
     private Handler eh;
     private Renderer renderer;
+    private String lastScr = "";
     private TabBar tabbar;
     private ScreenView hdrView;
     private ScreenView pillView;
@@ -365,8 +366,16 @@ public class MainActivity extends Activity {
         applyBars();
         root.setBackgroundColor(Pal.c(Pal.BG));
         hdrView.setPalette(SvHost.palette(theme));
-        renderer.build(scr, pre);
-        renderer.village(vil);
+        View ff = getCurrentFocus();
+        final boolean typing = ff instanceof android.widget.EditText && isInside(ff, renderer.view());          // 글을 치는 중이었나(퀘스트·대화 입력칸)
+        final int selA = typing ? ((android.widget.EditText) ff).getSelectionStart() : 0;
+        if (typing && scr.equals(lastScr)) { renderer.village(vil); }          // 치는 중에 같은 화면이 다시 오면 다시 그리지 않는다(입력칸·키보드 그대로)
+        else {
+            lastScr = scr;
+            renderer.build(scr, pre);
+            renderer.village(vil);
+            if (typing) refocus(renderer.view(), selA);
+        }
         tabbar.set(bar, new TabBar.Cb() {
             @Override
             public void tab(String id) {
@@ -374,6 +383,39 @@ public class MainActivity extends Activity {
             }
         });
         tabbar.setVisibility(tabbar.count() > 0 ? View.VISIBLE : View.GONE);
+    }
+
+    private static boolean isInside(View v, View root) {
+        for (android.view.ViewParent p = v.getParent(); p != null; p = p.getParent()) if (p == root) return true;
+        return false;
+    }
+
+    /** 화면이 새로 그려져도(소식이 와서) 치던 입력칸의 키보드가 닫히지 않게: 새 입력칸에 포커스·커서를 되돌리고 키보드를 다시 올린다(쓰던 글은 Renderer 가 보관). */
+    private void refocus(View root, final int sel) {
+        final android.widget.EditText et = firstEdit(root);
+        if (et == null) return;
+        et.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    et.requestFocus();
+                    int n = et.getText().length();
+                    et.setSelection(Math.max(0, Math.min(sel, n)));
+                    android.view.inputmethod.InputMethodManager im = (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                    if (im != null) im.showSoftInput(et, 0);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
+    }
+
+    private static android.widget.EditText firstEdit(View v) {
+        if (v instanceof android.widget.EditText) return (android.widget.EditText) v;
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) { android.widget.EditText e = firstEdit(g.getChildAt(i)); if (e != null) return e; }
+        }
+        return null;
     }
 
     private void applyBars() {
