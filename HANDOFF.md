@@ -54,6 +54,14 @@
 ## p-kids47 (YJ: 쪼르 위치(인천시 아라1동))
 - Engine.setDong: 카카오 region_1/2depth 로 시 이름(인천광역시→인천시 · 도는 2depth 첫 낱말)을 만들어 dongFull("인천시 아라1동")을 부모에게 dn 으로 보낸다. 홈 날씨 글은 동만(dong) 그대로. 워커는 "쪼르 위치(dn) · 1분 전" 으로 그린다(옛 앱은 동만 와도 괄호 안에 동).
 
+## p-kids50 — 옷을 몸에 두르듯 입히기(스티커처럼 얹지 않기)
+- 문제: 3D 옷 그림 한 장을 몸 위에 얹기만 해서 붙인 조각처럼 보였다. 이제 몸에 두르는 옷(티 · 스웨터 · 후드 · 망토 · 원피스 · 가운 등 21종 이름)은 **줄 32개로 나눠 줄마다 그 높이의 몸 폭에 맞춰 늘이고 줄여** 입힌다(몸 윤곽 따라 소매 · 밑단이 따라감). 목도리 · 나비넥타이 · 어깨띠 · 메달 · 넥타이 · 날개 · 꽃목걸이와 모자 · 소지품은 그대로 한 장.
+- 엔진: `Wardrobe.strips(ci, sheet, cell, slot, i, x, y, u, out)` → 줄 n개, out[8n..] = {그림칸 원본 x0,y0,x1,y1(192px), 칸에 놓을 x0,y0,x1,y1(256px)}. 몸 윤곽 `FITS`(칸 40 × 줄 40 × {왼,오른}) · 옷 줄별 가장자리 `SXS` · 세로범위/자연폭 `WBS` · 두르는 옷 표시 `WRAPS` 는 문자열 상수(생성 파일, 64KB 정적초기화 한도 회피). 폭=몸폭×0.98 를 옷 자연폭×확대(최대 1.5)의 0.9~1.15배로 제한, 높이는 확대^0.75, 줄 사이 가운데·폭은 1-2-1 로 4번 다듬음.
+- 앱은 그리기만: `WearDraw.worn`(꾸미기 창 · 마을) · `KidsWear`(홈 장면) 가 strips 조각을 그냥 이어 그린다.
+- 만드는 법: tools/wardrobe/fit.py(칸마다 시트 알파에서 몸 윤곽 추출 → atlas/fit.json) → gen.py(Wardrobe.java; strips.java.txt 를 끼워 넣음). 시안 확인은 fitprev.py(파이썬, 같은 알고리즘).
+- 시험: WardrobeTest — 시안 값과 줄별 자리 대조 3곳 · 모든 칸 × 모든 옷(4387곳) 조각 범위 · 모자/소지품 한 장.
+- 기기 미확인(JVM 시험 + 파이썬 시안만 확인).
+
 ## p-kids49 — 꾸미기 3D 렌더링 · 이름 한 줄 좌우 스와이프
 - 480개 입을 것을 전부 3D 로 렌더링(tools/wardrobe/fab3d.py): 재질별 질감(니트·면·털·청·가죽·새틴·금속…) · 빛 · 곡면 · 그림자. 친구별 시트 `app/src/main/assets/wear/<id>.webp`(8x8칸 192px, 합계 약 3MB).
 - 앱은 그리기만: `WearImg.atlas(ci)`(Sheets 가 "wear_<id>" → assets/wear 에서 뒤 스레드로 읽음) → `WearDraw.worn`(꾸미기 창·마을) · `KidsWear`(홈 장면, SceneCv.drawImage) · `DressView` 아이템 칸 썸네일. 시트가 아직 안 읽혔거나 없으면 이전 2D(Art) 로 그린다. 놓을 자리·크기는 그대로 엔진(Wardrobe.place) + 칸마다 틀(Wardrobe.sprite).
