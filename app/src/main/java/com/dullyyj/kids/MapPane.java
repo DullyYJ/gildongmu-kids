@@ -66,6 +66,10 @@ final class MapPane extends LinearLayout {
     private long busAt = 0L;
     private boolean busShown = false, busTicking = false;
     private String lastBusJs = "";
+    private final LinkedHashMap<String, String> needRes = new LinkedHashMap<String, String>();
+    private int busRound = 0;
+    private boolean needPass = false;
+    private volatile ArrayList<String[]> needNext = new ArrayList<String[]>();
     private final LinkedHashMap<String, String> busRes = new LinkedHashMap<String, String>();
     private final ArrayList<String> lastStops = new ArrayList<String>();
 private final LinkedHashMap<String, ScreenCore.Screen> headCache = new LinkedHashMap<String, ScreenCore.Screen>();
@@ -494,7 +498,7 @@ head.setScreen(sc, true);
             b.put("vw", vw);
             b.put("sel", sel);
             b.put("sv", 1);
-            b.put("svb", 300);
+            b.put("svb", busShown ? 2500 : 300); // 첫 그림은 빨리(300ms), 갱신은 서버가 도착정보를 더 기다려 받아 오게(길동무와 같다)
             b.put("lat", g[0]);
             b.put("lng", g[1]);
             b.put("fav", new JSONArray(favRaw == null ? "[]" : favRaw));
@@ -529,6 +533,12 @@ head.setScreen(sc, true);
         final String vw = busVw;
         final int sel = busSel;
         final LinkedHashMap<String, String> resCopy = new LinkedHashMap<String, String>(busRes);
+        if (!needPass) { // 사용자가 누르거나 주기 갱신 — 옛 도착정보는 버려 서버가 새로 받게 한다
+            needRes.clear();
+            busRound = 0;
+        }
+        needPass = false;
+        resCopy.putAll(needRes);
         final int seq = ++busSeq;
         if (!quiet && !busShown) busNote("주변 정류장을 불러오는 중이에요…");
         Wire.EX.execute(new Runnable() {
@@ -560,7 +570,21 @@ head.setScreen(sc, true);
                             txt[1] = fp.optString("rm", txt[1]);
                             txt[2] = fp.optString("full", txt[2]);
                         }
-                        JSONObject bres = info == null ? null : info.optJSONObject("bres");
+                        JSONArray nd = info == null || info.optJSONObject("bus") == null ? null : info.optJSONObject("bus").optJSONArray("need");
+                if (nd != null) { // 서버가 못 받은 정류장 목록 · 도착정보 — 기기가 직접 받아 다시 부탁한다(길동무와 같은 길)
+                    ArrayList<String[]> nn = new ArrayList<String[]>();
+                    for (int i = 0; i < nd.length() && nn.size() < 32; i++) {
+                        JSONObject o = nd.optJSONObject(i);
+                        if (o == null) continue;
+                        String nk = o.optString("k", "");
+                        String nu = o.optString("url", "");
+                        if (nk.matches("[afgh][0-9]{1,3}|[tu][0-9]{1,3}|tp|gg|tn|d1") && nu.length() > 0 && nu.length() < 600) nn.add(new String[] {nk, nu});
+                    }
+                    needNext = nn;
+                } else {
+                    needNext = new ArrayList<String[]>();
+                }
+                JSONObject bres = info == null ? null : info.optJSONObject("bres");
                         if (bres != null) {
                             Iterator<String> it = bres.keys();
                             while (it.hasNext()) {
@@ -598,12 +622,13 @@ head.setScreen(sc, true);
                         favFull = txt[2];
                         note.setVisibility(View.GONE);
                         bus.setVisibility(View.VISIBLE);
-                        if (!r.equals(lastBusJs)) { // 받은 화면이 그대로면 다시 짜지 않는다(깜박임 · 스크롤 흔들림 없음)
+                        if (!(busShown && !needNext.isEmpty() && busRound < 2) && !r.equals(lastBusJs)) { // 이미 그림이 떠 있는데 새 화면이 '불러오는 중' 줄뿐이면(받을 게 남음) 그리지 않고 다 받은 뒤에 그린다 — 도착정보가 깜박이지 않게 // 받은 화면이 그대로면 다시 짜지 않는다(깜박임 · 스크롤 흔들림 없음)
                     lastBusJs = r;
                     bus.setScreen(sc, busShown);
                 }
                         busShown = true;
                         busAt = System.currentTimeMillis();
+                busNeedKick();
                     }
                 });
             }
@@ -619,6 +644,89 @@ head.setScreen(sc, true);
             busTickStart();
         }
     };
+
+    /** 서버가 'need' 로 남긴 주소를 기기가 직접 받아 다시 요청한다(최대 4바퀴). 길동무의 fetchBusNeed 와 같은 방식. */
+    private void busNeedKick() {
+        final ArrayList<String[]> work = needNext;
+        needNext = new ArrayList<String[]>();
+        if (work.isEmpty() || busRound >= 4 || !"bus".equals(mode)) return;
+        busRound++;
+        final int seq = busSeq;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final LinkedHashMap<String, String> got = new LinkedHashMap<String, String>();
+                ArrayList<Thread> ts = new ArrayList<Thread>();
+                for (final String[] n : work) {
+                    Thread t = new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            String b = busFetch(n[1]);
+                            if (b != null && b.length() > 0) {
+                                synchronized (got) {
+                                    got.put(n[0], b.length() > 120000 ? b.substring(0, 120000) : b);
+                                }
+                            }
+                        }
+                    });
+                    t.start();
+                    ts.add(t);
+                }
+                long end = System.currentTimeMillis() + 14000L;
+                for (Thread t : ts) {
+                    try {
+                        t.join(Math.max(1L, end - System.currentTimeMillis()));
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                }
+                final LinkedHashMap<String, String> snap;
+                synchronized (got) {
+                    snap = new LinkedHashMap<String, String>(got);
+                }
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (seq != busSeq || !"bus".equals(mode)) return;
+                        if (snap.isEmpty()) { // 하나도 못 받았다 — 잠시 뒤 같은 주소로 다시
+                            needNext = work;
+                            ui.postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (seq == busSeq && "bus".equals(mode)) busNeedKick();
+                                }
+                            }, 1500L);
+                            return;
+                        }
+                        needRes.putAll(snap);
+                        needPass = true;
+                        loadBus(true);
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** 주소 하나를 받는다 — 길동무와 같이 공공 API 는 버스 프록시로(실패하면 route-v2 로), 정류장 표는 직접. 허용 호스트가 아니면 null. */
+    private static String busFetch(String raw) {
+        String u, alt = "";
+        if (raw.startsWith("https://gentle-lab-7e47subway-api.phg0643.workers.dev/bus-stops?") && raw.length() < 200 && raw.matches("[A-Za-z0-9:/._?=&%-]+")) {
+            u = raw;
+        } else if (raw.matches("^https?://(apis\\.data\\.go\\.kr|ws\\.bus\\.go\\.kr)/.*")) {
+            try {
+                String e = java.net.URLEncoder.encode(raw, "UTF-8");
+                u = "https://gildongmu-bus.phg0643.workers.dev/tago?url=" + e;
+                alt = "https://route-v2.phg0643.workers.dev/bus-tago?url=" + e;
+            } catch (java.io.UnsupportedEncodingException x) {
+                return null;
+            }
+        } else {
+            return null;
+        }
+        String b = Wire.get(u, 7000);
+        if ((b == null || b.length() == 0) && alt.length() > 0) b = Wire.get(alt, 6000);
+        return b;
+    }
 
     private void busTickStart() {
         if (busTicking || !"bus".equals(mode)) return;
