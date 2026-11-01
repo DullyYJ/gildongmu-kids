@@ -54,7 +54,7 @@ final class MapPane extends LinearLayout {
     private final TextView note;
     private MetroMapView metro;
     private MetroMapData data;
-    private boolean dataLoading = false, headLoaded = false;
+    private boolean dataLoading = false, headLoaded = false, metroReady = false, headWarmed = false;
     private String theme = "pastel", flt = "ALL", stn = "";
     private int headSeq = 0;
     private Dialog sheet;
@@ -156,6 +156,37 @@ private int slideGen = 0;
     /** 홈에서 미리 불러 둔다 — 지도 자료만 읽어 두고 화면은 보이지 않는다. */
 void warm() {
 if (data == null && !dataLoading) loadData();
+if (!headWarmed) {                       // 정류장·호선 칩 줄도 미리: 저장해 둔 지난 화면을 바로 얹고, 새 것은 뒤에서 받는다
+headWarmed = true;
+primeHead();
+loadHead(null, null, null);
+}
+}
+
+/** 노선도 탭이 한 번에 뜰 준비가 됐나 — 머리(칩 줄)가 있고, 지도 그림도 한 장 그려졌다(버스는 머리만). */
+boolean ready() {
+return headLoaded && ("bus".equals(mode) || metroReady);
+}
+
+/** 메모리 · 저장해 둔 머리 화면이 있으면 곧바로 얹는다(네트워크를 기다리지 않는다). */
+private boolean primeHead() {
+String hk = headKey();
+ScreenCore.Screen hc = headCache.get(hk);
+if (hc == null) {
+try {
+String raw = Core.store == null ? null : Core.store.get("kh." + hk, null);
+if (raw != null && raw.length() > 0) {
+hc = SvHost.parse(raw);
+if (hc != null) headCache.put(hk, hc);
+}
+} catch (Throwable t) {
+hc = null;
+}
+}
+if (hc == null) return false;
+head.setScreen(hc, true);
+headLoaded = true;
+return true;
 }
 
 void setTheme(String t) {
@@ -164,8 +195,10 @@ void setTheme(String t) {
         theme = nt;
         applyTheme();
         headLoaded = false;
+        headWarmed = false;
         busAt = 0L;
         if (getVisibility() == View.VISIBLE) onShow();
+        else warm();
     }
 
     private void applyTheme() {
@@ -185,7 +218,10 @@ void setTheme(String t) {
             return;
         }
         if (data == null && !dataLoading) loadData();
-        if (!headLoaded) loadHead(null, null, null);
+        if (!headLoaded) {
+            primeHead();
+            loadHead(null, null, null);
+        }
     }
 
     /** 🚌 버스 / 🚇 지하철 바꾸기. */
@@ -343,6 +379,7 @@ private void setModeOld(String m) {
 
             @Override
             public void onReady() {
+                metroReady = true;
             }
 
             @Override
@@ -429,7 +466,14 @@ final String hk = (q == null || q.isEmpty()) ? headKey() : "";
                     public void run() {
                         if (seq != headSeq) return;
                         if (sc != null) {
-                            if (!hk.isEmpty()) headCache.put(hk, sc);
+                            if (!hk.isEmpty()) {
+headCache.put(hk, sc);
+try {
+if (Core.store != null) Core.store.put("kh." + hk, SvHost.strip(r));
+} catch (Throwable t) {
+// 저장 실패는 다음에 다시 받으면 된다
+}
+}
 head.setScreen(sc, true);
                             headLoaded = true;
                         }

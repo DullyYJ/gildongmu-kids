@@ -27,7 +27,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.dullyyj.subway.SceneHello;
 import com.dullyyj.subway.ScreenCore;
+import com.dullyyj.subway.ScreenView;
 import com.dullyyj.subway.ScreenView;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.common.BitMatrix;
@@ -218,14 +220,15 @@ public void run() {
 if (mapPane != null) return;
 try {
 mapPane = new MapPane(ctx);
-mapPane.setVisibility(View.GONE);
+mapPane.setVisibility(View.INVISIBLE);                    // GONE 이면 크기가 없어 그림을 못 그린다 — INVISIBLE 로 두어 뒤에서 한 장 미리 그려 둔다
 host.addView(mapPane, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+mapPane.setTheme(Pal.dark ? "dark" : "pastel");
 mapPane.warm();
 } catch (Throwable t) {
 mapPane = null;
 }
 }
-}, 2500L);
+}, 1200L);
 }
 
 private void swipeBy(int dir) {
@@ -380,7 +383,8 @@ private void swipeBy(int dir) {
             showMap();
             return;
         }
-        if (mapPane != null) mapPane.setVisibility(View.GONE);
+        revealGen++;
+        if (mapPane != null) mapPane.setVisibility(View.INVISIBLE);
         if ("sv".equals(mode)) {
             showHome(pre);
 warmMap();
@@ -449,12 +453,40 @@ if (false) {
         if (home != null) home.setVisibility(View.GONE);
         if (mapPane == null) {
             mapPane = new MapPane(ctx);
+            mapPane.setVisibility(View.INVISIBLE);
             host.addView(mapPane, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         mapPane.setTheme(Pal.dark ? "dark" : "pastel");
-        if (mapPane.getVisibility() != View.VISIBLE) fadeIn(mapPane);
-        mapPane.setVisibility(View.VISIBLE);
         mapPane.onShow();
+        if (mapPane.getVisibility() == View.VISIBLE) return;
+        final int gen = ++revealGen;
+        if (mapPane.ready()) {
+            revealMap();
+            return;
+        }
+        // 머리(칩 줄)와 지도가 같이 뜨도록: 둘이 다 준비될 때까지(최대 0.7초) 기다렸다가 한꺼번에 보인다
+        loading.setVisibility(View.VISIBLE);
+        final long t0 = System.currentTimeMillis();
+        host.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (gen != revealGen || mapPane == null) return;
+                if (mapPane.ready() || System.currentTimeMillis() - t0 > 700L) {
+                    loading.setVisibility(View.GONE);
+                    revealMap();
+                } else {
+                    host.postDelayed(this, 40L);
+                }
+            }
+        }, 40L);
+    }
+
+    private int revealGen = 0;
+
+    private void revealMap() {
+        loading.setVisibility(View.GONE);
+        fadeIn(mapPane);
+        mapPane.setVisibility(View.VISIBLE);
     }
 
     /** 홈 — 길동무와 같은 그리개(ScreenView)가 엔진이 준 화면(흐르는 글 아래 큰 해변 장면 + 브리핑)을 그린다. */
@@ -469,6 +501,12 @@ if (false) {
                 }
             });
             host.addView(home, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            home.setHelloFeed(new ScreenView.HelloFeed() {              // 홈 장면을 3초 꾹 누르면 친구들이 모여 아이 눈높이로 인사한다
+                @Override
+                public SceneHello.Plan get() {
+                    return KidHello.plan(ctx);
+                }
+            });
         }
         home.setPalette(SvHost.palette(Pal.dark ? "dark" : "pastel"));
         if (home.getVisibility() != View.VISIBLE) fadeIn(home);
