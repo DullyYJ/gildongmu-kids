@@ -55,6 +55,17 @@ jobs:
           du -sh app/src/main/assets
           ls -la app/src/main/assets/chars3d
 
+      - name: Kids - friends gather in place (no card stretch on 3s hold)
+        run: |
+          python3 - <<'PY'
+          p = 'app/src/main/java/com/dullyyj/subway/ScreenView.java'
+          s = open(p, encoding='utf-8').read()
+          old = 'hExt = (float) (SceneHello.ext(helloPlan, helloNowMs()) * hi.h);'
+          assert s.count(old) == 1, 'ScreenView hello stretch line not found'
+          open(p, 'w', encoding='utf-8', newline='\n').write(s.replace(old, 'hExt = 0f;'))
+          print('hello stretch disabled')
+          PY
+
       - name: Bundle Noto Sans KR for native screens
         run: |
           pip install --quiet fonttools
