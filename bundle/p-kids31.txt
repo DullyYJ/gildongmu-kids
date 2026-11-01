@@ -1,5 +1,0 @@
-=== EDIT: app/src/main/java/com/dullyyj/kids/Engine.java ===
-@@ old
-"gildongmu-kids://pair?c=" + cid + "&k=" + pairCode
-@@ new
-"https://gildongmu-kids.phg0643.workers.dev/q?k=" + pairCode

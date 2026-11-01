@@ -1326,7 +1326,7 @@ final class Engine {
         a.put(b("gap", "h", "10"));
         a.put(b("head", "text", "부모님과 연결", "small", "1"));
         if (!pairCode.isEmpty()) {
-            a.put(b("qr", "text", "gildongmu-kids://pair?c=" + cid + "&k=" + pairCode));
+            a.put(b("qr", "text", "https://gildongmu-kids.phg0643.workers.dev/q?k=" + pairCode));
             a.put(b("text", "text", "비밀키  " + pairCode, "big", "1"));
             a.put(b("text", "text", "부모님 길동무 앱에서 QR을 찍거나 비밀키를 넣어요. 10분 안에 써야 해요.", "sub", "1"));
         } else {
