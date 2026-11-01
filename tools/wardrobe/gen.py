@@ -30,7 +30,7 @@ w("    // 3D 그림 시트(assets/wear/<친구>.webp, 8x8칸 x 192px): 칸 번�
 w("    public static final int CELL = 192, GRID = 8;")
 w("    private static final float[][] WM = {")
 for ch in catalog.IDS:
-    w("        {"+", ".join("%sf, %sf, %sf"%tuple(m) for m in WMETA[ch])+"},")
+    w("        {"+", ".join("%sf, %sf, %sf"%tuple(m[:3]) for m in WMETA[ch])+"},")
 w("    };\n")
 w("""    /** 3D 그림 시트에서 한 아이템의 자리: out = {가운데 x, 가운데 y, 한 변}(그림 문장 단위, 실제 크기는 * u). 시트 안 칸 번호는 k = slot*PER + i. */
     public static boolean sprite(int ci, int slot, int i, float[] out) {
@@ -54,6 +54,52 @@ for ch in catalog.IDS:
     k=kconst.K.get(ch) or P.K[ch]
     w("        {"+", ".join("{%sf, %sf, %sf}"%tuple(k[s]) for s in ('hat','cloth','item'))+"},")
 w("    };\n")
+
+# ───── 몸에 맞춰 입히기(줄 단위): 몸 윤곽 · 옷 줄별 가장자리 ─────
+import numpy as np, math
+from PIL import Image
+GARM=('망토','줄무늬 티','티셔츠','목폴라','잠옷','판초','조끼','스웨터','앞치마','후드티','갑옷','멜빵바지','우비','턱받이','운동복','구명조끼','원피스','투투 치마','한복 저고리','가운','턱시도')
+NS=32
+FIT=json.load(open('/tmp/wg3d/atlas/fit.json'))
+def ch_(v): return chr(0x100+int(v))
+def cw_(v): return chr(0x8000+int(round(v*1000)))
+fits=[];sxs=[];wbs=[];wraps=[]
+for ci,ch in enumerate(catalog.IDS):
+    fits.append("".join(ch_(max(0,min(256,v))) for cell in FIT[ch] for row in cell for v in row))
+    atlas=Image.open('/tmp/wg3d/atlas/%s.webp'%ch).convert('RGBA'); A=np.asarray(atlas)[...,3]
+    sx="";wb="";wr=""
+    for i in range(20):
+        nm=cat[ch]['cloth'][i][0]; noun=nm.split(' ',1)[1] if ' ' in nm else nm
+        g= noun in GARM; wr+='1' if g else '0'
+        q=20+i; r0=(q//8)*192; c0=(q%8)*192
+        cell=A[r0:r0+192,c0:c0+192]>120
+        fcx,fcy,side,bx0,by0,bx1,by1=WMETA[ch][q]
+        Ls=np.full(192,-1);Rs=np.full(192,-1)
+        for r in range(192):
+            c=np.where(cell[r])[0]
+            if len(c): Ls[r]=c.min(); Rs[r]=c.max()+1
+        if not g:
+            sx+=ch_(0)*(NS*2); wb+=cw_(0)*3; continue
+        for k in range(NS):
+            sa=96+192*(by0+(by1-by0)*k/NS-fcy)/side; sb=96+192*(by0+(by1-by0)*(k+1)/NS-fcy)/side
+            a=max(int(sa),0); b=min(int(math.ceil(sb)),192)
+            ls=[Ls[r] for r in range(a,b) if Ls[r]>=0]; rs=[Rs[r] for r in range(a,b) if Rs[r]>=0]
+            if ls: sx+=ch_(min(ls))+ch_(max(rs))
+            else: sx+=ch_(0)+ch_(0)
+        a=max(int(96+192*(by0-fcy)/side),0); b=min(int(96+192*(by1-fcy)/side),192)
+        wd=[Rs[r]-Ls[r] for r in range(a,b) if Ls[r]>=0]
+        nat=(float(np.median(wd))*side/192) if wd else (bx1-bx0)
+        wb+=cw_(by0)+cw_(by1)+cw_(nat)
+    sxs.append(sx); wbs.append(wb); wraps.append(wr)
+def jstr(t): return '"'+t+'"'
+w("    // 몸에 맞춰 입히기: 몸 윤곽(칸 40개 x 줄 40개 x {왼쪽, 오른쪽}) · 옷 줄별 가장자리 · 옷 세로 범위 · 몸에 두르는 옷인지")
+w("    public static final int NS = 32;")
+w("    private static final String[] FITS = {\n"+",\n".join("        "+jstr(t) for t in fits)+"};")
+w("    private static final String[] SXS = {\n"+",\n".join("        "+jstr(t) for t in sxs)+"};")
+w("    private static final String[] WBS = {\n"+",\n".join("        "+jstr(t) for t in wbs)+"};")
+w("    private static final String[] WRAPS = {"+", ".join(jstr(t) for t in wraps)+"};\n")
+w(open('/tmp/wg/strips.java.txt',encoding='utf-8').read())
+
 w("""    /**
      * 한 칸에서 그림을 놓을 자리와 크기를 계산한다. out = {x, y, 크기} (칸 256 기준 픽셀). 그릴 수 없으면(자는 모습 등) false.
      * sheet: 0 걷기 · 1 자세 · 2 동작. slot: 0 모자 · 1 옷 · 2 소지품(앞쪽 = +x 쪽).

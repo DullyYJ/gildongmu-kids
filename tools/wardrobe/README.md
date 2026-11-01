@@ -12,3 +12,7 @@
 - `build_atlas.py` : 480개를 모두 렌더링 → 친구별 `assets/wear/<친구>.webp`(8x8칸 × 192px, 칸 번호 = 칸종류*20 + 번호) + `meta.json`(칸별 가운데 x·y · 한 변). `gen.py` 가 meta 를 읽어 Wardrobe.java 의 `WM`·`sprite()` 로 만든다.
 - `comp3d.py` : 캐릭터 걷기 칸 위에 3D 그림을 얹어 눈으로 확인.
 - 순서: build_atlas.py → gen.py → 시트(webp)와 Wardrobe.java 를 저장소에 올린다.
+
+
+## 몸에 두르듯 입히기 (p-kids50)
+`fit.py` 가 칸(걷기 16 · 자세 8 · 동작 16)마다 시트 알파에서 몸 윤곽(줄 40개 × 왼·오른쪽)을 /tmp/wg3d/atlas/fit.json 으로 뽑고, `gen.py` 가 그것과 옷 줄별 가장자리를 Wardrobe.java 문자열 상수로 넣는다(`strips.java.txt` 가 엔진 코드). `fitprev.py` 는 같은 알고리즘의 파이썬 시안(합성 그림 확인용).
