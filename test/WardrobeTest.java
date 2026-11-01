@@ -65,6 +65,42 @@ public class WardrobeTest {
             if (!Wardrobe.sprite(c, s, i, sp) || !(sp[2] >= 0.3f && sp[2] < 3.5f && Math.abs(sp[0]) < 1.5f && Math.abs(sp[1]) < 1.5f) || q >= Wardrobe.GRID * Wardrobe.GRID) sprOk = false;
         }
         ok(sprOk && !Wardrobe.sprite(8, 0, 0, sp) && !Wardrobe.sprite(0, 3, 0, sp) && !Wardrobe.sprite(0, 0, 20, sp), "3D 그림 시트 자리 480곳 · 잘못된 값 거절");
+        // 몸에 맞춰 입히기(줄 단위): 파이썬 시안(fitprev.py) 값과 맞는지 · 범위
+        float[] st = new float[8 * Wardrobe.NS], pl = new float[3];
+        Object[][] cs = {
+            {0, 0, 5, 15, new float[][]{{78, 42.8f, 114, 46.1f, 108.6f, 113.7f, 146.0f, 117.1f}, {23, 96.0f, 169, 99.3f, 61.1f, 157.0f, 179.9f, 160.4f}, {48, 145.9f, 144, 149.2f, 101.6f, 197.6f, 179.6f, 201.1f}}},
+            {4, 0, 3, 2, new float[][]{{78, 42.8f, 114, 46.1f, 123.6f, 157.6f, 139.1f, 159.5f}, {23, 96.0f, 169, 99.3f, 102.7f, 175.7f, 160.1f, 177.5f}, {48, 145.9f, 144, 149.2f, 115.8f, 192.6f, 148.2f, 194.5f}}},
+            {7, 2, 4, 14, new float[][]{{78, 42.8f, 114, 46.1f, 139.1f, 133.0f, 174.0f, 136.2f}, {23, 96.0f, 169, 99.3f, 90.5f, 173.5f, 202.7f, 176.8f}, {48, 145.9f, 144, 149.2f, 90.7f, 211.6f, 163.6f, 214.8f}}}};
+        for (Object[] cc : cs) {
+            int c = (Integer) cc[0], sh = (Integer) cc[1], cell = (Integer) cc[2], it = (Integer) cc[3];
+            float[][] ex2 = (float[][]) cc[4];
+            Wardrobe.place(c, sh, cell, 1, pl);
+            int nn = Wardrobe.strips(c, sh, cell, 1, it, pl[0], pl[1], pl[2], st);
+            ok(Wardrobe.wraps(c, 1, it) && nn == Wardrobe.NS, "몸에 두르는 옷은 " + Wardrobe.NS + "줄로 나뉜다: " + Wardrobe.name(c, 1, it) + " " + nn);
+            int[] pick = {0, nn / 2, nn - 1};
+            boolean same = true;
+            for (int q = 0; q < 3; q++) for (int v = 0; v < 8; v++) {
+                float got = st[pick[q] * 8 + v], want = ex2[q][v];
+                if (Math.abs(got - want) > (v < 4 ? 1.6f : 2.2f)) { same = false; System.out.println("   다름 " + Wardrobe.name(c, 1, it) + " 줄" + pick[q] + " [" + v + "] " + got + " vs " + want); }
+            }
+            ok(same, "줄별 자리가 시안과 같다: " + Wardrobe.name(c, 1, it));
+        }
+        boolean sane = true;
+        int wrapN = 0;
+        for (int c = 0; c < 8; c++) for (int sh = 0; sh < 3; sh++) for (int cell = 0; cell < (sh == 1 ? 8 : 16); cell++) for (int it = 0; it < Wardrobe.PER; it++) {
+            if (!Wardrobe.place(c, sh, cell, 1, pl)) continue;
+            int nn = Wardrobe.strips(c, sh, cell, 1, it, pl[0], pl[1], pl[2], st);
+            if (nn < 1 || nn > Wardrobe.NS) { sane = false; System.out.println("   줄 수 이상 " + c + "/" + sh + "/" + cell + "/" + it + " " + nn); continue; }
+            if (Wardrobe.wraps(c, 1, it)) wrapN++;
+            for (int j = 0; j < nn; j++) {
+                float sx0 = st[j * 8], sy0 = st[j * 8 + 1], sx1 = st[j * 8 + 2], sy1 = st[j * 8 + 3], dx0 = st[j * 8 + 4], dy0 = st[j * 8 + 5], dx1 = st[j * 8 + 6], dy1 = st[j * 8 + 7];
+                boolean good = sx0 >= 0 && sy0 >= 0 && sx1 <= 192 && sy1 <= 192 + 1 && sx1 > sx0 && sy1 > sy0 && dx1 - dx0 > 0.3f && dx1 - dx0 < 230 && dy1 > dy0 && dx0 > -40 && dx1 < 420 && dy0 > -40 && dy1 < 320;
+                if (!good) { sane = false; System.out.println("   조각 이상 " + c + "/" + sh + "/" + cell + "/" + it + " #" + j + " " + sx0 + "," + sy0 + "," + sx1 + "," + sy1 + " -> " + dx0 + "," + dy0 + "," + dx1 + "," + dy1); break; }
+            }
+        }
+        ok(sane && wrapN > 1000, "모든 칸 · 모든 옷에서 조각이 범위 안에 있다(두르는 옷 " + wrapN + "곳)");
+        Wardrobe.place(0, 0, 5, 0, pl);
+        ok(Wardrobe.strips(0, 0, 5, 0, 3, pl[0], pl[1], pl[2], st) == 1 && !Wardrobe.wraps(0, 0, 3) && Wardrobe.strips(8, 0, 0, 0, 0, 0, 0, 1, st) == 0, "모자·소지품은 한 장 · 잘못된 값은 0");
         // 엔진 동작
         Dress d = Dress.I;
         int[] cnt = {0};
