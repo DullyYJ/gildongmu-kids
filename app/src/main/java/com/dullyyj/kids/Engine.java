@@ -121,6 +121,7 @@ final class Engine {
     private long fixT = 0L;
     private boolean sceneWx = false;
     private String dong = "";
+    private String dongFull = "";                                          // 부모에게 보내는 "인천시 아라1동"(시 + 동) — 홈의 날씨 글은 동만 쓴다
     private double dongLa = Double.NaN, dongLo = Double.NaN;
     private long dongTryAt = 0L;
     private boolean dressOpen = false;
@@ -1000,7 +1001,7 @@ final class Engine {
         put(o, "la", la);
         put(o, "lo", lo);
         put(o, "acc", (double) acc);
-        put(o, "dn", dong);
+        put(o, "dn", dongFull.isEmpty() ? dong : dongFull);
         Wire.EX.execute(new Runnable() {
             @Override
             public void run() {
@@ -1154,7 +1155,7 @@ final class Engine {
         try {
             JSONArray d = new JSONObject(body).optJSONArray("documents");
             if (d == null) return;
-            String h3 = "", b3 = "", any3 = "", any2 = "";
+            String h3 = "", b3 = "", any3 = "", any2 = "", c1 = "", c2 = "";
             for (int i = 0; i < d.length(); i++) {
                 JSONObject m = d.optJSONObject(i);
                 if (m == null) continue;
@@ -1163,11 +1164,20 @@ final class Engine {
                 if ("B".equals(t) && b3.isEmpty()) b3 = r3;
                 if (any3.isEmpty()) any3 = r3;
                 if (any2.isEmpty()) any2 = r2;
+                if (c1.isEmpty()) { c1 = m.optString("region_1depth_name", "").trim(); c2 = r2; }
             }
             String r = !h3.isEmpty() ? h3 : !b3.isEmpty() ? b3 : !any3.isEmpty() ? any3 : any2;
             if (r.isEmpty()) return;
             if (r.length() > 20) r = r.substring(0, 20);
-            boolean ch = !r.equals(dong);
+            String city = "";                                                       // 광역시·특별시는 "인천시" 처럼, 도는 "수원시" 처럼 시 이름만
+            if (c1.endsWith("특별자치시")) city = c1.substring(0, c1.length() - 5) + "시";
+            else if (c1.endsWith("특별시") || c1.endsWith("광역시")) city = c1.substring(0, c1.length() - 3) + "시";
+            else if (!c2.isEmpty()) city = c2.split(" ")[0];
+            else city = c1;
+            String full = city.isEmpty() || r.startsWith(city) ? r : city + " " + r;
+            if (full.length() > 20) full = r;
+            boolean ch = !r.equals(dong) || !full.equals(dongFull);
+            dongFull = full;
             dong = r;
             dongLa = la;
             dongLo = lo;
