@@ -102,6 +102,16 @@ final class Engine {
     private boolean remBusy = false;
     private long remAskT = 0L, locSentT = 0L;
     private int linked = 0;
+    // ── 부모 길동무와 실시간 연동: 서버(엔진)가 정한 알림 · 남은 거리 · 응원문구 · 안내를 받아 둘 뿐이다
+    private String promptId = "", promptName = "", promptText = "";
+    private boolean promptShut = false;
+    private String tripId = "", tripText = "", tripHint = "";
+    private boolean tripNear = false;
+    private JSONArray cheers = new JSONArray();
+    private String noticeTxt = "";
+    private long noticeUntil = 0L, waitOkT = 0L;
+    private volatile int svRev = 0;
+    private volatile boolean fg = false, waitRun = false;
     private String pairErr = "";
     private long pairExp = 0L;
     private final String cid, csec;
@@ -326,6 +336,7 @@ final class Engine {
             pruneChat(now);
         }
         remPoll(now);
+        if (fg && !waitRun && consented()) setFg(true);
         if (pairExp != 0L && now > pairExp) {
             pairCode = "";
             pairExp = 0L;
@@ -512,6 +523,7 @@ final class Engine {
         sb.append(tab).append('|').append(theme()).append('|').append(consented() ? 1 : 0)
                 .append(store.get("cp", "0")).append(store.get("cc", "0")).append(loc ? 1 : 0)
                 .append('|').append(sel).append('|').append(pairCode).append('|').append(chat.length()).append(pairErr).append(linked);
+        sb.append('|').append(promptId).append(promptShut ? 1 : 0).append(tripText).append(tripNear ? 1 : 0).append(noticeTxt.isEmpty() || System.currentTimeMillis() > noticeUntil ? 0 : 1).append(cheers.length());
         if ("chat".equals(tab)) sb.append('|').append(remGet("chat").hashCode());
         if ("settings".equals(tab)) sb.append('|').append(lastFixT / 60000L);
         if ("quest".equals(tab)) sb.append('|').append(questTab).append(remGet("quest:" + questTab).hashCode());
@@ -703,7 +715,7 @@ final class Engine {
     private void remPoll(long now) {
         if (!consented() || remBusy) return;
         final boolean ch = "chat".equals(tab), qu = "quest".equals(tab);
-        long gap = (ch || qu) ? 4000L : ("settings".equals(tab) ? 8000L : 40000L);
+        long gap = now - waitOkT < 40000L ? 90000L : ((ch || qu) ? 4000L : ("settings".equals(tab) ? 8000L : 40000L));    // 긴 대기가 살아 있으면 가끔 확인만
         if (now - remAskT < gap) return;
         remAskT = now;
         remBusy = true;
@@ -728,6 +740,88 @@ final class Engine {
         });
     }
 
+    /** 서버가 준 상태(알림 · 남은 거리 · 응원문구 · 안내 · 미션 화면)를 받아 둔다. 바뀐 것만 화면이 다시 그려진다. */
+    private void absorb(JSONObject o) {
+        if (o.has("rev")) svRev = o.optInt("rev", svRev);
+        if (o.has("stars")) {
+            JSONObject p = o.optJSONObject("prompt");
+            String pid = p == null ? "" : p.optString("id", "");
+            if (!pid.equals(promptId)) promptShut = false;
+            promptId = pid;
+            promptName = p == null ? "" : p.optString("name", "");
+            promptText = p == null ? "" : p.optString("text", "");
+            JSONObject t = o.optJSONObject("trip");
+            tripId = t == null ? "" : t.optString("id", "");
+            tripText = t == null ? "" : t.optString("text", "");
+            tripHint = t == null ? "" : t.optString("hint", "");
+            tripNear = t != null && t.optBoolean("near", false);
+            JSONArray ch = o.optJSONArray("cheers");
+            cheers = ch == null ? new JSONArray() : ch;
+        }
+        String nt = o.optString("notice", "");
+        if (!nt.isEmpty()) {
+            noticeTxt = nt;
+            noticeUntil = System.currentTimeMillis() + 5000L;
+        }
+        JSONObject ss = o.optJSONObject("screens");
+        if (ss != null) {
+            JSONObject c0 = ss.optJSONObject("c"), p0 = ss.optJSONObject("p");
+            if (c0 != null) remPut("quest:c", c0.toString());
+            if (p0 != null) remPut("quest:p", p0.toString());
+        }
+        dirty = true;
+    }
+
+    /** 앞에 떠 있는 동안 서버에 긴 대기를 걸어 둔다 — 부모가 무언가 하면 서버가 곧바로 답을 준다(기다리는 시간 없음). */
+    synchronized void setFg(boolean on) {
+        fg = on;
+        if (on && !waitRun && consented()) {
+            waitRun = true;
+            Thread th = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    waitLoop();
+                }
+            }, "kids-wait");
+            th.setDaemon(true);
+            th.start();
+        }
+    }
+
+    private void waitLoop() {
+        int fails = 0;
+        try {
+            while (fg && consented()) {
+                if (!ensureReg()) {
+                    Thread.sleep(3000L);
+                    continue;
+                }
+                String t = tab();
+                String r = Kid.callT("GET", "/c/wait?since=" + svRev + "&tab=" + t + "&qt=" + ("p".equals(questTabNow()) ? "p" : "c"), null, cid, csec, 24000);
+                if (r == null) {
+                    fails++;
+                    Thread.sleep(Math.min(500L * fails, 4000L));
+                    continue;
+                }
+                fails = 0;
+                synchronized (this) {
+                    waitOkT = System.currentTimeMillis();
+                }
+                remGot("chat".equals(t) ? "chat" : null, r);
+            }
+        } catch (InterruptedException e) {
+            // 끝
+        } finally {
+            synchronized (this) {
+                waitRun = false;
+            }
+        }
+    }
+
+    private synchronized String questTabNow() {
+        return questTab;
+    }
+
     private synchronized void remDone() {
         remBusy = false;
     }
@@ -738,6 +832,7 @@ final class Engine {
         try {
             JSONObject o = new JSONObject(r);
             if (!o.optBoolean("ok", false)) return;
+            absorb(o);
             if (o.has("linked")) linked = o.optInt("linked", linked);
             JSONObject sc = o.optJSONObject("screen");
             if (key != null && sc != null) remPut(key, sc.toString());
@@ -817,6 +912,11 @@ final class Engine {
     }
 
     private void kidUnlink() {
+        promptId = "";
+        promptShut = false;
+        tripId = "";
+        cheers = new JSONArray();
+        noticeTxt = "";
         linked = 0;
         pairCode = "";
         pairExp = 0L;
@@ -831,7 +931,7 @@ final class Engine {
 
     /** 정확한 위치를 서버에 올린다. 서버는 연결된 부모가 있을 때만, 가장 최근 한 건만 둔다. */
     private void kidLoc(final double la, final double lo, final float acc, long t) {
-        if (!locOn() || t - locSentT < 15000L) return;
+        if (!locOn() || t - locSentT < (tripId.isEmpty() ? 15000L : 7000L)) return;      // 출발한 뒤에는 거리가 더 자주 갱신되게
         locSentT = t;
         final JSONObject o = new JSONObject();
         put(o, "la", la);
@@ -880,6 +980,51 @@ final class Engine {
     }
 
     /** 홈 위로 올라오는 '길동무 친구들 꾸미기' 창 — 위쪽에서 친구를 고르고 아래에 꾸미는 아이템이 들어온다. */
+    /** 부모가 정한 장소에 갈 시간이 가까우면 홈 위에 올라오는 알림: [확인](그냥 끔) · [출발]. */
+    synchronized String promptSheet() {
+        if (!consented() || promptId.isEmpty() || promptShut || linked <= 0) return "";
+        JSONArray a = new JSONArray();
+        a.put(b("text", "text", promptText, "big", "1"));
+        JSONArray it = new JSONArray();
+        it.put(b("i", "label", "확인", "act", "trip.ok:" + promptId, "on", "0"));
+        it.put(b("i", "label", "출발", "act", "trip.go:" + promptId, "on", "1"));
+        JSONObject bt = b("btns");
+        put(bt, "items", it);
+        a.put(bt);
+        return wrap("scroll", a);
+    }
+
+    /** 서버가 보낸 짧은 안내(출발하면 '00에 도착하면 포인트가 쌓여요' · 도착하면 포인트 안내)를 5초 동안 보여 준다. */
+    synchronized String noticeSheet() {
+        if (!consented() || noticeTxt.isEmpty() || System.currentTimeMillis() > noticeUntil) return "";
+        JSONArray a = new JSONArray();
+        a.put(b("text", "text", noticeTxt, "big", "1"));
+        return wrap("scroll", a);
+    }
+
+    /** 출발한 뒤 화면 아래에 뜨는 남은 거리 알약. 도착점 100m 안이면 [도착 확인]이 켜진다(거리 · 문구는 모두 서버가 계산). */
+    synchronized String pill() {
+        if (!consented() || tripId.isEmpty() || linked <= 0) return "";
+        JSONArray k = new JSONArray();
+        k.put(tx(tripText, 14, true, "text", 2));
+        if (tripNear) {
+            k.put(nd("button", "s", "도착 확인", "act", callAct("trip.arrive:" + tripId), "h", 40, "size", 13, "bold", true, "fill", "gold", "tc", "#121214", "line", "gold", "r", 20, "pad", pad(0, 6, 0, 0)));
+        } else {
+            k.put(tx(tripHint, 11, false, "sub", 0));
+        }
+        JSONArray body = new JSONArray();
+        body.put(nd("panel", "pad", pad(12, 4, 12, 6), "ip", pad(16, 10, 16, 10), "fill", "card", "line", "gold", "r", 24, "kids", k));
+        JSONObject o = new JSONObject();
+        put(o, "ok", true);
+        put(o, "v", 1);
+        put(o, "screen", "trip");
+        put(o, "cover", "tab");
+        put(o, "head", new JSONArray());
+        put(o, "body", body);
+        put(o, "info", new JSONObject());
+        return o.toString();
+    }
+
     synchronized String dressSheet() {
         if (!dressOpen || !consented() || fs.isEmpty()) return "";
         F cur = find(dressSel);
@@ -1255,6 +1400,15 @@ final class Engine {
             String s = arg == null ? "" : arg.trim();
             if (s.length() > 100) s = s.substring(0, 100);
             if (!s.isEmpty()) kidAct("quest.send", s);
+        } else if (v.startsWith("trip.")) {          // 장소 알림: 확인(끄기) · 출발 · 도착 확인 — 눌린 즉시 화면이 바뀌고, 서버에는 바로 알린다
+            if (v.startsWith("trip.ok:")) {
+                promptShut = true;
+            } else if (v.startsWith("trip.go:")) {
+                promptShut = true;
+                noticeTxt = promptName + "에 도착하면 포인트가 쌓여요";
+                noticeUntil = now + 5000L;
+            }
+            kidAct(v, "");
         } else if (v.equals("kid.dress")) {
             dressOpen = true;
             if (dressSel.isEmpty() && !fs.isEmpty()) dressSel = fs.get(0).id;
@@ -1264,6 +1418,7 @@ final class Engine {
             String tb = v.substring(10);
             if (tb.equals("hat") || tb.equals("cloth") || tb.equals("item")) dressTab = tb;
         } else if (v.equals("dress.close")) {
+            if (!dressOpen && !promptId.isEmpty()) promptShut = true;
             dressOpen = false;
         } else if (v.startsWith("kid.pick:")) {
             String[] p = v.substring(9).split(":");
@@ -1371,8 +1526,18 @@ final class Engine {
         long now = lastNow == 0L ? System.currentTimeMillis() : lastNow;
         int s = slotOf(now);
         ArrayList<String> l = new ArrayList<String>(java.util.Arrays.asList(HOPE[s]));
+        boolean own = linked > 0 && cheers.length() > 0;      // 부모가 만든 응원문구가 있으면 그것으로 흐른다
+        if (own) {
+            l.clear();
+            for (int ci = 0; ci < cheers.length(); ci++) {
+                String cx = cheers.optString(ci, "");
+                if (!cx.isEmpty()) l.add(cx);
+            }
+            if (l.isEmpty()) own = false;
+        }
+        if (!own) l = new ArrayList<String>(java.util.Arrays.asList(HOPE[s]));
         long day = (now + java.util.TimeZone.getDefault().getOffset(now)) / 86400000L;
-        Collections.shuffle(l, new Random(day * 7L + s));
+        if (!own) Collections.shuffle(l, new Random(day * 7L + s));
         JSONArray m = new JSONArray();
         for (int i = 0; i < l.size(); i++) m.put(l.get(i));
         JSONArray body = new JSONArray();

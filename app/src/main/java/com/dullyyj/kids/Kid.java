@@ -20,11 +20,16 @@ final class Kid {
 
     /** 요청을 보내고 답 글을 돌려준다(서버가 오류 답을 줘도 글은 돌려준다). 연결 자체가 안 되면 null. id 가 비면 인증 머리글을 붙이지 않는다. */
     static String call(String method, String path, String body, String id, String sec) {
+        return callT(method, path, body, id, sec, 10000);
+    }
+
+    /** 읽기 제한 시간을 정해 부른다(서버가 바뀔 때까지 붙들어 두는 긴 대기 /c/wait 는 이걸로). */
+    static String callT(String method, String path, String body, String id, String sec, int readMs) {
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) new URL(BASE + path).openConnection();
             c.setConnectTimeout(8000);
-            c.setReadTimeout(10000);
+            c.setReadTimeout(readMs);
             c.setRequestMethod(method);
             c.setInstanceFollowRedirects(false);
             if (id != null && !id.isEmpty()) {

@@ -48,6 +48,8 @@ public class MainActivity extends Activity {
     private Renderer renderer;
     private TabBar tabbar;
     private ScreenView hdrView;
+    private ScreenView pillView;
+    private String lastPill = "";
     private LinearLayout root;
     private boolean running = false;
     // 아래 셋은 엔진 스레드에서만 쓴다
@@ -129,10 +131,41 @@ public class MainActivity extends Activity {
         sbStrip.setBackgroundColor(0xFF000000);
         outer.addView(root, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         outer.addView(sbStrip, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, Gravity.TOP));
+        // 출발한 뒤 화면 아래(탭 위)에 뜨는 남은 거리 알약 — 엔진이 준 화면을 그릴 뿐, 눌림은 엔진에 넘긴다
+        pillView = SvHost.make(this, new SvHost.Cb() {
+            @Override
+            public void act(String kind, String v) {
+                if ("call".equals(kind) && v != null) MainActivity.this.act(v, "");
+            }
+        }, new SvHost.Size() {
+            @Override
+            public void h(final float dp) {
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        ViewGroup.LayoutParams pl = pillView.getLayoutParams();
+                        int hh = Math.max(1, Math.round(dp * getResources().getDisplayMetrics().density));
+                        if (pl != null && pl.height != hh) {
+                            pl.height = hh;
+                            pillView.setLayoutParams(pl);
+                        }
+                    }
+                });
+            }
+        });
+        pillView.setVisibility(View.GONE);
+        FrameLayout.LayoutParams pillLp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(90f * getResources().getDisplayMetrics().density), Gravity.BOTTOM);
+        pillLp.bottomMargin = Math.round(48f * getResources().getDisplayMetrics().density);
+        outer.addView(pillView, pillLp);
         outer.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override
             public WindowInsets onApplyWindowInsets(View v, WindowInsets in) {
                 root.setPadding(in.getSystemWindowInsetLeft(), in.getSystemWindowInsetTop(), in.getSystemWindowInsetRight(), in.getSystemWindowInsetBottom());
+                FrameLayout.LayoutParams pl2 = (FrameLayout.LayoutParams) pillView.getLayoutParams();
+                pl2.bottomMargin = in.getSystemWindowInsetBottom() + Math.round(48f * getResources().getDisplayMetrics().density);
+                pl2.leftMargin = in.getSystemWindowInsetLeft();
+                pl2.rightMargin = in.getSystemWindowInsetRight();
+                pillView.setLayoutParams(pl2);
                 ViewGroup.LayoutParams lp = sbStrip.getLayoutParams();
                 if (lp.height != in.getSystemWindowInsetTop()) {
                     lp.height = in.getSystemWindowInsetTop();
@@ -147,6 +180,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        Core.engine.setFg(true);
         if (!running) {
             running = true;
             eh.post(new Runnable() {
@@ -165,6 +199,7 @@ public class MainActivity extends Activity {
     protected void onPause() {
         running = false;
         eh.removeCallbacks(loop);
+        Core.engine.setFg(false);
         super.onPause();
     }
 
@@ -234,7 +269,19 @@ public class MainActivity extends Activity {
             });
         }
         // 처음 켰을 때의 동의 창은 홈 화면 위로 올라온다(동의하면 내려간다)
-        final String sheet = cons ? en.dressSheet() : en.consentSheet();
+        final String ns = cons ? en.noticeSheet() : "", pr = cons ? en.promptSheet() : "";
+        final String sheet = cons ? (!ns.isEmpty() ? ns : !pr.isEmpty() ? pr : en.dressSheet()) : en.consentSheet();
+        final String pl = en.pill();
+        if (!pl.equals(lastPill)) {
+            lastPill = pl;
+            final ScreenCore.Screen ps = SvHost.parse(pl);
+            ui.post(new Runnable() {
+                @Override
+                public void run() {
+                    pillShow(ps, theme);
+                }
+            });
+        }
         if (!sheet.equals(lastSheet)) {
             lastSheet = sheet;
             ui.post(new Runnable() {
@@ -274,6 +321,16 @@ public class MainActivity extends Activity {
                 if (r != null) Core.engine.setDong(r, w[0], w[1]);
             }
         });
+    }
+
+    private void pillShow(ScreenCore.Screen ps, String theme) {
+        if (ps == null) {
+            pillView.setVisibility(View.GONE);
+            return;
+        }
+        pillView.setPalette(SvHost.palette(theme));
+        pillView.setScreen(ps, true);
+        pillView.setVisibility(View.VISIBLE);
     }
 
     private void hdrShow(ScreenCore.Screen hs, String theme) {

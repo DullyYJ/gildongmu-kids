@@ -53,6 +53,7 @@ final class VillageView extends View {
     private long lastT = 0L;
     private float downX, downY;
     private Cb cb;
+    private boolean primed = false; // 첫 그림이 놓인 뒤의 변화에만 진동(화면에 들어올 때는 울리지 않는다)
 
     VillageView(Context c) {
         super(c);
@@ -91,15 +92,20 @@ final class VillageView extends View {
                 }
                 x.lane = 0.12f + 0.76f * ((i * 5) % 8) / 7f;
                 x.name = f.optString("name");
-                x.mode = f.optString("mode", "walk");
+                String nm = f.optString("mode", "walk");
+                if (primed && "cell".equals(nm) && !"cell".equals(x.mode)) Buzz.play(getContext(), "grin"); // 동작을 시작했다
+                x.mode = nm;
                 x.cell = f.optInt("cell", -1);
                 x.bubble = f.optString("bubble", "");
-                x.poop = Math.max(0, Math.min(3, f.optInt("poop", 0)));
+                int np = Math.max(0, Math.min(3, f.optInt("poop", 0)));
+                if (primed && np > x.poop) Buzz.play(getContext(), "thud"); // 응가를 쌌다
+                x.poop = np;
                 keep.put(id, x);
                 order.add(x);
             }
             byId.clear();
             byId.putAll(keep);
+            primed = true;
             for (int i = 1; i < order.size(); i++) { // 뒤에 있는(위쪽) 친구부터 그린다
                 A k = order.get(i);
                 int j = i - 1;
@@ -268,7 +274,7 @@ final class VillageView extends View {
                 A f = order.get(i);
                 for (int k = 2; k >= 0; k--) {
                     if (!f.poopHit[k].isEmpty() && f.poopHit[k].contains(x, y)) {
-                        if (cb != null) cb.act("clean:" + f.id);
+                        if (cb != null) { Buzz.play(getContext(), "squirt"); cb.act("clean:" + f.id); }
                         return true;
                     }
                 }
@@ -276,7 +282,7 @@ final class VillageView extends View {
             for (int i = order.size() - 1; i >= 0; i--) {
                 A f = order.get(i);
                 if (f.hit.contains(x, y)) {
-                    if (cb != null) cb.act("sel:" + f.id);
+                    if (cb != null) { Buzz.play(getContext(), Buzz.landOf(f.id)); cb.act("sel:" + f.id); }
                     return true;
                 }
             }
