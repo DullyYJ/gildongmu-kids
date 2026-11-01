@@ -1,7 +1,10 @@
 package com.dullyyj.subway;
 
+import android.graphics.Bitmap;
+
 import com.dullyyj.kids.Art;
 import com.dullyyj.kids.Dress;
+import com.dullyyj.kids.WearImg;
 import com.dullyyj.kids.Wardrobe;
 
 /**
@@ -25,7 +28,17 @@ final class KidsWear {
     }
 
     private static final Pen PEN = new Pen();
-    private static final float[] O = new float[3];
+    private static final float[] O = new float[3], SP = new float[3];
+    private static final Bitmap[] BM = new Bitmap[8];
+    private static final AndroidCv.AImg[] IM = new AndroidCv.AImg[8];
+
+    /** 3D 로 그려 둔 입을 것 시트(없거나 아직 읽는 중이면 null → 그림 문장으로 그린다). */
+    private static AndroidCv.AImg img(int ci) {
+        Bitmap b = WearImg.atlas(ci);
+        if (b == null) return null;
+        if (BM[ci] != b) { BM[ci] = b; IM[ci] = new AndroidCv.AImg(b); }
+        return IM[ci];
+    }
 
     /** kind: 0 걷기 · 1 자세 · 2 동작 시트. (dx, dy) = 칸 왼쪽 위(변환된 자리), sc = 칸 한 픽셀의 장면 크기. */
     static void draw(SceneCv c, SceneCore.Actor a, int kind, int idx, double dx, double dy, double sc) {
@@ -36,11 +49,19 @@ final class KidsWear {
         if (ci < 0) return;
         PEN.c = c;
         c.lineCapRound(true);
+        AndroidCv.AImg at = img(ci);
         for (int n = 0; n < 3; n++) {
             int slot = n == 0 ? 1 : n == 1 ? 2 : 0;          // 옷 → 소지품 → 모자
             Art.Op[] ops = lk.ops[slot];
             if (ops == null || !Wardrobe.place(ci, kind, idx, slot, O)) continue;
-            Art.draw(PEN, ops, (float) (dx + O[0] * sc), (float) (dy + O[1] * sc), (float) (O[2] * sc));
+            int i = lk.idx[slot];
+            if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
+                double u = O[2] * sc, side = SP[2] * u, cx = dx + O[0] * sc + SP[0] * u, cy = dy + O[1] * sc + SP[1] * u;
+                int q = slot * Wardrobe.PER + i, cs = Wardrobe.CELL;
+                c.drawImage(at, (q % Wardrobe.GRID) * cs, (q / Wardrobe.GRID) * cs, cs, cs, cx - side / 2, cy - side / 2, side, side);
+            } else {
+                Art.draw(PEN, ops, (float) (dx + O[0] * sc), (float) (dy + O[1] * sc), (float) (O[2] * sc));
+            }
         }
     }
 }
