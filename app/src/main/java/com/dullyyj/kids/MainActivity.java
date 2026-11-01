@@ -29,6 +29,7 @@ import com.google.android.gms.tasks.CancellationTokenSource;
 import com.google.android.gms.tasks.OnSuccessListener;
 
 import com.dullyyj.subway.ScreenCore;
+import com.dullyyj.subway.OpenHost;
 import com.dullyyj.subway.ScreenView;
 
 import org.json.JSONObject;
@@ -175,6 +176,7 @@ public class MainActivity extends Activity {
             }
         });
         setContentView(outer);
+        if (b == null) OpenHost.show(this); // 켤 때 오프닝: 길동무와 똑같은 한 갈래(OpenHost) — 시간대 · 날씨 · 친구 · 움직임이 같다
     }
 
     @Override
@@ -216,6 +218,7 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (OpenHost.back()) return; // 오프닝이 떠 있으면 오프닝만 닫는다
         if (Core.engine.consented() && !"home".equals(Core.engine.tab())) {
             act("tab.home", "");
         } else {
@@ -304,7 +307,10 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 String r = Wire.post("/scene", body, 8000);
-                if (r != null) Core.engine.setScene(r, System.currentTimeMillis());
+                if (r != null) {
+                    Core.engine.setScene(r, System.currentTimeMillis());
+                    OpenHost.saveWx(MainActivity.this, r); // 다음에 켤 때 오프닝 배경이 쓸 마지막 날씨(엔진이 알려 준 것만)
+                }
             }
         });
     }
