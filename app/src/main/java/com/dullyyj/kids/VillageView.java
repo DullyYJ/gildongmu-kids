@@ -93,12 +93,12 @@ final class VillageView extends View {
                 x.lane = 0.12f + 0.76f * ((i * 5) % 8) / 7f;
                 x.name = f.optString("name");
                 String nm = f.optString("mode", "walk");
-                if (primed && "cell".equals(nm) && !"cell".equals(x.mode)) Buzz.play(getContext(), "grin"); // 동작을 시작했다
+                // 친구가 동작을 시작해도 진동은 없다(손으로 만질 때만 울린다)
                 x.mode = nm;
                 x.cell = f.optInt("cell", -1);
                 x.bubble = f.optString("bubble", "");
                 int np = Math.max(0, Math.min(3, f.optInt("poop", 0)));
-                if (primed && np > x.poop) Buzz.play(getContext(), "thud"); // 응가를 쌌다
+                // 친구가 응가를 싸도 진동은 없다
                 x.poop = np;
                 keep.put(id, x);
                 order.add(x);

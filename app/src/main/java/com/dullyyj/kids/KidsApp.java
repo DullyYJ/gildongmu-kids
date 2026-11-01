@@ -8,6 +8,7 @@ public class KidsApp extends Application {
         super.onCreate();
         Core.init(this);
         Push.app = getApplicationContext();
+        com.dullyyj.subway.SceneCore.quietAuto = true; // 길동무 친구들이 스스로 놀 때의 진동은 끈다(손으로 잡고 놓는 진동만 남는다)
         final android.content.Context app = this;
         Thread th = new Thread(new Runnable() {
             @Override

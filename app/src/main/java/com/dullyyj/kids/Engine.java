@@ -499,7 +499,30 @@ final class Engine {
         for (int i = 0; i < n && i < o.size(); i++) setTm(o.get(i), "play", now + ms);
     }
 
+    /** 부모 길동무 '뭐하니?' 활동 기록: 친구가 밥 먹기 · 놀기 · 공부 · 잠 · 응가를 시작하면 서버에 한 줄 알린다(같은 일은 60초에 한 번 · 연결된 부모가 있을 때만). */
+    private final HashMap<String, Long> evAt = new HashMap<String, Long>();
+
+    private void kidEv(String k, String name) {
+        if (linked <= 0 || !consented() || name == null || name.isEmpty()) return;
+        if (!(k.equals("eat") || k.equals("play") || k.equals("study") || k.equals("sleep") || k.equals("poop"))) return;
+        long t = lastNow;
+        String key = k.equals("eat") ? k + name : k;
+        Long p = evAt.get(key);
+        if (p != null && t - p < 60000L) return;
+        evAt.put(key, t);
+        final JSONObject o = new JSONObject();
+        put(o, "k", k.equals("eat") ? "feed" : k);
+        put(o, "x", name);
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                if (ensureReg()) Kid.call("POST", "/c/ev", o.toString(), cid, csec);
+            }
+        });
+    }
+
     private void setTm(F f, String m, long until) {
+        kidEv(m, f.name);
         f.tm = m;
         f.tmUntil = until;
     }
@@ -938,6 +961,7 @@ final class Engine {
         put(o, "la", la);
         put(o, "lo", lo);
         put(o, "acc", (double) acc);
+        put(o, "dn", dong);
         Wire.EX.execute(new Runnable() {
             @Override
             public void run() {
