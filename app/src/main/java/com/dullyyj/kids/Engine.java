@@ -507,9 +507,9 @@ final class Engine {
 
     private void kidEv(String k, String name) {
         if (linked <= 0 || !consented() || name == null || name.isEmpty()) return;
-        if (!(k.equals("eat") || k.equals("play") || k.equals("study") || k.equals("sleep") || k.equals("poop"))) return;
+        if (!(k.equals("eat") || k.equals("clean") || k.equals("drop"))) return;           // 자녀가 직접 한 일만(친구들 스스로의 놀기 · 공부 · 잠 · 응가는 알리지 않는다)
         long t = lastNow;
-        String key = k.equals("eat") ? k + name : k;
+        String key = k + name;
         Long p = evAt.get(key);
         if (p != null && t - p < 60000L) return;
         evAt.put(key, t);
@@ -522,6 +522,17 @@ final class Engine {
                 if (ensureReg()) Kid.call("POST", "/c/ev", o.toString(), cid, csec);
             }
         });
+    }
+
+    /** 자녀가 친구를 공중에서 떨어뜨렸다(장면 스레드에서 부른다). 땅에서 놓은 것은 세지 않는다. */
+    synchronized void dropEv(String id, double lift) {
+        if (lift < 24.0) return;
+        for (int i = 0; i < fs.size(); i++) {
+            if (fs.get(i).id.equals(id)) {
+                kidEv("drop", fs.get(i).name);
+                return;
+            }
+        }
     }
 
     private void setTm(F f, String m, long until) {
@@ -1584,6 +1595,7 @@ final class Engine {
             ArrayList<F> g = onScreen();
             for (int i = 0; i < g.size(); i++) {
                 F f = g.get(i);
+                if (f.poop > 0) kidEv("clean", f.name);
                 f.poop = 0;
                 f.poopNeg = false;
                 f.poopSince = 0L;
@@ -1596,6 +1608,7 @@ final class Engine {
             tab = "friends";
         } else if (v.startsWith("clean:")) {
             F f = find(v.substring(6));
+            if (f.poop > 0) kidEv("clean", f.name);
             if (f.poop > 0) f.poop--;
             if (f.poop == 0) {
                 f.poopNeg = false;
@@ -1611,6 +1624,7 @@ final class Engine {
             if (!f.sick) setTm(f, "play", now + 3000L);
         } else if (v.equals("care.clean")) {
             F f = find(sel);
+            if (f.poop > 0) kidEv("clean", f.name);
             f.poop = 0;
             f.poopNeg = false;
             f.poopSince = 0L;
@@ -1972,6 +1986,7 @@ lk.put("place", rmP);
     /** 장면에서 친구를 짧게 눌러 고른 일(응가 치우기 · 식사 · 공부 · 잠자기). */
     private void pickFor(F f, String what, long now) {
         if ("clean".equals(what)) {
+            if (f.poop > 0) kidEv("clean", f.name);
             f.poop = 0;
             f.poopNeg = false;
             f.poopSince = 0L;
