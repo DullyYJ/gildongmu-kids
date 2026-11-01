@@ -50,3 +50,6 @@
 ## p-kids46 (YJ: 가족대화 탭만 다녀오면 홈에서 키보드가 계속 올라온다)
 - 원인: Renderer.view()=host 안에는 가려진(GONE) scroll 과 그 안의 대화 입력칸이 남는다. MainActivity.show() 의 firstEdit() 가 그 숨은 칸을 찾아 "입력칸이 있다 · 치던 중"으로 보고 refocus() 로 키보드를 다시 올렸다(홈이 새로 그려질 때마다 반복).
 - 수정: firstEdit() 는 보이지 않는 뷰를 건너뛴다 · typing 은 ff.isShown() 일 때만 · showHome() 이 가려진 scroll 의 포커스를 놓는다. 부모 repo s376(ScreenView 입력칸 포커스 차단)도 빌드 때 같이 들어온다.
+
+## p-kids47 (YJ: 쪼르 위치(인천시 아라1동))
+- Engine.setDong: 카카오 region_1/2depth 로 시 이름(인천광역시→인천시 · 도는 2depth 첫 낱말)을 만들어 dongFull("인천시 아라1동")을 부모에게 dn 으로 보낸다. 홈 날씨 글은 동만(dong) 그대로. 워커는 "쪼르 위치(dn) · 1분 전" 으로 그린다(옛 앱은 동만 와도 괄호 안에 동).
