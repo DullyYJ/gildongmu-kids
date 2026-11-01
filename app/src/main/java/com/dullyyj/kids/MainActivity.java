@@ -369,12 +369,16 @@ public class MainActivity extends Activity {
         View ff = getCurrentFocus();
         final boolean typing = ff instanceof android.widget.EditText && isInside(ff, renderer.view());          // 글을 치는 중이었나(퀘스트·대화 입력칸)
         final int selA = typing ? ((android.widget.EditText) ff).getSelectionStart() : 0;
+        final CharSequence oldHint = typing ? ((android.widget.EditText) ff).getHint() : null;
         if (typing && scr.equals(lastScr)) { renderer.village(vil); }          // 치는 중에 같은 화면이 다시 오면 다시 그리지 않는다(입력칸·키보드 그대로)
         else {
             lastScr = scr;
             renderer.build(scr, pre);
             renderer.village(vil);
-            if (typing) refocus(renderer.view(), selA);
+            android.widget.EditText ne = firstEdit(renderer.view());
+            if (ne == null) hideKeyboard();                                   // 글 칠 칸이 없는 화면(홈 등)에는 키보드가 남거나 올라오지 않는다
+            else if (typing && String.valueOf(ne.getHint()).equals(String.valueOf(oldHint))) refocus(renderer.view(), selA);          // 같은 입력칸으로 다시 그려진 때만 키보드를 되돌린다
+            else if (typing) hideKeyboard();                                  // 다른 화면의 입력칸 — 키보드는 내린다(저절로 올라오지 않게)
         }
         tabbar.set(bar, new TabBar.Cb() {
             @Override
@@ -383,6 +387,17 @@ public class MainActivity extends Activity {
             }
         });
         tabbar.setVisibility(tabbar.count() > 0 ? View.VISIBLE : View.GONE);
+    }
+
+    private void hideKeyboard() {
+        try {
+            View f = getCurrentFocus();
+            if (f != null) f.clearFocus();
+            android.view.inputmethod.InputMethodManager im = (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            View t = f != null ? f : getWindow().getDecorView();
+            if (im != null) im.hideSoftInputFromWindow(t.getWindowToken(), 0);
+        } catch (Throwable ignored) {
+        }
     }
 
     private static boolean isInside(View v, View root) {
