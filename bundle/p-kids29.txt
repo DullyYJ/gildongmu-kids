@@ -1,0 +1,62 @@
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+in.setTranslationX(dir * w);
+@@ new
+in.setTranslationX(dir * w);
+        in.setLayerType(View.LAYER_TYPE_HARDWARE, null); // 밀리는 동안 두 화면을 한 장씩 그림으로 두어 매 프레임 다시 그리지 않는다(길동무 시트와 같은 방식)
+        out.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        ui.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                in.setLayerType(View.LAYER_TYPE_NONE, null);
+                out.setLayerType(View.LAYER_TYPE_NONE, null);
+            }
+        }, 320L);
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+private boolean busShown = false, busTicking = false;
+@@ new
+private boolean busShown = false, busTicking = false;
+    private String lastBusJs = "";
+=== EDIT: app/src/main/java/com/dullyyj/kids/MapPane.java ===
+@@ old
+bus.setScreen(sc, busShown);
+@@ new
+if (!r.equals(lastBusJs)) { // 받은 화면이 그대로면 다시 짜지 않는다(깜박임 · 스크롤 흔들림 없음)
+                    lastBusJs = r;
+                    bus.setScreen(sc, busShown);
+                }
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+private void showMap() {
+@@ new
+/** 탭을 옮겨 새 화면이 나올 때 살짝 떠오른다(길동무 fadeIn 과 같은 240ms 감속). 갱신에는 쓰지 않는다. */
+    private void fadeIn(View v) {
+        try {
+            v.animate().cancel();
+            v.setAlpha(0.35f);
+            v.animate().alpha(1f).setDuration(240L).setInterpolator(new android.view.animation.DecelerateInterpolator(1.4f)).start();
+        } catch (Throwable t) {
+            v.setAlpha(1f);
+        }
+    }
+
+    private void showMap() {
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+mapPane.setVisibility(View.VISIBLE);
+@@ new
+if (mapPane.getVisibility() != View.VISIBLE) fadeIn(mapPane);
+        mapPane.setVisibility(View.VISIBLE);
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+home.setVisibility(View.VISIBLE);
+@@ new
+if (home.getVisibility() != View.VISIBLE) fadeIn(home);
+        home.setVisibility(View.VISIBLE);
+=== EDIT: app/src/main/java/com/dullyyj/kids/Renderer.java ===
+@@ old
+scroll.setVisibility(View.VISIBLE);
+@@ new
+if (scroll.getVisibility() != View.VISIBLE) fadeIn(scroll);
+scroll.setVisibility(View.VISIBLE);
