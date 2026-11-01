@@ -388,7 +388,8 @@ warmMap();
         }
         if (home != null) home.setVisibility(View.GONE);
         loading.setVisibility(View.GONE);
-        scroll.setVisibility(View.VISIBLE);
+        if (scroll.getVisibility() != View.VISIBLE) fadeIn(scroll);
+scroll.setVisibility(View.VISIBLE);
         scroll.setBackgroundColor(Pal.c(Pal.BG));
         JSONArray bl = o.optJSONArray("blocks");
         String head = "";
@@ -431,6 +432,17 @@ if (false) {
         });
     }
 
+    /** 탭을 옮겨 새 화면이 나올 때 살짝 떠오른다(길동무 fadeIn 과 같은 240ms 감속). 갱신에는 쓰지 않는다. */
+    private void fadeIn(View v) {
+        try {
+            v.animate().cancel();
+            v.setAlpha(0.35f);
+            v.animate().alpha(1f).setDuration(240L).setInterpolator(new android.view.animation.DecelerateInterpolator(1.4f)).start();
+        } catch (Throwable t) {
+            v.setAlpha(1f);
+        }
+    }
+
     private void showMap() {
         scroll.setVisibility(View.GONE);
         loading.setVisibility(View.GONE);
@@ -440,6 +452,7 @@ if (false) {
             host.addView(mapPane, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         mapPane.setTheme(Pal.dark ? "dark" : "pastel");
+        if (mapPane.getVisibility() != View.VISIBLE) fadeIn(mapPane);
         mapPane.setVisibility(View.VISIBLE);
         mapPane.onShow();
     }
@@ -458,6 +471,7 @@ if (false) {
             host.addView(home, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
         home.setPalette(SvHost.palette(Pal.dark ? "dark" : "pastel"));
+        if (home.getVisibility() != View.VISIBLE) fadeIn(home);
         home.setVisibility(View.VISIBLE);
         if (pre != null) home.setScreen(pre, true);
     }

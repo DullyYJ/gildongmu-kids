@@ -65,6 +65,7 @@ final class MapPane extends LinearLayout {
     private int busSel = -1, busSeq = 0;
     private long busAt = 0L;
     private boolean busShown = false, busTicking = false;
+    private String lastBusJs = "";
     private final LinkedHashMap<String, String> busRes = new LinkedHashMap<String, String>();
     private final ArrayList<String> lastStops = new ArrayList<String>();
 private final LinkedHashMap<String, ScreenCore.Screen> headCache = new LinkedHashMap<String, ScreenCore.Screen>();
@@ -234,6 +235,15 @@ in.setTranslationX(0f);
 return;
 }
 in.setTranslationX(dir * w);
+        in.setLayerType(View.LAYER_TYPE_HARDWARE, null); // 밀리는 동안 두 화면을 한 장씩 그림으로 두어 매 프레임 다시 그리지 않는다(길동무 시트와 같은 방식)
+        out.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        ui.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                in.setLayerType(View.LAYER_TYPE_NONE, null);
+                out.setLayerType(View.LAYER_TYPE_NONE, null);
+            }
+        }, 320L);
 in.animate().translationX(0f).setDuration(260L).setInterpolator(ip).start();
 out.animate().translationX(-dir * w).setDuration(260L).setInterpolator(ip).withEndAction(new Runnable() {
 @Override
@@ -588,7 +598,10 @@ head.setScreen(sc, true);
                         favFull = txt[2];
                         note.setVisibility(View.GONE);
                         bus.setVisibility(View.VISIBLE);
-                        bus.setScreen(sc, busShown);
+                        if (!r.equals(lastBusJs)) { // 받은 화면이 그대로면 다시 짜지 않는다(깜박임 · 스크롤 흔들림 없음)
+                    lastBusJs = r;
+                    bus.setScreen(sc, busShown);
+                }
                         busShown = true;
                         busAt = System.currentTimeMillis();
                     }
