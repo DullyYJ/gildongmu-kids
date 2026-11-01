@@ -1,52 +1,106 @@
+# 길동무 키즈 옷 굽기 (p-kids52): 옷을 '얹지' 않고 캐릭터 몸을 옷감으로 바꾼다.
+# 몸 모양(가운데 축 · 폭 · 기울기)에 옷 그림을 맞춰 늘이고 · 기울이고, 몸 명암 · 입체감을 그대로 입힌다.
+KINDS=[('walk',0,16),('pose',1,8),('act',2,16)]
 import sys, json, os, io, time; sys.path.insert(0,'.')
-import numpy as np, eng
+import numpy as np, eng, math
+from multiprocessing import Pool
 from PIL import Image
 from scipy import ndimage as ndi
-from multiprocessing import Pool
-SS=2; eng.WIDEN=1.14
-KINDS=[('walk',0,16),('pose',1,8),('act',2,16)]
-def layer(ci,sheet,cell,i):
-    n=256*SS; L=Image.new('RGBA',(n,n),(0,0,0,0))
-    pl=eng.place(ci,sheet,cell,1)
-    if not pl: return None
+SS=2
+P=dict(ext=1.45, up=0.0)
+CH0={0:(1.05,0.16),1:(1.0,0.2),2:(1.15,0.1),3:(1.3,0.05),4:(1.6,0.0),5:(1.4,0.02),6:(1.35,0.03),7:(1.3,0.03)}   # 띠 높이 배율 · 위로 올리는 정도
+def sprite(ci,i):
     q=20+i; ox=(q%8)*192; oy=(q//8)*192
-    for (a,b,c,d,x0,y0,x1,y1) in eng.strips(ci,sheet,cell,1,i,*pl):
-        sw=int(round((x1-x0)*SS)); sh=int(round((y1-y0)*SS))
-        if sw<1 or sh<1: continue
-        t=eng.atlas(ci).crop((ox+int(a),oy+int(b),ox+int(c),oy+int(d))).resize((sw,sh),Image.LANCZOS)
-        L.alpha_composite(t,(max(int(round(x0*SS)),0),max(int(round(y0*SS)),0)))
-    return np.asarray(L).astype(np.float32)/255
-def bake(ci,sheet,cell,i):
-    G=layer(ci,sheet,cell,i)
-    if G is None: return None
-    n=256*SS
+    return np.asarray(eng.atlas(ci).crop((ox,oy,ox+192,oy+192))).astype(np.float32)/255
+_ext={}
+def extents(ci,i):
+    k=(ci,i)
+    if k in _ext: return _ext[k]
+    G=sprite(ci,i); A=G[...,3]>0.47
+    L=np.full(192,np.nan);R=np.full(192,np.nan)
+    for r in range(192):
+        c=np.where(A[r])[0]
+        if len(c): L[r]=c.min(); R[r]=c.max()+1
+    rows=np.where(~np.isnan(L))[0]; r0,r1=rows.min(),rows.max()
+    idx=np.arange(r0,r1+1)
+    Ls=ndi.median_filter(np.interp(idx,rows,L[rows]),5); Rs=ndi.median_filter(np.interp(idx,rows,R[rows]),5)
+    _ext[k]=(r0,r1,Ls,Rs,G); return _ext[k]
+# 3D 모델에서 부위별(몸통 · 머리 · 팔다리)로 색칠해 다시 그린 그림(m3d/mk/*_m.png, 512)에서 '몸통으로 보이는 자리'만 뽑아 거기에만 옷감을 입힌다.
+MKD='m3d/mk/'   # mask/mkall.py · mkfr.py 가 만든 부위 색칠 그림 폴더
+TAG=['w','p','a']
+def torso(ci,sheet,cell):
+    import os
+    fn='%s%s_%s%02d_m.png'%(MKD,eng.IDS[ci],TAG[sheet],cell)
+    if not os.path.exists(fn): return None
+    M=np.asarray(Image.open(fn).convert('RGBA')).astype(np.float32)/255
+    r,g,b,a=M[...,0],M[...,1],M[...,2],M[...,3]
+    cls=np.zeros(r.shape,np.int8)               # 0 없음 · 1 몸통 · 2 머리 · 3 팔다리 · 4 기타
+    cls[(a>0.35)]=4
+    cls[(a>0.35)&(r>g+0.25)&(r>b+0.25)]=1
+    cls[(a>0.35)&(g>r+0.25)&(g>b+0.25)]=2
+    cls[(a>0.35)&(b>r+0.25)&(b>g+0.25)]=3
+    return cls
+EMPTY=(0,0,np.zeros((2,2,4),np.uint8))
+def bake(ci,sheet,cell,i,ext=None):
+    cls=torso(ci,sheet,cell)
+    if cls is None: return EMPTY
+    n=512
+    T=(cls==1)
+    if T.sum()<60*4: return EMPTY
+    T=ndi.binary_opening(T,iterations=1)
+    lab,nl=ndi.label(T)
+    if nl>1:
+        sz=ndi.sum(T,lab,range(1,nl+1)); T=lab==(1+int(np.argmax(sz)))
+    if T.sum()<60*4: return EMPTY
+    # 1~2px 살짝 키워 털이 비치지 않게(머리 · 팔다리 자리는 안 건드림)
+    grow=ndi.binary_dilation(T,iterations=3)&((cls==1)|(cls==4)|(cls==0)|(cls==3)&False)
+    A=T|grow
+    ys,xs=np.where(A)
+    # 줄 · 칸마다 몸통의 끝 → 옷의 가로 · 세로 좌표
+    X,Y=np.meshgrid(np.arange(n,dtype=np.float32),np.arange(n,dtype=np.float32))
+    xl=np.full(n,np.nan,np.float32); xr=np.full(n,np.nan,np.float32); yt=np.full(n,np.nan,np.float32); yb=np.full(n,np.nan,np.float32)
+    for y in range(n):
+        c=np.where(A[y])[0]
+        if len(c): xl[y]=c.min(); xr[y]=c.max()+1
+    for x in range(n):
+        c=np.where(A[:,x])[0]
+        if len(c): yt[x]=c.min(); yb[x]=c.max()+1
+    def fill(v):
+        ok=~np.isnan(v); idx=np.arange(n)
+        return np.interp(idx,idx[ok],v[ok]) if ok.sum()>1 else v
+    xl,xr,yt,yb=[ndi.gaussian_filter1d(fill(v),3,mode='nearest') for v in (xl,xr,yt,yb)]
+    uu=np.clip((X-xl[Y.astype(int)])/np.maximum(xr[Y.astype(int)]-xl[Y.astype(int)],4),0,1)
+    vv=np.clip((Y-yt[X.astype(int)])/np.maximum(yb[X.astype(int)]-yt[X.astype(int)],4),0,1)
+    G=sprite(ci,i); ga=G[...,3]>0.47
+    rows=np.where(ga.any(1))[0]; cols=np.where(ga.any(0))[0]
+    r0,r1,c0,c1=rows.min(),rows.max()+1,cols.min(),cols.max()+1
+    rr=r0+(0.10+vv*0.80)*(r1-r0); cc=c0+(0.12+uu*0.76)*(c1-c0)
+    samp=np.stack([ndi.map_coordinates(G[...,c],[rr,cc],order=1,mode='nearest') for c in range(4)],axis=-1)
     B=np.asarray(eng.sheetcell(ci,sheet,cell).resize((n,n),Image.LANCZOS)).astype(np.float32)/255
-    ba=B[...,3]; ga=G[...,3]
-    inside=ndi.maximum_filter(ndi.gaussian_filter((ba>0.4).astype(np.float32),0.8*SS),size=2*SS)
-    a=ga*np.clip(inside,0,1)
+    ba=B[...,3]
+    a=ndi.gaussian_filter(A.astype(np.float32),0.9)*(ba>0.2)
+    a=np.clip((a-0.25)/0.5,0,1)
     lum=B[...,0]*.3+B[...,1]*.59+B[...,2]*.11
-    sm=ndi.gaussian_filter(lum*ba,2.5*SS)/np.maximum(ndi.gaussian_filter(ba,2.5*SS),1e-3)
-    m=(a>0.6)&(ba>0.5); ref=np.median(sm[m]) if m.sum()>50 else 0.6
+    sm=ndi.gaussian_filter(lum*ba,5)/np.maximum(ndi.gaussian_filter(ba,5),1e-3)
+    mm=(a>0.6)&(ba>0.5); ref=np.median(sm[mm]) if mm.sum()>50 else 0.6
     shade=1+(np.clip(sm/max(ref,.15),0.55,1.3)-1)*0.95
-    dist=ndi.distance_transform_edt(ba>0.4); R=14.0*SS
-    t=np.clip(dist/R,0,1); h=ndi.gaussian_filter(np.sqrt(1-(1-t)**2)*R,1.5*SS)
-    gy,gx=np.gradient(h); nz=1/np.sqrt(1+gx**2+gy**2); nx=-gx*nz; ny=-gy*nz
-    dome=0.62+0.52*np.clip(nx*-0.45+ny*-0.6+nz*0.66,0,1)
-    grgb=np.clip(G[...,:3]*shade[...,None]*dome[...,None],0,1)
-    d=ndi.distance_transform_edt(a>0.5); edge=np.clip(1-d/(3.0*SS),0,1)*(a>0.5)
-    grgb=grgb*(1-0.22*edge[...,None])
-    cs=ndi.shift(ndi.gaussian_filter(a,2.2*SS),(1.6*SS,0.0),order=1)*0.34
-    sh=cs*(1-a)*(ba>0.3)
-    la=a+sh*(1-a)
-    prem=grgb*a[...,None]            # 그림자는 검정(0)
-    # 2x 줄이기
-    la=la.reshape(256,SS,256,SS).mean((1,3)); prem=prem.reshape(256,SS,256,SS,3).mean((1,3))
-    col=np.where(la[...,None]>1e-4,prem/np.maximum(la[...,None],1e-4),0)
-    arr=np.concatenate([col,la[...,None]],axis=2)
-    img=(np.clip(arr,0,1)*255+.5).astype(np.uint8)
-    ys,xs=np.where(img[...,3]>3)
-    if len(xs)==0: return None
-    x0,x1,y0,y1=max(xs.min()-1,0),min(xs.max()+2,256),max(ys.min()-1,0),min(ys.max()+2,256)
+    dist=ndi.distance_transform_edt(A); R=26.0
+    tt=np.clip(dist/R,0,1); hh=ndi.gaussian_filter(np.sqrt(1-(1-tt)**2)*R,3)
+    gy,gx=np.gradient(hh); nz=1/np.sqrt(1+gx**2+gy**2); nx=-gx*nz; ny=-gy*nz
+    dome=0.66+0.46*np.clip(nx*-0.45+ny*-0.6+nz*0.66,0,1)
+    rgb=np.clip(samp[...,:3]*shade[...,None]*dome[...,None],0,1)
+    d=ndi.distance_transform_edt(a>0.5); edge=np.clip(1-d/6.0,0,1)*(a>0.5)
+    rgb=rgb*(1-0.2*edge[...,None])
+    # 몸통 아래쪽에 닿는 그림자(몸 위에만)
+    cs=ndi.shift(ndi.gaussian_filter(a,4.4),(3.2,0.0),order=1)*0.30
+    sh=cs*(1-a)*(ba>0.3)*((cls==1)|(cls==3)|(cls==2)).astype(np.float32)*0
+    la=a+sh*(1-a); prem=rgb*a[...,None]
+    la=la.reshape(256,2,256,2).mean((1,3)); prem=prem.reshape(256,2,256,2,3).mean((1,3))
+    colr=np.where(la[...,None]>1e-4,prem/np.maximum(la[...,None],1e-4),0)
+    img=(np.clip(np.concatenate([colr,la[...,None]],axis=2),0,1)*255+.5).astype(np.uint8)
+    ys_,xs_=np.where(img[...,3]>3)
+    if len(xs_)==0: return EMPTY
+    x0,x1,y0,y1=max(xs_.min()-1,0),min(xs_.max()+2,256),max(ys_.min()-1,0),min(ys_.max()+2,256)
     return (x0,y0,img[y0:y1,x0:x1])
 def job(args):
     ci,kn,cell,i=args

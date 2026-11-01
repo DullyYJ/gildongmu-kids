@@ -16,3 +16,7 @@
 
 ## 몸에 두르듯 입히기 (p-kids50)
 `fit.py` 가 칸(걷기 16 · 자세 8 · 동작 16)마다 시트 알파에서 몸 윤곽(줄 40개 × 왼·오른쪽)을 /tmp/wg3d/atlas/fit.json 으로 뽑고, `gen.py` 가 그것과 옷 줄별 가장자리를 Wardrobe.java 문자열 상수로 넣는다(`strips.java.txt` 가 엔진 코드). `fitprev.py` 는 같은 알고리즘의 파이썬 시안(합성 그림 확인용).
+
+## 3D 몸통 마스크로 옷감 입히기 (p-kids52)
+1) `mask/` 의 파일을 부모 저장소 `tools/chars3d`(+ `act6/`, `friends/`) 작업 폴더에 복사하고(models.js · rig.js · three.min.js · tex_all.js 필요) `python3 mkall.py lovel,dolsom,ppopu,chaeng,sul,dudung` · `python3 mkfr.py` 를 돌리면 `mk/<친구>_{w,p,a}NN_m.png`(부위별 색: R 몸통 · G 머리 · B 팔다리)와 정규 프레임이 나온다. `ver.py` 로 실제 시트 칸과 알파 IoU 확인.
+2) `bake.py` 가 `m3d/mk/` 의 마스크로 옷 한 벌 × 칸 40개를 구워 `assets/wear/<친구>_g<번호>.webp` + `wearw/meta_*.json` 을 만든다(`python3 bake.py 0,1,2` — 친구 번호, 2코어 약 1~2분/친구). 3) `gen_worn.py Wardrobe.java wearw` 가 WTS 표를 끼워 넣는다. `hat.py` = `Wardrobe.hatTilt` 의 파이썬 짝, `prevbake.py <out.png>` = 구운 조각 + 기울인 모자 미리보기.
