@@ -586,9 +586,10 @@ final class Engine {
                 int m = moodOf(f, lastNow);
                 int cell = CELLS[f.kind][m];
                 String mode;
-                if (m == 0) mode = "walk";
+                boolean waits = f.poop > 0 || m == 1; // 밥을 줄 때까지 · 응가를 치울 때까지는 제자리에서 기다린다
+                if (m == 0 && !waits) mode = "walk";
                 else if (cell >= 0) mode = "cell";
-                else if (m == 3 || m == 4 || m == 7) mode = "still";
+                else if (waits || m == 3 || m == 4 || m == 7) mode = "still";
                 else mode = "walk";
                 JSONObject x = new JSONObject();
                 x.put("id", f.id);
@@ -1873,10 +1874,10 @@ final class Engine {
         if ("sleep".equals(st)) return new String[] {"ksleep", "ksleep", "ksleep"};
         if ("play".equals(st)) return new String[] {"walk", "kplay", "walk", "kplay", "hop"};
         if ("eat".equals(st)) return new String[] {"keat", "keat"};
-        if ("beg".equals(st)) return new String[] {"kbeg", "rest", "kbeg", "walk"};
+        if ("beg".equals(st)) return new String[] {"kbeg", "rest", "kbeg", "rest"};
         if ("sulk".equals(st)) return new String[] {"ksulk", "rest", "ksulk"};
         if ("sick".equals(st)) return new String[] {"ksick", "rest", "ksick"};
-        if ("poop".equals(st)) return new String[] {"walk", "kpoop", "walk", "walk", "kpoop"};
+        if ("poop".equals(st)) return new String[] {"kpoop", "rest", "kpoop", "rest", "kpoop"};
         return null;
     }
 
