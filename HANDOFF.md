@@ -54,6 +54,12 @@
 ## p-kids47 (YJ: 쪼르 위치(인천시 아라1동))
 - Engine.setDong: 카카오 region_1/2depth 로 시 이름(인천광역시→인천시 · 도는 2depth 첫 낱말)을 만들어 dongFull("인천시 아라1동")을 부모에게 dn 으로 보낸다. 홈 날씨 글은 동만(dong) 그대로. 워커는 "쪼르 위치(dn) · 1분 전" 으로 그린다(옛 앱은 동만 와도 괄호 안에 동).
 
+## p-kids49 — 꾸미기 3D 렌더링 · 이름 한 줄 좌우 스와이프
+- 480개 입을 것을 전부 3D 로 렌더링(tools/wardrobe/fab3d.py): 재질별 질감(니트·면·털·청·가죽·새틴·금속…) · 빛 · 곡면 · 그림자. 친구별 시트 `app/src/main/assets/wear/<id>.webp`(8x8칸 192px, 합계 약 3MB).
+- 앱은 그리기만: `WearImg.atlas(ci)`(Sheets 가 "wear_<id>" → assets/wear 에서 뒤 스레드로 읽음) → `WearDraw.worn`(꾸미기 창·마을) · `KidsWear`(홈 장면, SceneCv.drawImage) · `DressView` 아이템 칸 썸네일. 시트가 아직 안 읽혔거나 없으면 이전 2D(Art) 로 그린다. 놓을 자리·크기는 그대로 엔진(Wardrobe.place) + 칸마다 틀(Wardrobe.sprite).
+- 이름 고르기: 한 줄(칸 폭 76dp 고정)을 좌우로 밀어 고른다(감속 미끄러짐 · 고른 친구는 가운데로 · 눌러서 선택). 친구 그림 위에서 좌우로 밀어도 이전/다음 친구(`dress.sel`).
+- 시험: WardrobeTest 에 sprite() 480곳 검사 추가.
+
 ## p-kids48 — 길동무 친구들 꾸미기(친구별 60개 · 홈에서 입고 돌아다니기)
 - 이름: 뽀푸 · 둘숑(dolsom) · 러블 · 챙챙 · 독슐(sul) · 두덩 · 히뽀(bbosong) · 죽순 (CAST 표시 이름만 바뀜, 시트 id 는 그대로).
 - 엔진(순수 계산, JVM 시험 가능): `Wardrobe`(생성 파일 — 도감 480개: 친구마다 모자·옷·소지품 20개씩, 이름·그림 전부 다름 · 칸별 머리/몸 지표 · place() 가 놓을 자리·크기 계산) · `Art`(그림 문장 해석+도형 계산, Pen 으로 붓질 위임) · `Dress`(입은 것·고른 친구/탭 · 눌림 act 처리 · 저장 글 · 입은 모습 Look).
