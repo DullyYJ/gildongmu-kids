@@ -31,6 +31,18 @@ final class KidsWear {
     private static final float[] O = new float[3], SP = new float[3], ST = new float[8 * Wardrobe.NS];
     private static final Bitmap[] BM = new Bitmap[8];
     private static final AndroidCv.AImg[] IM = new AndroidCv.AImg[8];
+    private static final Bitmap[] WBM = new Bitmap[8 * Wardrobe.PER];
+    private static final AndroidCv.AImg[] WIM = new AndroidCv.AImg[8 * Wardrobe.PER];
+    private static final int[] WT = new int[6];
+
+    /** 몸에 입혀 구운 옷 한 벌의 시트. 없거나 아직 읽는 중이면 null. */
+    private static AndroidCv.AImg worn(int ci, int i) {
+        Bitmap b = WearImg.worn(ci, i);
+        if (b == null) return null;
+        int k = ci * Wardrobe.PER + i;
+        if (WBM[k] != b) { WBM[k] = b; WIM[k] = new AndroidCv.AImg(b); }
+        return WIM[k];
+    }
 
     /** 3D 로 그려 둔 입을 것 시트(없거나 아직 읽는 중이면 null → 그림 문장으로 그린다). */
     private static AndroidCv.AImg img(int ci) {
@@ -56,6 +68,12 @@ final class KidsWear {
             if (ops == null || !Wardrobe.place(ci, kind, idx, slot, O)) continue;
             int i = lk.idx[slot];
             if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
+                // 몸에 입혀 구운 옷(칸마다 한 장): 읽혀 있으면 그것만 그린다
+                AndroidCv.AImg wi = Wardrobe.wraps(ci, slot, i) ? worn(ci, i) : null;
+                if (wi != null && Wardrobe.wornTile(ci, kind, idx, i, WT)) {
+                    c.drawImage(wi, WT[0], WT[1], WT[2], WT[3], dx + WT[4] * sc, dy + WT[5] * sc, WT[2] * sc, WT[3] * sc);
+                    continue;
+                }
                 // 옷은 몸 윤곽을 따라 줄마다 몸 폭에 맞춰 입힌다(엔진이 줄 · 자리를 계산) — 나머지는 한 장
                 int nn = Wardrobe.strips(ci, kind, idx, slot, i, O[0], O[1], O[2], ST);
                 int q = slot * Wardrobe.PER + i, cs = Wardrobe.CELL, ox = (q % Wardrobe.GRID) * cs, oy = (q / Wardrobe.GRID) * cs;
