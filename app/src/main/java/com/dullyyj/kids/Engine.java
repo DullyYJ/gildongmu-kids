@@ -507,7 +507,7 @@ final class Engine {
 
     private void kidEv(String k, String name) {
         if (linked <= 0 || !consented() || name == null || name.isEmpty()) return;
-        if (!(k.equals("eat") || k.equals("clean") || k.equals("drop"))) return;           // 자녀가 직접 한 일만(친구들 스스로의 놀기 · 공부 · 잠 · 응가는 알리지 않는다)
+        if (!(k.equals("eat") || k.equals("clean") || k.equals("drop") || k.equals("psleep") || k.equals("pstudy") || k.equals("pplay"))) return;           // 자녀가 직접 누른 일만(재우기 · 공부 시키기 · 놀게 하기 포함 — 친구들 스스로의 놀기 · 공부 · 잠 · 응가는 알리지 않는다)
         long t = lastNow;
         String key = k + name;
         Long p = evAt.get(key);
@@ -536,7 +536,7 @@ final class Engine {
     }
 
     private void setTm(F f, String m, long until) {
-        kidEv(m, f.name);
+        if ("eat".equals(m)) kidEv(m, f.name);                                              // 밥은 자녀가 줄 때만 setTm 이 불린다 — 공부 · 잠 · 놀기는 친구들이 스스로도 하므로 자녀가 누른 자리에서 따로 알린다
         f.tm = m;
         f.tmUntil = until;
     }
@@ -1996,6 +1996,7 @@ lk.put("place", rmP);
         } else if ("study".equals(what) || "sleep".equals(what)) {
             if (f.sick || f.sulkUntil > now || wakeAt(f, now) != 0L) return;
             boolean st = "study".equals(what);
+            kidEv(st ? "pstudy" : "psleep", f.name);                                           // 부모님께: 'OO이가 ○○를 재웠어요 / 공부를 시켰어요'
             setTm(f, what, now + (st ? STUDY_MS : SLEEP_MS));
             f.nextLong = now + 8L * 60L * 1000L;
         }
@@ -2012,12 +2013,15 @@ lk.put("place", rmP);
     /** 화면에 나온 친구 중 쉴 수 있는 친구들에게 같은 행동(같이 놀기·공부·잠)을 시킨다. */
     private void groupSet(long now, String m, long ms) {
         ArrayList<F> g = onScreen();
+        boolean any = false;
         for (int i = 0; i < g.size(); i++) {
             F f = g.get(i);
             if (f.sick || f.sulkUntil > now || wakeAt(f, now) != 0L) continue;
             setTm(f, m, now + ms);
+            any = true;
             if (!"play".equals(m)) f.nextLong = now + 8L * 60L * 1000L;
         }
+        if (any) kidEv("p" + m, "친구들");                                                   // 한꺼번에 누른 것은 한 줄로(친구마다 한 줄씩 쌓이지 않게)
     }
 
     /** 장면에서 공부 중인 친구를 건드렸다(엔진 스레드에서 부른다). */
