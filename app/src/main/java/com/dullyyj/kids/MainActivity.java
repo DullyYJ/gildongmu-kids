@@ -181,6 +181,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Core.engine.setFg(true);
+        Push.fg = true;
         if (!running) {
             running = true;
             eh.post(new Runnable() {
@@ -200,6 +201,7 @@ public class MainActivity extends Activity {
         running = false;
         eh.removeCallbacks(loop);
         Core.engine.setFg(false);
+        Push.fg = false;
         super.onPause();
     }
 

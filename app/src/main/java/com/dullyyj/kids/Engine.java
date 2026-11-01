@@ -336,6 +336,7 @@ final class Engine {
             pruneChat(now);
         }
         remPoll(now);
+        Push.ping(consented());
         if (fg && !waitRun && consented()) setFg(true);
         if (pairExp != 0L && now > pairExp) {
             pairCode = "";

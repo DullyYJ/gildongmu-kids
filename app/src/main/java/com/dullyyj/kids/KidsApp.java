@@ -7,6 +7,7 @@ public class KidsApp extends Application {
     public void onCreate() {
         super.onCreate();
         Core.init(this);
+        Push.app = getApplicationContext();
         final android.content.Context app = this;
         Thread th = new Thread(new Runnable() {
             @Override
