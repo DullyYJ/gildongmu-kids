@@ -492,6 +492,7 @@ if (false) {
 
     /** 홈 — 길동무와 같은 그리개(ScreenView)가 엔진이 준 화면(흐르는 글 아래 큰 해변 장면 + 브리핑)을 그린다. */
     private void showHome(ScreenCore.Screen pre) {
+        try { View f = scroll.findFocus(); if (f != null) f.clearFocus(); } catch (Throwable ignored) { }          // 대화 화면에서 오며 가려진 입력칸이 포커스를 쥐고 있으면 놓게 한다(홈에서 키보드가 올라오지 않게)
         scroll.setVisibility(View.GONE);
         loading.setVisibility(View.GONE);
         if (home == null) {

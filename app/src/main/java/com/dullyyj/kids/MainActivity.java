@@ -367,7 +367,7 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Pal.c(Pal.BG));
         hdrView.setPalette(SvHost.palette(theme));
         View ff = getCurrentFocus();
-        final boolean typing = ff instanceof android.widget.EditText && isInside(ff, renderer.view());          // 글을 치는 중이었나(퀘스트·대화 입력칸)
+        final boolean typing = ff instanceof android.widget.EditText && ff.isShown() && isInside(ff, renderer.view());          // 글을 치는 중이었나(퀘스트·대화 입력칸)
         final int selA = typing ? ((android.widget.EditText) ff).getSelectionStart() : 0;
         final CharSequence oldHint = typing ? ((android.widget.EditText) ff).getHint() : null;
         if (typing && scr.equals(lastScr)) { renderer.village(vil); }          // 치는 중에 같은 화면이 다시 오면 다시 그리지 않는다(입력칸·키보드 그대로)
@@ -425,6 +425,7 @@ public class MainActivity extends Activity {
     }
 
     private static android.widget.EditText firstEdit(View v) {
+        if (v.getVisibility() != View.VISIBLE) return null;                   // 숨겨진 칸(홈에서는 가려진 대화 화면의 입력칸)은 입력칸으로 치지 않는다 — 안 그러면 홈에서 키보드가 계속 되살아난다
         if (v instanceof android.widget.EditText) return (android.widget.EditText) v;
         if (v instanceof android.view.ViewGroup) {
             android.view.ViewGroup g = (android.view.ViewGroup) v;
