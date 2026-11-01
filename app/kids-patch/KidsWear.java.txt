@@ -28,7 +28,7 @@ final class KidsWear {
     }
 
     private static final Pen PEN = new Pen();
-    private static final float[] O = new float[3], SP = new float[3];
+    private static final float[] O = new float[3], SP = new float[3], ST = new float[8 * Wardrobe.NS];
     private static final Bitmap[] BM = new Bitmap[8];
     private static final AndroidCv.AImg[] IM = new AndroidCv.AImg[8];
 
@@ -56,9 +56,14 @@ final class KidsWear {
             if (ops == null || !Wardrobe.place(ci, kind, idx, slot, O)) continue;
             int i = lk.idx[slot];
             if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
-                double u = O[2] * sc, side = SP[2] * u, cx = dx + O[0] * sc + SP[0] * u, cy = dy + O[1] * sc + SP[1] * u;
-                int q = slot * Wardrobe.PER + i, cs = Wardrobe.CELL;
-                c.drawImage(at, (q % Wardrobe.GRID) * cs, (q / Wardrobe.GRID) * cs, cs, cs, cx - side / 2, cy - side / 2, side, side);
+                // 옷은 몸 윤곽을 따라 줄마다 몸 폭에 맞춰 입힌다(엔진이 줄 · 자리를 계산) — 나머지는 한 장
+                int nn = Wardrobe.strips(ci, kind, idx, slot, i, O[0], O[1], O[2], ST);
+                int q = slot * Wardrobe.PER + i, cs = Wardrobe.CELL, ox = (q % Wardrobe.GRID) * cs, oy = (q / Wardrobe.GRID) * cs;
+                for (int j = 0; j < nn; j++) {
+                    int o = j * 8;
+                    c.drawImage(at, ox + (int) ST[o], oy + (int) ST[o + 1], (int) ST[o + 2] - (int) ST[o], (int) ST[o + 3] - (int) ST[o + 1],
+                        dx + ST[o + 4] * sc, dy + ST[o + 5] * sc, (ST[o + 6] - ST[o + 4]) * sc, (ST[o + 7] - ST[o + 5]) * sc);
+                }
             } else {
                 Art.draw(PEN, ops, (float) (dx + O[0] * sc), (float) (dy + O[1] * sc), (float) (O[2] * sc));
             }
