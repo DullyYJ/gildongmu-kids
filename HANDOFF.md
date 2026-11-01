@@ -53,3 +53,12 @@
 
 ## p-kids47 (YJ: 쪼르 위치(인천시 아라1동))
 - Engine.setDong: 카카오 region_1/2depth 로 시 이름(인천광역시→인천시 · 도는 2depth 첫 낱말)을 만들어 dongFull("인천시 아라1동")을 부모에게 dn 으로 보낸다. 홈 날씨 글은 동만(dong) 그대로. 워커는 "쪼르 위치(dn) · 1분 전" 으로 그린다(옛 앱은 동만 와도 괄호 안에 동).
+
+## p-kids48 — 길동무 친구들 꾸미기(친구별 60개 · 홈에서 입고 돌아다니기)
+- 이름: 뽀푸 · 둘숑(dolsom) · 러블 · 챙챙 · 독슐(sul) · 두덩 · 히뽀(bbosong) · 죽순 (CAST 표시 이름만 바뀜, 시트 id 는 그대로).
+- 엔진(순수 계산, JVM 시험 가능): `Wardrobe`(생성 파일 — 도감 480개: 친구마다 모자·옷·소지품 20개씩, 이름·그림 전부 다름 · 칸별 머리/몸 지표 · place() 가 놓을 자리·크기 계산) · `Art`(그림 문장 해석+도형 계산, Pen 으로 붓질 위임) · `Dress`(입은 것·고른 친구/탭 · 눌림 act 처리 · 저장 글 · 입은 모습 Look).
+- 앱은 그리기만: `DressView`(꾸미기 창 전체를 한 장에 그림 · 누르면 같은 틱에 Dress.act → 그 자리에서 다시 그림, 서버·화면 재구성 없음 · 눌린 모양 즉시 · 150ms 튀는 효과) · `WearDraw`(안드로이드 붓) · `VillageView` 마을에도 입은 모습 · 홈 장면은 `kids-patch/KidsWear.java.txt` + swaps.txt 한 줄(SceneCore.drawActor 의 drawImage 바로 뒤)로 친구와 같은 변환 안에서 입힘.
+- act: `dress.sel:<번호>` · `dress.tab:hat|cloth|item` · `dress.eq:<칸>:<번호>`(입고 있으면 벗음) · `dress.off:<칸>|all`. 저장: Store "wear"(바뀔 때마다 즉시).
+- 자는 모습(자세 1)과 빈 칸엔 안 입힌다. 올챙이 거품·독수리 날개 때문에 머리 위치는 칸별로 따로 잰 값을 쓴다(독수리는 흰 머리 기준).
+- 워커 변경 없음. 시험: test/WardrobeTest.java (480개 겹침 없음 · 해석 · 범위 · 놓을 자리 · 입기/벗기/저장 · 1ms 미만).
+
