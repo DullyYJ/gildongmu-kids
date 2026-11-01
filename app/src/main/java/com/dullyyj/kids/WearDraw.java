@@ -16,7 +16,7 @@ final class WearDraw {
         final Path path = new Path();
         final Paint fp = new Paint(Paint.ANTI_ALIAS_FLAG), sp = new Paint(Paint.ANTI_ALIAS_FLAG);
         final RectF rf = new RectF();
-        final float[] o = new float[3];
+        final float[] o = new float[4];
 
         P() {
             fp.setStyle(Paint.Style.FILL);
@@ -49,15 +49,17 @@ final class WearDraw {
         if (lk == null || ci < 0) return;
         pen.c = c;
         float k = s / 256f;
+        long now = android.os.SystemClock.uptimeMillis();
         Bitmap at = WearImg.atlas(ci);
         for (int n = 0; n < 3; n++) {
             int slot = n == 0 ? 1 : n == 1 ? 2 : 0;
             Art.Op[] ops = lk.ops[slot];
-            if (ops == null || !Wardrobe.place(ci, sheet, cell, slot, pen.o)) continue;
+            // 소지품은 손에 쥐지 않고 친구 옆에서 둥실둥실 떠다닌다(자리 · 흔들림은 엔진 Wardrobe.floatAt 이 계산, 여기는 그리기만)
+            if (ops == null || !(slot == 2 ? Wardrobe.floatAt(ci, sheet, cell, now, pen.o) : Wardrobe.place(ci, sheet, cell, slot, pen.o))) continue;
             int i = lk.idx[slot];
             if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
                 // 몸에 입혀 구운 옷(칸마다 한 장): 읽혀 있으면 그것만 그린다
-                Bitmap wb = Wardrobe.wraps(ci, slot, i) ? WearImg.worn(ci, i) : null;
+                Bitmap wb = Wardrobe.baked(ci, slot, i) ? WearImg.worn(ci, i) : null;
                 if (wb != null && Wardrobe.wornTile(ci, sheet, cell, i, WT)) {
                     SRC.set(WT[0], WT[1], WT[0] + WT[2], WT[1] + WT[3]);
                     DST.set(left + WT[4] * k, top + WT[5] * k, left + (WT[4] + WT[2]) * k, top + (WT[5] + WT[3]) * k);
@@ -68,10 +70,11 @@ final class WearDraw {
                 int nn = Wardrobe.strips(ci, sheet, cell, slot, i, pen.o[0], pen.o[1], pen.o[2], ST);
                 int q = slot * Wardrobe.PER + i, ox = (q % Wardrobe.GRID) * Wardrobe.CELL, oy = (q / Wardrobe.GRID) * Wardrobe.CELL;
                 // 모자는 머리 기울기를 따라 살짝 기울인다(엔진이 각을 계산, 여기는 돌려 그리기만)
-                float tilt = slot == 0 ? Wardrobe.hatTilt(ci, sheet, cell) : 0f;
+                // 소지품은 떠다니며 살짝 기울어진다(가운데를 중심으로)
+                float tilt = slot == 0 ? Wardrobe.hatTilt(ci, sheet, cell) : slot == 2 ? pen.o[3] : 0f;
                 if (tilt != 0f && nn > 0) {
                     c.save();
-                    c.rotate((float) Math.toDegrees(tilt), left + (ST[4] + ST[6]) * 0.5f * k, top + (ST[5] + (ST[7] - ST[5]) * 0.8f) * k);
+                    c.rotate((float) Math.toDegrees(tilt), left + (ST[4] + ST[6]) * 0.5f * k, top + (ST[5] + (ST[7] - ST[5]) * (slot == 2 ? 0.5f : 0.8f)) * k);
                 }
                 for (int j = 0; j < nn; j++) {
                     int o = j * 8;
