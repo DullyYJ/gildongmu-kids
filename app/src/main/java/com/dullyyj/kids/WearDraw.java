@@ -67,12 +67,19 @@ final class WearDraw {
                 // 옷은 몸 윤곽을 따라 줄마다 몸 폭에 맞춰 입히고(엔진이 줄 · 자리를 계산), 나머지는 한 장
                 int nn = Wardrobe.strips(ci, sheet, cell, slot, i, pen.o[0], pen.o[1], pen.o[2], ST);
                 int q = slot * Wardrobe.PER + i, ox = (q % Wardrobe.GRID) * Wardrobe.CELL, oy = (q / Wardrobe.GRID) * Wardrobe.CELL;
+                // 모자는 머리 기울기를 따라 살짝 기울인다(엔진이 각을 계산, 여기는 돌려 그리기만)
+                float tilt = slot == 0 ? Wardrobe.hatTilt(ci, sheet, cell) : 0f;
+                if (tilt != 0f && nn > 0) {
+                    c.save();
+                    c.rotate((float) Math.toDegrees(tilt), left + (ST[4] + ST[6]) * 0.5f * k, top + (ST[5] + (ST[7] - ST[5]) * 0.8f) * k);
+                }
                 for (int j = 0; j < nn; j++) {
                     int o = j * 8;
                     SRC.set(ox + (int) ST[o], oy + (int) ST[o + 1], ox + (int) ST[o + 2], oy + (int) ST[o + 3]);
                     DST.set(left + ST[o + 4] * k, top + ST[o + 5] * k, left + ST[o + 6] * k, top + ST[o + 7] * k);
                     c.drawBitmap(at, SRC, DST, IP);
                 }
+                if (tilt != 0f && nn > 0) c.restore();
             } else {
                 Art.draw(pen, ops, left + pen.o[0] * k, top + pen.o[1] * k, pen.o[2] * k);
             }
