@@ -42,3 +42,7 @@
 
 ## 5. 남은 일
 - 노선 상세(br.*), 지하철 지역 칩, 꾸미기 실제 아이템, 퀘스트 연동, 키즈 워커+D1, 부모 쪽 QR/비밀키 연결, 처리방침/법적 검토(DESIGN.md 9장).
+
+## p-kids45 (YJ: 밥·응가 대기 + 버튼 진동)
+- Engine.village(): 배고픔(beg)·응가가 있는 친구는 걷지 않고 제자리(still/cell)에서 기다린다. actsFor 의 beg/poop 에서 "walk" 제거. 홈 장면(SceneCore)의 kbeg/kpoop 는 원래 제자리 동작.
+- MainActivity.act(): 버튼 눌림마다 Buzz "tap"(SceneHaptics, 부모 repo 에 추가됨 — 빌드 때 부모 native-shell 을 받아 온다). 친구 만지기(clean:/sel:/kid.pick:)는 제외.
