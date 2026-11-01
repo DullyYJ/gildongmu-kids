@@ -35,7 +35,7 @@ final class WearDraw {
         @Override public void stroke(int argb, float w) { sp.setColor(argb); sp.setStrokeWidth(w); c.drawPath(path, sp); }
     }
 
-    private static final float[] SP = new float[3];
+    private static final float[] SP = new float[3], ST = new float[8 * Wardrobe.NS];
     private static final Rect SRC = new Rect();
     private static final RectF DST = new RectF();
     private static final Paint IP = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -55,12 +55,15 @@ final class WearDraw {
             if (ops == null || !Wardrobe.place(ci, sheet, cell, slot, pen.o)) continue;
             int i = lk.idx[slot];
             if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
-                float u = pen.o[2] * k, side = SP[2] * u;
-                float cx = left + pen.o[0] * k + SP[0] * u, cy = top + pen.o[1] * k + SP[1] * u;
-                int q = slot * Wardrobe.PER + i;
-                SRC.set((q % Wardrobe.GRID) * Wardrobe.CELL, (q / Wardrobe.GRID) * Wardrobe.CELL, (q % Wardrobe.GRID + 1) * Wardrobe.CELL, (q / Wardrobe.GRID + 1) * Wardrobe.CELL);
-                DST.set(cx - side / 2f, cy - side / 2f, cx + side / 2f, cy + side / 2f);
-                c.drawBitmap(at, SRC, DST, IP);
+                // 옷은 몸 윤곽을 따라 줄마다 몸 폭에 맞춰 입히고(엔진이 줄 · 자리를 계산), 나머지는 한 장
+                int nn = Wardrobe.strips(ci, sheet, cell, slot, i, pen.o[0], pen.o[1], pen.o[2], ST);
+                int q = slot * Wardrobe.PER + i, ox = (q % Wardrobe.GRID) * Wardrobe.CELL, oy = (q / Wardrobe.GRID) * Wardrobe.CELL;
+                for (int j = 0; j < nn; j++) {
+                    int o = j * 8;
+                    SRC.set(ox + (int) ST[o], oy + (int) ST[o + 1], ox + (int) ST[o + 2], oy + (int) ST[o + 3]);
+                    DST.set(left + ST[o + 4] * k, top + ST[o + 5] * k, left + ST[o + 6] * k, top + ST[o + 7] * k);
+                    c.drawBitmap(at, SRC, DST, IP);
+                }
             } else {
                 Art.draw(pen, ops, left + pen.o[0] * k, top + pen.o[1] * k, pen.o[2] * k);
             }
