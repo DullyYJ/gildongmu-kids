@@ -57,6 +57,14 @@ public class WardrobeTest {
         }
         ok(all, "모든 칸(걷기 16 · 자세 · 동작 16)에서 놓을 자리가 정해진다(자는 모습 · 빈 칸만 빼고)");
         ok(!Wardrobe.place(-1, 0, 0, 0, o) && !Wardrobe.place(0, 3, 0, 0, o) && !Wardrobe.place(0, 0, 99, 0, o), "잘못된 값은 거절");
+        // 3D 그림 시트 자리: 모든 칸(480) 에 가운데·크기가 있고 시트 칸 번호가 8x8 안
+        float[] sp = new float[3];
+        boolean sprOk = true;
+        for (int c = 0; c < 8; c++) for (int s = 0; s < 3; s++) for (int i = 0; i < Wardrobe.PER; i++) {
+            int q = s * Wardrobe.PER + i;
+            if (!Wardrobe.sprite(c, s, i, sp) || !(sp[2] >= 0.3f && sp[2] < 3.5f && Math.abs(sp[0]) < 1.5f && Math.abs(sp[1]) < 1.5f) || q >= Wardrobe.GRID * Wardrobe.GRID) sprOk = false;
+        }
+        ok(sprOk && !Wardrobe.sprite(8, 0, 0, sp) && !Wardrobe.sprite(0, 3, 0, sp) && !Wardrobe.sprite(0, 0, 20, sp), "3D 그림 시트 자리 480곳 · 잘못된 값 거절");
         // 엔진 동작
         Dress d = Dress.I;
         int[] cnt = {0};
