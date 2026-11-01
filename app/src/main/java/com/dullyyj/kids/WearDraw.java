@@ -36,6 +36,7 @@ final class WearDraw {
     }
 
     private static final float[] SP = new float[3], ST = new float[8 * Wardrobe.NS];
+    private static final int[] WT = new int[6];
     private static final Rect SRC = new Rect();
     private static final RectF DST = new RectF();
     private static final Paint IP = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -55,6 +56,14 @@ final class WearDraw {
             if (ops == null || !Wardrobe.place(ci, sheet, cell, slot, pen.o)) continue;
             int i = lk.idx[slot];
             if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
+                // 몸에 입혀 구운 옷(칸마다 한 장): 읽혀 있으면 그것만 그린다
+                Bitmap wb = Wardrobe.wraps(ci, slot, i) ? WearImg.worn(ci, i) : null;
+                if (wb != null && Wardrobe.wornTile(ci, sheet, cell, i, WT)) {
+                    SRC.set(WT[0], WT[1], WT[0] + WT[2], WT[1] + WT[3]);
+                    DST.set(left + WT[4] * k, top + WT[5] * k, left + (WT[4] + WT[2]) * k, top + (WT[5] + WT[3]) * k);
+                    c.drawBitmap(wb, SRC, DST, IP);
+                    continue;
+                }
                 // 옷은 몸 윤곽을 따라 줄마다 몸 폭에 맞춰 입히고(엔진이 줄 · 자리를 계산), 나머지는 한 장
                 int nn = Wardrobe.strips(ci, sheet, cell, slot, i, pen.o[0], pen.o[1], pen.o[2], ST);
                 int q = slot * Wardrobe.PER + i, ox = (q % Wardrobe.GRID) * Wardrobe.CELL, oy = (q / Wardrobe.GRID) * Wardrobe.CELL;

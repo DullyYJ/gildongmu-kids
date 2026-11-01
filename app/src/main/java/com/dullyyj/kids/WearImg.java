@@ -11,4 +11,10 @@ public final class WearImg {
         if (ci < 0 || ci >= Wardrobe.IDS.length || Core.sheets == null) return null;
         return Core.sheets.get("wear_" + Wardrobe.IDS[ci], null);
     }
+
+    /** 몸에 입혀 구운 옷 한 벌의 시트(assets/wear/<친구>_g<옷 번호>.webp). 아직 읽는 중이거나 없으면 null. */
+    public static Bitmap worn(int ci, int i) {
+        if (ci < 0 || ci >= Wardrobe.IDS.length || i < 0 || i >= Wardrobe.PER || Core.sheets == null) return null;
+        return Core.sheets.get("wear_" + Wardrobe.IDS[ci] + "_g" + i, null);
+    }
 }
