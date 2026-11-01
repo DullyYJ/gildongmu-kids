@@ -28,7 +28,7 @@ final class KidsWear {
     }
 
     private static final Pen PEN = new Pen();
-    private static final float[] O = new float[3], SP = new float[3], ST = new float[8 * Wardrobe.NS];
+    private static final float[] O = new float[4], SP = new float[3], ST = new float[8 * Wardrobe.NS];
     private static final Bitmap[] BM = new Bitmap[8];
     private static final AndroidCv.AImg[] IM = new AndroidCv.AImg[8];
     private static final Bitmap[] WBM = new Bitmap[8 * Wardrobe.PER];
@@ -65,11 +65,11 @@ final class KidsWear {
         for (int n = 0; n < 3; n++) {
             int slot = n == 0 ? 1 : n == 1 ? 2 : 0;          // 옷 → 소지품 → 모자
             Art.Op[] ops = lk.ops[slot];
-            if (ops == null || !Wardrobe.place(ci, kind, idx, slot, O)) continue;
+            if (ops == null || !(slot == 2 ? Wardrobe.floatAt(ci, kind, idx, android.os.SystemClock.uptimeMillis(), O) : Wardrobe.place(ci, kind, idx, slot, O))) continue;   // 소지품은 친구 옆에서 둥실둥실(엔진 floatAt)
             int i = lk.idx[slot];
             if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
                 // 몸에 입혀 구운 옷(칸마다 한 장): 읽혀 있으면 그것만 그린다
-                AndroidCv.AImg wi = Wardrobe.wraps(ci, slot, i) ? worn(ci, i) : null;
+                AndroidCv.AImg wi = Wardrobe.baked(ci, slot, i) ? worn(ci, i) : null;
                 if (wi != null && Wardrobe.wornTile(ci, kind, idx, i, WT)) {
                     c.drawImage(wi, WT[0], WT[1], WT[2], WT[3], dx + WT[4] * sc, dy + WT[5] * sc, WT[2] * sc, WT[3] * sc);
                     continue;
@@ -78,10 +78,10 @@ final class KidsWear {
                 int nn = Wardrobe.strips(ci, kind, idx, slot, i, O[0], O[1], O[2], ST);
                 int q = slot * Wardrobe.PER + i, cs = Wardrobe.CELL, ox = (q % Wardrobe.GRID) * cs, oy = (q / Wardrobe.GRID) * cs;
                 // 모자는 머리 기울기를 따라 살짝 기울인다(엔진이 각을 계산, 여기는 돌려 그리기만)
-                float tilt = slot == 0 ? Wardrobe.hatTilt(ci, kind, idx) : 0f;
+                float tilt = slot == 0 ? Wardrobe.hatTilt(ci, kind, idx) : slot == 2 ? O[3] : 0f;
                 boolean rot = tilt != 0f && nn > 0;
                 if (rot) {
-                    double px = dx + (ST[4] + ST[6]) * 0.5 * sc, py = dy + (ST[5] + (ST[7] - ST[5]) * 0.8) * sc;
+                    double px = dx + (ST[4] + ST[6]) * 0.5 * sc, py = dy + (ST[5] + (ST[7] - ST[5]) * (slot == 2 ? 0.5 : 0.8)) * sc;
                     c.save(); c.translate(px, py); c.rotate(tilt); c.translate(-px, -py);
                 }
                 for (int j = 0; j < nn; j++) {
