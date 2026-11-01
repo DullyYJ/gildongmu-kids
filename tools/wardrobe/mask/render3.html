@@ -1,0 +1,41 @@
+<!doctype html><meta charset=utf-8><body style="margin:0"><canvas id=c></canvas>
+<script src="three.min.js"></script><script src="rig.js"></script>
+<script>
+const W=512;const cv=document.getElementById('c');cv.width=W;cv.height=W;
+const r=new THREE.WebGLRenderer({canvas:cv,alpha:true,antialias:true,preserveDrawingBuffer:true});
+r.setSize(W,W,false);r.setClearColor(0,0);r.shadowMap.enabled=true;r.shadowMap.type=THREE.PCFSoftShadowMap;r.outputColorSpace=THREE.SRGBColorSpace;r.toneMapping=THREE.ACESFilmicToneMapping;r.toneMappingExposure=1.12;
+const scene=new THREE.Scene();
+const cam=new THREE.OrthographicCamera(-1,1,1,-1,0.1,100);
+scene.add(new THREE.HemisphereLight(0xfff6f0,0xe8d6e6,0.85));
+const key=new THREE.DirectionalLight(0xfff0e0,2.3);key.position.set(-4,7,7);key.castShadow=true;key.shadow.mapSize.set(2048,2048);key.shadow.camera.left=-6;key.shadow.camera.right=6;key.shadow.camera.top=7;key.shadow.camera.bottom=-4;key.shadow.bias=-0.0004;key.shadow.radius=5;key.shadow.normalBias=0.03;scene.add(key);
+const rim=new THREE.DirectionalLight(0xdce8ff,1.1);rim.position.set(5,4,-5);scene.add(rim);
+const fill=new THREE.DirectionalLight(0xffeef6,0.7);fill.position.set(5,2,6);scene.add(fill);
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(40,40),new THREE.ShadowMaterial({opacity:0.0}));floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
+window.EL=0.2;let cur=null,mdl=null;
+// setup(id,opt): 모델 생성. OV=[size,cy,cx]
+window.setup=function(id,opt){opt=opt||{};if(cur)scene.remove(cur);cur=new THREE.Group();mdl=window.FRIENDS[id](opt);cur.add(mdl);cur.rotation.y=opt.yaw===undefined?(Math.PI/2-0.8):opt.yaw;scene.add(cur);window.MODEL=mdl;window.CUR=cur;};
+window.view=function(){const o=window.OV||[8,1.5,0];const s=o[0]/2,el=window.EL;cam.left=-s;cam.right=s;cam.top=s;cam.bottom=-s;cam.position.set(o[2],o[1]+10*Math.sin(el),10*Math.cos(el));cam.lookAt(o[2],o[1],0);cam.updateProjectionMatrix();};
+window.snap=function(){window.view();r.render(scene,cam);return cv.toDataURL('image/png');};
+window.frameWalk=function(ph){window.RIG.pose(mdl,window.RIG.walkSpec(mdl.userData.kind,ph));return window.snap();};
+window.framePose=function(n){window.RIG.pose(mdl,window.RIG.poseSpec(mdl.userData.kind,n));return window.snap();};
+window.setupSleep=function(kind,opt){opt=opt||{};if(cur)scene.remove(cur);cur=new THREE.Group();window.SL=window.RIG.buildSleep(kind,opt);cur.add(window.SL);cur.rotation.y=opt.yaw===undefined?-0.3:opt.yaw;scene.add(cur);window.CUR=cur;};
+window.frameSleep=function(ph){window.RIG.sleepPose(window.SL,ph);return window.snap();};
+window.anchor=function(){window.view();window.CUR.updateMatrixWorld(true);const P=window.SL.userData.m.userData.P;const b=new THREE.Box3().setFromObject(P.head);const v=new THREE.Vector3((b.min.x+b.max.x)/2,b.max.y,(b.min.z+b.max.z)/2).project(cam);return [(v.x*0.5+0.5)*256,(1-(v.y*0.5+0.5))*256];};
+window.frameSpec=function(sp){const P=mdl.userData.P;window.RIG.pose(mdl,sp);if(P.bambooWrap)P.bambooWrap.visible=!sp.nobb;if(P.bouquet)P.bouquet.visible=false;return window.snap();};
+window.frameWalkNB=function(ph){const P=mdl.userData.P;window.RIG.pose(mdl,window.RIG.walkSpec(mdl.userData.kind,ph));if(P.bambooWrap)P.bambooWrap.visible=false;if(P.bouquet)P.bouquet.visible=false;return window.snap();};
+// ---- 부위 색칠 모드(window.MK=true): 같은 호출이 평면색으로 그려진다 (R 몸통 · G 머리 · B 팔다리 · 회색 기타) ----
+(function(){const MASKM={t:new THREE.MeshBasicMaterial({color:0xff0000}),h:new THREE.MeshBasicMaterial({color:0x00ff00}),l:new THREE.MeshBasicMaterial({color:0x0000ff}),o:new THREE.MeshBasicMaterial({color:0x808080})};
+Object.values(MASKM).forEach(m=>{m.toneMapped=false;m.fog=false;});
+const UPLEG=false;
+function partOf(o,P,root){if(!P)return 'o';const heads=[P.head];const limbs=[].concat(P.legs||[],P.arms||[],(P.wings||[]).map(w=>w.sh||w),P.armL?[P.armL]:[],P.armR?[P.armR]:[],P.feet||[],P.tailG?[P.tailG]:[],P.tailRoot?[P.tailRoot]:[],(P.tail&&P.tail.isObject3D)?[P.tail]:[],Array.isArray(P.tail)?P.tail:[],P.shovel?[P.shovel]:[]);
+  let inBody=false;const chain=[];for(let p=o;p;p=p.parent){chain.push(p);if(heads.includes(p))return 'h';if(limbs.includes(p)){const kn=p.userData&&p.userData.knee;if(UPLEG&&kn&&P.legs&&P.legs.includes(p))return chain.includes(kn)?'l':'t';return 'l';}if(p===P.body||p===P.upper)inBody=true;if(p===root)break;}
+  return inBody?'t':'o';}
+const _render=r.render.bind(r);
+r.render=function(sc,cm){if(!window.MK)return _render(sc,cm);
+  const root=(cur&&cur.userData&&cur.userData.model)||window.MODEL,P=root&&(root.userData.P||root.userData),saved=[];
+  const hid=[];sc.traverse(o=>{if(o.isMesh||o.isInstancedMesh||o.isPoints||o.isLine){let inM=false;for(let p=o;p;p=p.parent)if(p===root){inM=true;break;}if(!inM){if(o.visible){o.visible=false;hid.push(o);}return;}saved.push([o,o.material,o.castShadow]);o.material=MASKM[partOf(o,P,root)]||MASKM.o;o.castShadow=false;}});
+  const tm=r.toneMapping,cs=r.outputColorSpace,sm=r.shadowMap.enabled;r.toneMapping=THREE.NoToneMapping;r.outputColorSpace=THREE.LinearSRGBColorSpace;r.shadowMap.enabled=false;
+  _render(sc,cm);r.toneMapping=tm;r.outputColorSpace=cs;r.shadowMap.enabled=sm;saved.forEach(([o,m,c])=>{o.material=m;o.castShadow=c;});hid.forEach(o=>o.visible=true);};
+})();
+window.ready=true;
+</script>

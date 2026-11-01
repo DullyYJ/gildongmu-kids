@@ -1,0 +1,53 @@
+<!doctype html><meta charset=utf-8><body style="margin:0"><canvas id=c></canvas>
+<script src="three.min.js"></script><script src="tex_all.js"></script><script src="models.js"></script>
+<script>
+const S=512;const cv=document.getElementById('c');cv.width=cv.height=S;
+const r=new THREE.WebGLRenderer({canvas:cv,alpha:true,antialias:true,preserveDrawingBuffer:true});
+r.setSize(S,S,false);r.setClearColor(0,0);r.shadowMap.enabled=true;r.shadowMap.type=THREE.PCFSoftShadowMap;r.outputColorSpace=THREE.SRGBColorSpace;r.toneMapping=THREE.ACESFilmicToneMapping;r.toneMappingExposure=1.05;r.localClippingEnabled=true;
+const scene=new THREE.Scene();
+const H=4.9;const cam=new THREE.OrthographicCamera(-H/2,H/2,H/2,-H/2,0.1,60);
+const el=0.2,dist=14,cy=1.75;cam.position.set(0,cy+dist*Math.sin(el),dist*Math.cos(el));cam.lookAt(0,cy,0);
+scene.add(new THREE.HemisphereLight(0xffffff,0xd9c9b4,0.95));
+const key=new THREE.DirectionalLight(0xfff3e2,2.1);key.position.set(-3,6,6);key.castShadow=true;key.shadow.mapSize.set(2048,2048);key.shadow.camera.left=-4;key.shadow.camera.right=4;key.shadow.camera.top=5;key.shadow.camera.bottom=-1;key.shadow.bias=-0.0006;key.shadow.normalBias=0.03;key.shadow.radius=4;scene.add(key);
+const rim=new THREE.DirectionalLight(0xdfeaff,0.9);rim.position.set(4,3,-4);scene.add(rim);
+const fill=new THREE.DirectionalLight(0xffffff,0.5);fill.position.set(4,2,6);scene.add(fill);
+let cur=null,curId=null,extra=null;
+window.setup=function(id){if(cur)scene.remove(cur);if(extra){scene.remove(extra);extra=null;}const C=CHARS[id];cur=new THREE.Group();const m=C.build();m.userData._m=1;cur.add(m);cur.rotation.y=C.yaw;scene.add(cur);{const v=window.OV||C.view||[4.9,1.75];cam.left=-v[0]/2;cam.right=v[0]/2;cam.top=v[0]/2;cam.bottom=-v[0]/2;cam.updateProjectionMatrix();const cx=v[2]||0;cam.position.set(cx,v[1]+dist*Math.sin(el),dist*Math.cos(el));cam.lookAt(cx,v[1],0);}cur.userData.model=m;curId=id;};
+window.framePose=function(name,dy){const C=CHARS[curId];C.poseX(cur.userData.model,name);cur.position.y=dy||0;r.render(scene,cam);return cv.toDataURL('image/png');};
+window.frame=function(ph,opt){const C=CHARS[curId];C.pose(cur.userData.model,ph);if(opt&&opt.cb)opt.cb(cur,scene);r.render(scene,cam);return cv.toDataURL('image/png');};
+
+let mound=null;const clipPl=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+function setClip(m,on){m.traverse(o=>{if(o.material){(Array.isArray(o.material)?o.material:[o.material]).forEach(mm=>{mm.clippingPlanes=on?[clipPl]:[];mm.needsUpdate=true;});}});}
+window.frameIntro=function(u){ // 두더지: 땅에서 솟아 나온다
+  const C=CHARS[curId],m=cur.userData.model;C.pose(m,0);
+  if(!mound){mound=new THREE.Group();const dm=new THREE.MeshStandardMaterial({color:0x6e4d32,roughness:1});
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(1.0,0.27,16,48),dm);ring.rotation.x=Math.PI/2;ring.scale.set(1,1,0.8);ring.castShadow=ring.receiveShadow=true;mound.add(ring);
+    const hole=new THREE.Mesh(new THREE.CircleGeometry(0.85,40),new THREE.MeshBasicMaterial({color:0x1e140c}));hole.rotation.x=-Math.PI/2;hole.position.y=0.02;mound.add(hole);
+    mound.userData.chunks=[];for(let i=0;i<12;i++){const c=new THREE.Mesh(new THREE.SphereGeometry(1,8,6),dm);c.castShadow=true;mound.userData.chunks.push(c);mound.add(c);}
+    mound.userData.ring=ring;mound.userData.hole=hole;}
+  if(!mound.parent)cur.add(mound);
+  setClip(m,true);
+  const e=u<1?(1+2.2*Math.pow(u-1,3)+1.2*Math.pow(u-1,2)):1;   // easeOutBack
+  m.position.y=-2.3+2.3*Math.min(1.06,e);
+  const fade=u>0.78?(u-0.78)/0.22:0;mound.userData.ring.position.y=-0.2*fade;mound.userData.ring.scale.set(Math.max(0.001,1-fade),Math.max(0.001,1-fade),Math.max(0.001,0.8*(1-fade)));mound.userData.ring.visible=fade<0.98;mound.userData.hole.visible=fade<0.5;mound.userData.hole.scale.setScalar(1-fade);
+  mound.userData.chunks.forEach((c,i)=>{const k=Math.max(0,Math.min(1,(u-0.0-i*0.012)/0.5));const ang=i*0.52+0.3,spd=0.9+0.12*(i%4);c.visible=k>0&&k<1;c.position.set(Math.cos(ang)*spd*k*1.2,Math.max(0,1.5*k*(1-k)*4*0.5*(1+0.2*(i%3))),Math.sin(ang)*spd*k*0.9);c.scale.setScalar(0.07+0.04*(i%3));});
+  r.render(scene,cam);setClip(m,false);m.position.y=0;return cv.toDataURL('image/png');};
+window.cleanup=function(){if(mound&&mound.parent)cur.remove(mound);};
+
+
+// ---- 부위 색칠 모드(window.MK=true): 같은 호출이 평면색으로 그려진다 (R 몸통 · G 머리 · B 팔다리 · 회색 기타) ----
+(function(){const MASKM={t:new THREE.MeshBasicMaterial({color:0xff0000}),h:new THREE.MeshBasicMaterial({color:0x00ff00}),l:new THREE.MeshBasicMaterial({color:0x0000ff}),o:new THREE.MeshBasicMaterial({color:0x808080})};
+Object.values(MASKM).forEach(m=>{m.toneMapped=false;m.fog=false;});
+const UPLEG=true;
+function partOf(o,P,root){if(!P)return 'o';const heads=[P.head];const limbs=[].concat(P.legs||[],P.arms||[],(P.wings||[]).map(w=>w.sh||w),P.armL?[P.armL]:[],P.armR?[P.armR]:[],P.feet||[],P.tailG?[P.tailG]:[],P.tailRoot?[P.tailRoot]:[],(P.tail&&P.tail.isObject3D)?[P.tail]:[],Array.isArray(P.tail)?P.tail:[],P.shovel?[P.shovel]:[]);
+  let inBody=false;const chain=[];for(let p=o;p;p=p.parent){chain.push(p);if(heads.includes(p))return 'h';if(limbs.includes(p)){const kn=p.userData&&p.userData.knee;if(UPLEG&&kn&&P.legs&&P.legs.includes(p))return chain.includes(kn)?'l':'t';return 'l';}if(p===P.body||p===P.upper)inBody=true;if(p===root)break;}
+  return inBody?'t':'o';}
+const _render=r.render.bind(r);
+r.render=function(sc,cm){if(!window.MK)return _render(sc,cm);
+  const root=(cur&&cur.userData&&cur.userData.model)||window.MODEL,P=root&&(root.userData.P||root.userData),saved=[];
+  const hid=[];sc.traverse(o=>{if(o.isMesh||o.isInstancedMesh||o.isPoints||o.isLine){let inM=false;for(let p=o;p;p=p.parent)if(p===root){inM=true;break;}if(!inM){if(o.visible){o.visible=false;hid.push(o);}return;}saved.push([o,o.material,o.castShadow]);o.material=MASKM[partOf(o,P,root)]||MASKM.o;o.castShadow=false;}});
+  const tm=r.toneMapping,cs=r.outputColorSpace,sm=r.shadowMap.enabled;r.toneMapping=THREE.NoToneMapping;r.outputColorSpace=THREE.LinearSRGBColorSpace;r.shadowMap.enabled=false;
+  _render(sc,cm);r.toneMapping=tm;r.outputColorSpace=cs;r.shadowMap.enabled=sm;saved.forEach(([o,m,c])=>{o.material=m;o.castShadow=c;});hid.forEach(o=>o.visible=true);};
+})();
+window.TEXIMG={};Promise.all(Object.keys(window.TEX).map(k=>new Promise(res=>{const im=new Image();im.onload=()=>{window.TEXIMG[k]=im;res();};im.src=window.TEX[k];}))).then(()=>{window.ready=true;});
+</script>

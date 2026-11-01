@@ -1,0 +1,18 @@
+[
+ {"name":"sit","spec":{"pose":"sit","face":"happy"}},
+ {"name":"cheer","spec":{"pose":"happy","face":"open","set":{"head.rotation.z":-0.1}}},
+ {"name":"dig","spec":{"pose":"pant","face":"squint","set":{"body.rotation.z":-0.35,"head.rotation.z":0.25,"arms.0.rotation.z":0.9,"arms.1.rotation.z":0.9,"shovel.rotation.z":-0.2}}},
+ {"name":"dig2","spec":{"pose":"pant","face":"squint","set":{"body.rotation.z":0.1,"head.rotation.z":-0.1,"arms.0.rotation.z":-1.9,"arms.1.rotation.z":-1.9,"shovel.rotation.z":-0.9}}},
+ {"name":"peek","spec":{"pose":"sit","face":"open","set":{"body.position.y":0.15,"head.rotation.z":-0.35,"arms.0.rotation.z":-0.6,"arms.1.rotation.z":-0.6}}},
+ {"name":"stretch","spec":{"pose":"happy","face":"closed","set":{"body.rotation.z":0.25,"head.rotation.z":-0.4,"arms.0.rotation.z":-2.9,"arms.1.rotation.z":-2.9}}},
+ {"name":"sniff","spec":{"pose":"pant","face":null,"set":{"body.rotation.z":-0.25,"head.rotation.z":0.45,"head.rotation.x":0.1,"arms.0.rotation.z":0.2,"arms.1.rotation.z":0.2}}},
+ {"name":"startle","spec":{"pose":"happy","face":"open","set":{"body.position.y":1.05,"head.rotation.z":-0.3,"arms.0.rotation.z":-2.6,"arms.1.rotation.z":-1.2}},"float":true},
+ {"name":"dizzy","spec":{"pose":"sit","face":"squint","set":{"head.rotation.z":0.35,"head.rotation.x":0.25,"body.rotation.z":-0.1}}},
+ {"name":"bow","spec":{"pose":"pant","face":"happy","set":{"body.rotation.z":-0.8,"head.rotation.z":0.2,"arms.0.rotation.z":0.8,"arms.1.rotation.z":0.8}}},
+ {"name":"runA","spec":{"ph":0.2,"face":"happy","set":{"body.rotation.z":-0.2}}},
+ {"name":"runB","spec":{"ph":0.7,"face":"happy","set":{"body.rotation.z":-0.2}}},
+ {"name":"wave","spec":{"pose":"pant","face":"happy","set":{"arms.0.rotation.z":-2.5,"head.rotation.z":0.1}}},
+ {"name":"sulk","spec":{"pose":"sit","face":"closed","set":{"head.rotation.z":0.45,"body.rotation.z":-0.25}}},
+ {"name":"nap","spec":{"pose":"sleep","face":"closed"}},
+ {"name":"shake","spec":{"pose":"shiver","face":"tight"}}
+]

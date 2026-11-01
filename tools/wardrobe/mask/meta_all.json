@@ -1,0 +1,86 @@
+{
+ "lovel": {
+  "view": [
+   1.971,
+   0.878,
+   0.078
+  ],
+  "size": 1.971,
+  "originX": 117.9,
+  "originY": 239.8,
+  "bottomRow": 250,
+  "mode": "bottom",
+  "base": 250,
+  "ox": 117.9
+ },
+ "dolsom": {
+  "view": [
+   2.465,
+   1.05,
+   0.069
+  ],
+  "size": 2.465,
+  "originX": 120.8,
+  "originY": 234.9,
+  "bottomRow": 250,
+  "mode": "bottom",
+  "base": 250,
+  "ox": 120.8
+ },
+ "ppopu": {
+  "view": [
+   2.58,
+   1.1,
+   0.0777
+  ],
+  "size": 2.58,
+  "originX": 120.3,
+  "originY": 235,
+  "bottomRow": 249.5,
+  "mode": "bottom",
+  "base": 249.5,
+  "ox": 120.3
+ },
+ "chaeng": {
+  "view": [
+   2.402,
+   1.022,
+   -0.25
+  ],
+  "size": 2.402,
+  "originX": 154.6,
+  "originY": 234.8,
+  "bottomRow": 244.5,
+  "mode": "bottom",
+  "base": 244.5,
+  "ox": 154.6
+ },
+ "sul": {
+  "view": [
+   4.29,
+   1.372,
+   -0.047
+  ],
+  "size": 4.29,
+  "originX": 130.8,
+  "originY": 208.2,
+  "bottomRow": 230.5,
+  "mode": "bottom",
+  "base": 230.5,
+  "ox": 130.8
+ },
+ "dudung": {
+  "view": [
+   2.733,
+   0.83,
+   0
+  ],
+  "size": 2.733,
+  "originX": 128,
+  "originY": 204.2,
+  "bottomRow": 223.5,
+  "mode": "bottom",
+  "base": 223.5,
+  "ox": 128
+ }
+}

@@ -1,0 +1,67 @@
+{
+ "juksun": {
+  "view": [
+   4.969,
+   2.271,
+   0.186
+  ],
+  "originX": 118.4,
+  "originY": 242.7,
+  "bottomRow": 247.5,
+  "topRow": 24.5,
+  "kb": 122,
+  "kbp": 59
+ },
+ "bbosong_0": {
+  "view": [
+   5.031,
+   2.201,
+   0.186
+  ],
+  "originX": 118.5,
+  "originY": 237.8,
+  "bottomRow": 249.0,
+  "topRow": 27.0,
+  "kb": 109,
+  "kbp": 51
+ },
+ "bbosong_1": {
+  "view": [
+   5.031,
+   2.201,
+   0.186
+  ],
+  "originX": 118.5,
+  "originY": 237.8,
+  "bottomRow": 249.0,
+  "topRow": 27.0,
+  "kb": 114,
+  "kbp": 55
+ },
+ "bbosong_2": {
+  "view": [
+   5.031,
+   2.201,
+   0.186
+  ],
+  "originX": 118.5,
+  "originY": 237.8,
+  "bottomRow": 249.0,
+  "topRow": 27.0,
+  "kb": 113,
+  "kbp": 52
+ },
+ "bbosong_3": {
+  "view": [
+   5.031,
+   2.201,
+   0.186
+  ],
+  "originX": 118.5,
+  "originY": 237.8,
+  "bottomRow": 249.0,
+  "topRow": 27.0,
+  "kb": 111,
+  "kbp": 51
+ }
+}
