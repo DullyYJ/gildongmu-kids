@@ -30,6 +30,9 @@ final class Engine {
     static final long EVT_MIN = 20000L, EVT_MAX = 70000L; // 랜덤 행동 간격
     static final long CHAT_KEEP_MS = 7L * 24L * 3600L * 1000L; // 가족 대화 보관(최대 7일)
     static final long LOC_INTERVAL_MS = 300000L;        // 위치 보내는 주기(5분)
+    static final long LOC_MOVING_MS = 180000L;          // p-kids53(YJ): 자녀가 움직인다고 판단(GPS 이동 발생)하면 3분마다 위치를 확인한다
+    static final double MOVE_M = 60.0;                  // 이어진 두 위치가 이만큼(m) 이상(그리고 오차의 1.5배 이상) 떨어지면 '움직임'
+    static final long MOVE_GAP_MS = 12 * 60000L;        // 두 위치 사이가 이보다 길면(꺼졌다 켜짐 등) 움직임을 판단하지 않는다
     static final long PAIR_TTL_MS = 10L * 60L * 1000L;  // 연결 비밀키 유효 시간
     static final int CHAT_MAX_LEN = 500;
 
@@ -95,6 +98,10 @@ final class Engine {
     private String lastSig = "";
     private boolean loc = false;
     private long lastFixT = 0L;
+    private double mvLa = Double.NaN, mvLo = Double.NaN;      // 움직임 판단용 바로 앞 위치
+    private float mvAcc = 0f;
+    private long mvT = 0L;
+    private boolean moving = false;
     private String pairCode = "";
     // ── 길동무 키즈 서버(엔진) 연결 — 가족대화·퀘스트 화면은 서버가 만들어 주고, 앱은 받아서 그리기만 한다
     private final HashMap<String, String> rem = new HashMap<String, String>();
@@ -291,8 +298,34 @@ final class Engine {
         return rev;
     }
 
+    /** 위치 보내는 주기 — 계산은 엔진이: 움직이는 중이면 3분, 가만히 있으면 5분. */
     synchronized long locIntervalMs() {
-        return LOC_INTERVAL_MS;
+        return moving ? LOC_MOVING_MS : LOC_INTERVAL_MS;
+    }
+
+    /** 지금 움직이는 중인가(바로 앞 위치와 비교해 판단한 값). */
+    synchronized boolean isMoving() {
+        return moving;
+    }
+
+    /** 이어진 두 위치로 움직임을 판단한다 — 거리 ≥ max(60m, 오차 1.5배). 사이가 너무 길면 판단하지 않고 가만히 있는 것으로 본다. */
+    private void judgeMove(double la, double lo, float acc, long t) {
+        boolean mv = false;
+        if (!Double.isNaN(mvLa) && mvT > 0L && t > mvT && t - mvT <= MOVE_GAP_MS) {
+            double d = moveDist(mvLa, mvLo, la, lo), thr = Math.max(MOVE_M, 1.5 * Math.max(acc, mvAcc));
+            mv = d >= thr;
+        }
+        moving = mv;
+        mvLa = la;
+        mvLo = lo;
+        mvAcc = acc;
+        mvT = t;
+    }
+
+    private static double moveDist(double a1, double o1, double a2, double o2) {
+        double r = 6371000.0, p1 = Math.toRadians(a1), p2 = Math.toRadians(a2), dp = p2 - p1, dl = Math.toRadians(o2 - o1);
+        double h = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+        return 2 * r * Math.asin(Math.min(1.0, Math.sqrt(h)));
     }
 
     synchronized boolean locOn() {
@@ -311,6 +344,7 @@ final class Engine {
         lng = lo;
         fixT = t;
         dirty = true;
+        judgeMove(la, lo, acc, t);
         kidLoc(la, lo, acc, t);
     }
 
