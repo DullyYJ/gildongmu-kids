@@ -345,6 +345,26 @@ final class Engine {
         fixT = t;
         dirty = true;
         judgeMove(la, lo, acc, t);
+        if (locOn() && dongDue(t)) {                                // 앱이 꺼져 있어도(위치 서비스만 돌 때) 동네 이름을 새로 받은 뒤에 보낸다 — 옛 동네 이름이 가지 않게
+            dongTryAt = t;
+            final String url = dongUrl();
+            if (!url.isEmpty()) {
+                final double fla = la, flo = lo;
+                final float facc = acc;
+                final long ft = t;
+                Wire.EX.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        String r = Wire.get(url, 6000);
+                        if (r != null) setDong(r, fla, flo);
+                        synchronized (Engine.this) {
+                            kidLoc(fla, flo, facc, ft);
+                        }
+                    }
+                });
+                return;
+            }
+        }
         kidLoc(la, lo, acc, t);
     }
 
