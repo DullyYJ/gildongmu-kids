@@ -11,7 +11,7 @@ public final class Dress {
     /** 입은 모습(바뀌지 않는 한 장): 칸마다 그림 문장을 풀어 둔 것(없으면 null). */
     public static final class Look {
         public final Art.Op[][] ops = new Art.Op[3][];
-        final int[] idx = {-1, -1, -1};
+        public final int[] idx = {-1, -1, -1};
         boolean any() { return ops[0] != null || ops[1] != null || ops[2] != null; }
     }
 

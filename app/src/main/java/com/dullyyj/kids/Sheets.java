@@ -15,7 +15,7 @@ import java.util.concurrent.Executors;
 /** 길동무 3D 캐릭터 프레임 시트(assets/chars3d/*.webp, 4x4칸)를 백그라운드에서 읽어 둔다. 메인 스레드는 읽지 않는다. */
 final class Sheets {
     private final Context ctx;
-    private final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>(80 * 1024 * 1024) {
+    private final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>(150 * 1024 * 1024) {
         @Override
         protected int sizeOf(String k, Bitmap b) {
             return b.getByteCount();
@@ -51,7 +51,7 @@ final class Sheets {
             public void run() {
                 Bitmap r = null;
                 try {
-                    InputStream in = ctx.getAssets().open("chars3d/" + file + ".webp");
+                    InputStream in = ctx.getAssets().open(file.startsWith("wear_") ? "wear/" + file.substring(5) + ".webp" : "chars3d/" + file + ".webp");
                     try {
                         r = BitmapFactory.decodeStream(in);
                     } finally {
