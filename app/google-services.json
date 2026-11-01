@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "279562285550",
+    "project_id": "gildongmu-311b3",
+    "storage_bucket": "gildongmu-311b3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:279562285550:android:0fae93220cddbc8bae1eff",
+        "android_client_info": {
+          "package_name": "com.dullyyj.kids"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCgnGfII2ZSRhvRnPSNzCNquGg0Ep5pOU8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:279562285550:android:6c50d49b9e033d2fae1eff",
+        "android_client_info": {
+          "package_name": "com.dullyyj.subway"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCgnGfII2ZSRhvRnPSNzCNquGg0Ep5pOU8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
