@@ -46,3 +46,7 @@
 ## p-kids45 (YJ: 밥·응가 대기 + 버튼 진동)
 - Engine.village(): 배고픔(beg)·응가가 있는 친구는 걷지 않고 제자리(still/cell)에서 기다린다. actsFor 의 beg/poop 에서 "walk" 제거. 홈 장면(SceneCore)의 kbeg/kpoop 는 원래 제자리 동작.
 - MainActivity.act(): 버튼 눌림마다 Buzz "tap"(SceneHaptics, 부모 repo 에 추가됨 — 빌드 때 부모 native-shell 을 받아 온다). 친구 만지기(clean:/sel:/kid.pick:)는 제외.
+
+## p-kids46 (YJ: 가족대화 탭만 다녀오면 홈에서 키보드가 계속 올라온다)
+- 원인: Renderer.view()=host 안에는 가려진(GONE) scroll 과 그 안의 대화 입력칸이 남는다. MainActivity.show() 의 firstEdit() 가 그 숨은 칸을 찾아 "입력칸이 있다 · 치던 중"으로 보고 refocus() 로 키보드를 다시 올렸다(홈이 새로 그려질 때마다 반복).
+- 수정: firstEdit() 는 보이지 않는 뷰를 건너뛴다 · typing 은 ff.isShown() 일 때만 · showHome() 이 가려진 scroll 의 포커스를 놓는다. 부모 repo s376(ScreenView 입력칸 포커스 차단)도 빌드 때 같이 들어온다.
