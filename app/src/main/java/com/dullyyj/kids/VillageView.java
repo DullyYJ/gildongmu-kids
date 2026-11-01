@@ -39,6 +39,7 @@ final class VillageView extends View {
     private final HashMap<String, A> byId = new HashMap<String, A>();
     private final ArrayList<A> order = new ArrayList<A>();
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final WearDraw.P wearPen = new WearDraw.P();
     private final Rect src = new Rect();
     private final RectF dst = new RectF();
     private final RectF tmp = new RectF();
@@ -236,6 +237,8 @@ final class VillageView extends View {
             c.scale(-1f, 1f, left + s / 2f, 0f);
         }
         c.drawBitmap(b, src, dst, p);
+        Dress.Look lk = Dress.I.look(x.id);          // 입은 모습(엔진이 계산한 자리에 그리기만 한다)
+        if (lk != null) WearDraw.worn(c, wearPen, lk, Wardrobe.ci(x.id), act ? 2 : 0, idx, dst.left, dst.top, s);
         if (flip) c.restore();
     }
 

@@ -55,8 +55,8 @@ final class Engine {
     };
     // id, 이름, 종류
     static final String[][] CAST = {
-        {"ppopu", "뽀푸", "0"}, {"dolsom", "돌솜", "0"}, {"lovel", "러블", "0"}, {"chaeng", "챙챙", "3"},
-        {"sul", "술", "2"}, {"dudung", "두덩", "1"}, {"bbosong", "뽀송", "4"}, {"juksun", "죽순", "4"}
+        {"ppopu", "뽀푸", "0"}, {"dolsom", "둘숑", "0"}, {"lovel", "러블", "0"}, {"chaeng", "챙챙", "3"},
+        {"sul", "독슐", "2"}, {"dudung", "두덩", "1"}, {"bbosong", "히뽀", "4"}, {"juksun", "죽순", "4"}
     };
     private static final String[] BUBBLE = {"", "밥 주세요!", "냠냠!", "흥!", "아파요…", "응가!", "신나요!", "zZ", "공부 중"};
     private static final String KEYS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -154,6 +154,13 @@ final class Engine {
         }
         csec = b;
         load();
+        Dress.I.restore(s.get("wear", ""));           // 꾸미기: 입은 것은 앱을 껐다 켜도 이어진다(바뀔 때마다 바로 저장)
+        Dress.I.setOnChange(new Runnable() {
+            @Override
+            public void run() {
+                store.put("wear", Dress.I.export());
+            }
+        });
     }
 
     // ───────── 저장·불러오기 ─────────
@@ -1091,37 +1098,13 @@ final class Engine {
         return o.toString();
     }
 
+    /** 꾸미기 창: 제목 + 네이티브 꾸미기 화면(DressView) + 닫기. 내용은 입을 때마다 바뀌지만 이 글은 늘 같아서 창을 다시 만들지 않는다 —
+     *  무엇을 입었는지는 Dress(엔진)가 계산하고 DressView 가 그 자리에서 그린다. */
     synchronized String dressSheet() {
         if (!dressOpen || !consented() || fs.isEmpty()) return "";
-        F cur = find(dressSel);
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "길동무 친구들 꾸미기"));
-        JSONArray k1 = new JSONArray();
-        k1.put(b("avatar", "id", cur.id, "name", cur.name));
-        JSONArray chips = new JSONArray();
-        for (int i = 0; i < fs.size(); i++) chips.put(item(fs.get(i).name, "dress.sel:" + fs.get(i).id, fs.get(i).id.equals(cur.id) ? "1" : "0"));
-        JSONObject c = b("chips");
-        put(c, "items", chips);
-        k1.put(c);
-        JSONObject bx1 = b("box", "hp", "25");
-        put(bx1, "kids", k1);
-        a.put(bx1);
-        JSONArray k2 = new JSONArray();
-        String[][] tabs = {{"hat", "모자"}, {"cloth", "옷"}, {"item", "소지품"}};
-        JSONArray tc = new JSONArray();
-        String tname = "모자";
-        for (int i = 0; i < tabs.length; i++) {
-            boolean on = tabs[i][0].equals(dressTab);
-            if (on) tname = tabs[i][1];
-            tc.put(item(tabs[i][1], "dress.tab:" + tabs[i][0], on ? "1" : "0"));
-        }
-        JSONObject tcs = b("chips");
-        put(tcs, "items", tc);
-        k2.put(tcs);
-        k2.put(b("card", "title", tname, "text", "곧 만날 수 있어요", "thumb", "", "act", ""));
-        JSONObject bx2 = b("box", "hp", "33");
-        put(bx2, "kids", k2);
-        a.put(bx2);
+        a.put(b("wardrobe"));
         a.put(b("gap", "h", "8"));
         JSONArray it = new JSONArray();
         it.put(b("i", "label", "닫기", "act", "dress.close", "on", "0"));

@@ -530,6 +530,11 @@ if (false) {
         if ("card".equals(t)) return card(b);
         if ("village".equals(t)) return villageBlock(b);
         if ("box".equals(t)) return box(b);
+        if ("wardrobe".equals(t)) {                    // 꾸미기: 네이티브 한 장 화면(엔진이 계산 · 앱은 그리기만)
+            View dv = new DressView(ctx);
+            dv.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 6));
+            return dv;
+        }
         if ("avatar".equals(t)) {
             View av = new AvatarView(ctx, b.optString("id"), b.optString("name"));
             av.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dpi(ctx, 170), 6));
