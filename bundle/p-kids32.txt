@@ -1,0 +1,26 @@
+=== EDIT: app/src/main/java/com/dullyyj/kids/MainActivity.java ===
+@@ old
+import com.dullyyj.subway.ScreenView;
+@@ new
+import com.dullyyj.subway.OpenHost;
+import com.dullyyj.subway.ScreenView;
+=== EDIT: app/src/main/java/com/dullyyj/kids/MainActivity.java ===
+@@ old
+setContentView(outer);
+@@ new
+setContentView(outer);
+        if (b == null) OpenHost.show(this); // 켤 때 오프닝: 길동무와 똑같은 한 갈래(OpenHost) — 시간대 · 날씨 · 친구 · 움직임이 같다
+=== EDIT: app/src/main/java/com/dullyyj/kids/MainActivity.java ===
+@@ old
+if (r != null) Core.engine.setScene(r, System.currentTimeMillis());
+@@ new
+if (r != null) {
+                    Core.engine.setScene(r, System.currentTimeMillis());
+                    OpenHost.saveWx(MainActivity.this, r); // 다음에 켤 때 오프닝 배경이 쓸 마지막 날씨(엔진이 알려 준 것만)
+                }
+=== EDIT: app/src/main/java/com/dullyyj/kids/MainActivity.java ===
+@@ old
+public void onBackPressed() {
+@@ new
+public void onBackPressed() {
+        if (OpenHost.back()) return; // 오프닝이 떠 있으면 오프닝만 닫는다
