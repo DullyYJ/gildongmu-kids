@@ -101,6 +101,19 @@ public class WardrobeTest {
         ok(sane && wrapN > 1000, "모든 칸 · 모든 옷에서 조각이 범위 안에 있다(두르는 옷 " + wrapN + "곳)");
         Wardrobe.place(0, 0, 5, 0, pl);
         ok(Wardrobe.strips(0, 0, 5, 0, 3, pl[0], pl[1], pl[2], st) == 1 && !Wardrobe.wraps(0, 0, 3) && Wardrobe.strips(8, 0, 0, 0, 0, 0, 0, 1, st) == 0, "모자·소지품은 한 장 · 잘못된 값은 0");
+        // 몸에 입혀 구운 옷: 두르는 옷은 칸마다 조각이 있고(빈 칸 · 자는 모습 제외), 두르지 않는 옷 · 잘못된 값은 없다
+        int[] wt = new int[6];
+        int tiles = 0; boolean wok = true;
+        for (int c = 0; c < 8; c++) for (int sh = 0; sh < 3; sh++) for (int cell = 0; cell < (sh == 1 ? 8 : 16); cell++) for (int it = 0; it < Wardrobe.PER; it++) {
+            boolean has = Wardrobe.wornTile(c, sh, cell, it, wt);
+            boolean can = Wardrobe.wraps(c, 1, it) && Wardrobe.place(c, sh, cell, 1, pl);
+            if (has) {
+                tiles++;
+                if (!Wardrobe.wraps(c, 1, it) || wt[2] < 2 || wt[3] < 2 || wt[0] < 0 || wt[1] < 0 || wt[0] + wt[2] > 1024 || wt[4] < 0 || wt[5] < 0 || wt[4] + wt[2] > 256 || wt[5] + wt[3] > 256) { wok = false; System.out.println("   조각 이상 " + c + "/" + sh + "/" + cell + "/" + it); }
+            } else if (can && !(sh == 1 && cell == 1)) { wok = false; System.out.println("   조각 없음 " + c + "/" + sh + "/" + cell + "/" + it); }
+        }
+        ok(wok && tiles > 3000, "구운 옷 조각: 두르는 옷 모든 칸에 있다(" + tiles + "개)");
+        ok(!Wardrobe.wornTile(8, 0, 0, 0, wt) && !Wardrobe.wornTile(0, 0, 0, 2, wt) && !Wardrobe.wornTile(0, 3, 0, 1, wt), "구운 옷: 두르지 않는 옷 · 잘못된 값은 없다");
         // 엔진 동작
         Dress d = Dress.I;
         int[] cnt = {0};
