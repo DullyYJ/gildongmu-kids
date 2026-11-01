@@ -1,0 +1,2 @@
+=== FILE: app/.firebase-on ===
+FCM on: app/google-services.json present
