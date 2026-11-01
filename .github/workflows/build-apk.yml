@@ -64,6 +64,15 @@ jobs:
           assert s.count(old) == 1, 'ScreenView hello stretch line not found'
           open(p, 'w', encoding='utf-8', newline='\n').write(s.replace(old, 'hExt = 0f;'))
           print('hello stretch disabled')
+          q = 'app/src/main/java/com/dullyyj/subway/SceneCore.java'
+          t = open(q, encoding='utf-8').read()
+          o1 = 'public final class SceneCore {\n'
+          o2 = 'tHaptic("release"); hotUntil = t + hotFor(a.landK);'
+          assert t.count(o1) == 1 and t.count(o2) == 1, 'SceneCore drop hook anchors not found'
+          t = t.replace(o1, o1 + '    public interface DropHook { void drop(String id, double lift); }\n    public static volatile DropHook DROP_HOOK;\n')
+          t = t.replace(o2, o2 + ' try { DropHook dh = DROP_HOOK; if (dh != null) dh.drop(a.id, H0y); } catch (RuntimeException e) { /* 알림 실패는 그림에 영향 없다 */ }')
+          open(q, 'w', encoding='utf-8', newline='\n').write(t)
+          print('scene drop hook added')
           PY
 
       - name: Bundle Noto Sans KR for native screens
