@@ -343,6 +343,7 @@ private void swipeBy(int dir) {
                 wl.y = Ui.dpi(ctx, 72);
                 w.setAttributes(wl);
             }
+            w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
             w.setBackgroundDrawable(new ColorDrawable(0));
             w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             w.setDimAmount(0.45f);
@@ -544,6 +545,7 @@ if ("chips".equals(t)) return chips(b);
         if ("switch".equals(t)) return toggleRow(b);
         if ("msg".equals(t)) return msg(b);
         if ("input".equals(t)) return input(b);
+        if ("pw".equals(t)) return pwBlock(b);
         if ("qr".equals(t)) return qrBlock(b);
         if ("gap".equals(t)) {
             View v = new View(ctx);
@@ -904,6 +906,54 @@ lp2.height = Math.max(1, bt - t - 2 * inset);
         sl.leftMargin = Ui.dpi(ctx, 8);
         r.addView(send, sl);
         r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 14));
+        return r;
+    }
+
+    /** 숫자 4자리 비밀번호 칸(가려서 보임) + 확인 버튼 — 관리 창 들어가기 전에 쓴다. */
+    private View pwBlock(JSONObject b) {
+        LinearLayout r = new LinearLayout(ctx);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        final EditText et = new EditText(ctx);
+        et.setHint(b.optString("hint"));
+        et.setHintTextColor(Pal.c(Pal.SUB));
+        et.setTextColor(Pal.c(Pal.TEXT));
+        et.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, 16f);
+        et.setTypeface(Ui.face(ctx, false));
+        et.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        et.setFilters(new android.text.InputFilter[] { new android.text.InputFilter.LengthFilter(4) });
+        et.setSingleLine(true);
+        et.setGravity(Gravity.CENTER);
+        int pad = Ui.dpi(ctx, 12);
+        et.setPadding(pad, pad, pad, pad);
+        et.setBackground(Ui.box(ctx, Pal.c(Pal.CARD), 18, Pal.c(Pal.BORDER)));
+        r.addView(et, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView ok = pill(b.optString("btn", "확인"), true);
+        final String act = b.optString("act");
+        ok.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String s = et.getText().toString().trim();
+                et.setText("");
+                cb.call(act, s);
+            }
+        });
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sl.leftMargin = Ui.dpi(ctx, 8);
+        r.addView(ok, sl);
+        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 14));
+        et.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    et.requestFocus();
+                    android.view.inputmethod.InputMethodManager im = (android.view.inputmethod.InputMethodManager) ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (im != null) im.showSoftInput(et, 0);
+                } catch (Throwable t) {
+                    // 키보드가 안 떠도 눌러서 넣을 수 있다
+                }
+            }
+        }, 250L);
         return r;
     }
 

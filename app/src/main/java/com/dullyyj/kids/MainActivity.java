@@ -277,7 +277,8 @@ public class MainActivity extends Activity {
         }
         // 처음 켰을 때의 동의 창은 홈 화면 위로 올라온다(동의하면 내려간다)
         final String ns = cons ? en.noticeSheet() : "", pr = cons ? en.promptSheet() : "";
-        final String sheet = cons ? (!ns.isEmpty() ? ns : !pr.isEmpty() ? pr : en.dressSheet()) : en.consentSheet();
+        final String mgs = cons ? en.mgSheet() : "";
+        final String sheet = cons ? (!mgs.isEmpty() ? mgs : !ns.isEmpty() ? ns : !pr.isEmpty() ? pr : en.dressSheet()) : en.consentSheet();
         final String pl = en.pill();
         if (!pl.equals(lastPill)) {
             lastPill = pl;

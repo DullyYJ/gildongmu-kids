@@ -124,6 +124,9 @@ final class Engine {
     private double dongLa = Double.NaN, dongLo = Double.NaN;
     private long dongTryAt = 0L;
     private boolean dressOpen = false;
+    private int mg = 0;                 // 관리 창: 0 닫힘 · 1 비밀번호 정하기 · 2 한 번 더 · 3 비밀번호 넣기 · 4 열림
+    private String mgTmp = "";
+    private String mgErr = "";
     private String dressSel = "";
     private String dressTab = "hat";
     private JSONArray quests = new JSONArray();
@@ -1346,6 +1349,47 @@ final class Engine {
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "설정"));
         a.put(b("switch", "label", "어두운 화면", "on", "dark".equals(theme()) ? "1" : "0", "act", "theme.toggle"));
+        a.put(b("gap", "h", "6"));
+        JSONArray it = new JSONArray();
+        it.put(b("i", "label", "관리", "act", "mg.open", "on", "0"));
+        JSONObject bt = b("btns");
+        put(bt, "items", it);
+        a.put(bt);
+        return wrap("scroll", a);
+    }
+
+    /** 관리 창으로 들어가기 전 비밀번호 창: 처음이면 정하고(두 번), 이후엔 넣어야 열린다. */
+    private String mgAuthSheet() {
+        JSONArray a = new JSONArray();
+        a.put(b("head", "text", mg == 3 ? "비밀번호를 넣어요" : mg == 2 ? "한 번 더 넣어요" : "비밀번호를 정해요"));
+        a.put(b("text", "text", mg == 3 ? "관리에 들어가려면 숫자 4자리 비밀번호가 필요해요." : mg == 2 ? "방금 정한 숫자 4자리를 똑같이 한 번 더 넣어요." : "처음이에요. 부모님과 함께 숫자 4자리 비밀번호를 정해요. 다음부터는 이 번호로 들어와요.", "sub", "1"));
+        a.put(b("pw", "hint", "숫자 4자리", "btn", mg == 3 ? "열기" : "확인", "act", "mg.pw"));
+        if (!mgErr.isEmpty()) a.put(b("text", "text", mgErr, "sub", "1"));
+        JSONArray it = new JSONArray();
+        it.put(b("i", "label", "취소", "act", "mg.close", "on", "0"));
+        JSONObject bt = b("btns");
+        put(bt, "items", it);
+        a.put(bt);
+        return wrap("scroll", a);
+    }
+
+    private static String pwHash(String pin) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] d = md.digest(("gdm-kids-mg:" + pin).getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (byte x : d) sb.append(String.format("%02x", x & 0xff));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    synchronized String mgSheet() {
+        if (!consented() || mg == 0) return "";
+        if (mg != 4) return mgAuthSheet();
+        JSONArray a = new JSONArray();
+        a.put(b("head", "text", "관리"));
         a.put(b("switch", "label", "내 위치를 부모님께 알리기", "on", loc ? "1" : "0", "act", "loc.toggle"));
         a.put(b("text", "text", locLine(), "sub", "1"));
         a.put(b("gap", "h", "10"));
@@ -1370,6 +1414,11 @@ final class Engine {
         JSONObject bt2 = b("btns");
         put(bt2, "items", it2);
         a.put(bt2);
+        JSONArray it3 = new JSONArray();
+        it3.put(b("i", "label", "닫기", "act", "mg.close", "on", "0"));
+        JSONObject bt3 = b("btns");
+        put(bt3, "items", it3);
+        a.put(bt3);
         return wrap("scroll", a);
     }
 
@@ -1417,7 +1466,45 @@ final class Engine {
                 tab = "home";
                 res = cmd("perm");
             }
-        } else if (v.equals("consent.reset")) {
+        } else if (v.equals("mg.open")) {
+            mg = store.get("mgpw", "").isEmpty() ? 1 : 3;
+            mgTmp = "";
+            mgErr = "";
+        } else if (v.equals("mg.close")) {
+            mg = 0;
+            mgTmp = "";
+            mgErr = "";
+        } else if (v.equals("mg.pw")) {
+            String pin = arg == null ? "" : arg.trim();
+            if (!pin.matches("[0-9]{4}")) {
+                mgErr = "숫자 4자리로 넣어 주세요";
+            } else if (mg == 1) {
+                mgTmp = pin;
+                mg = 2;
+                mgErr = "";
+            } else if (mg == 2) {
+                if (pin.equals(mgTmp)) {
+                    store.put("mgpw", pwHash(pin));
+                    mg = 4;
+                    mgErr = "";
+                } else {
+                    mg = 1;
+                    mgErr = "처음 넣은 번호와 달라요. 다시 정해요";
+                }
+                mgTmp = "";
+            } else if (mg == 3) {
+                if (pwHash(pin).equals(store.get("mgpw", ""))) {
+                    mg = 4;
+                    mgErr = "";
+                } else {
+                    mgErr = "비밀번호가 달라요";
+                }
+            }
+        } else if (v.equals("consent.reset") && mg == 4) {
+            mg = 0;
+            mgTmp = "";
+            mgErr = "";
+            store.put("mgpw", "");
             kidUnlink();
             store.put("consent", "0");
             store.put("cp", "0");
@@ -1425,14 +1512,14 @@ final class Engine {
             loc = false;
             tab = "home";
             res = cmd("loc.stop");
-        } else if (v.equals("loc.toggle")) {
+        } else if (v.equals("loc.toggle") && mg == 4) {
             loc = !loc;
             res = loc ? cmd("perm") : cmd("loc.stop");
         } else if (v.equals("loc.denied")) {
             loc = false;
-        } else if (v.equals("pair.new")) {
+        } else if (v.equals("pair.new") && mg == 4) {
             kidPair();
-        } else if (v.equals("pair.unlink")) {
+        } else if (v.equals("pair.unlink") && mg == 4) {
             kidUnlink();
         } else if (v.equals("chat.send")) {
             String s = arg == null ? "" : arg.trim();
@@ -1475,7 +1562,11 @@ final class Engine {
             String tb = v.substring(10);
             if (tb.equals("hat") || tb.equals("cloth") || tb.equals("item")) dressTab = tb;
         } else if (v.equals("dress.close")) {
-            if (!dressOpen && !promptId.isEmpty()) promptShut = true;
+            if (mg != 0) {
+                mg = 0;
+                mgTmp = "";
+                mgErr = "";
+            } else if (!dressOpen && !promptId.isEmpty()) promptShut = true;
             dressOpen = false;
         } else if (v.startsWith("kid.pick:")) {
             String[] p = v.substring(9).split(":");
