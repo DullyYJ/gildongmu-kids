@@ -857,7 +857,12 @@ final class Engine {
             JSONObject o = new JSONObject(r);
             if (!o.optBoolean("ok", false)) return;
             absorb(o);
-            if (o.has("linked")) linked = o.optInt("linked", linked);
+            if (o.has("linked")) {
+                int nl = o.optInt("linked", linked);
+                boolean first = linked <= 0 && nl > 0;
+                linked = nl;
+                if (first) kidLocNow();                              // 부모와 막 연결됐다 — 다음 위치 소식을 기다리지 않고 마지막으로 알던 자리를 바로 보낸다
+            }
             JSONObject sc = o.optJSONObject("screen");
             if (key != null && sc != null) remPut(key, sc.toString());
         } catch (Exception e) {
@@ -954,8 +959,27 @@ final class Engine {
     }
 
     /** 정확한 위치를 서버에 올린다. 서버는 연결된 부모가 있을 때만, 가장 최근 한 건만 둔다. */
+    private double fixLa = Double.NaN, fixLo = Double.NaN;
+    private float fixAcc = 0f;
+    private boolean locPending = false;
+
+    /** 부모와 연결되는 순간: 연결 전에는 서버가 위치를 저장하지 않으므로, 마지막으로 잡은 위치를 곧바로 한 번 올린다(없으면 다음 위치를 막힘 없이 바로 올린다). */
+    private void kidLocNow() {
+        if (!locOn()) return;
+        if (Double.isNaN(fixLa) || Double.isNaN(fixLo)) {
+            locPending = true;
+            return;
+        }
+        locSentT = 0L;
+        kidLoc(fixLa, fixLo, fixAcc, lastNow > 0L ? lastNow : System.currentTimeMillis());
+    }
+
     private void kidLoc(final double la, final double lo, final float acc, long t) {
-        if (!locOn() || t - locSentT < (tripId.isEmpty() ? 15000L : 7000L)) return;      // 출발한 뒤에는 거리가 더 자주 갱신되게
+        fixLa = la;
+        fixLo = lo;
+        fixAcc = acc;
+        if (!locOn() || (!locPending && t - locSentT < (tripId.isEmpty() ? 15000L : 7000L))) return;      // 출발한 뒤에는 거리가 더 자주 갱신되게
+        locPending = false;
         locSentT = t;
         final JSONObject o = new JSONObject();
         put(o, "la", la);
@@ -987,15 +1011,16 @@ final class Engine {
         JSONObject c = b("chips", "eq", "1", "loop", "1");
         put(c, "items", chips);
         a.put(c);
-        a.put(b("text", "text", kid ? "부모님이 길동무 앱에서 보내 주신 미션이에요. 해냈으면 눌러서 알려요." : "내가 부모님께 보내는 미션이에요. 부모님이 해내면 여기에 표시돼요.", "sub", "1"));
+        a.put(b("text", "text", kid ? "부모님이 길동무 앱에서 보내 주신 미션이에요. 해내면 부모님이 완료를 눌러 주고, 그러면 스타포인트가 올라가요." : "내가 부모님께 보내는 미션이에요. 부모님이 해 주셨으면 눌러서 완료해요.", "sub", "1"));
         if (!kid) a.put(b("input", "hint", "부모님께 보낼 미션을 적어요", "act", "quest.send"));
         int shown = 0;
         for (int i = quests.length() - 1; i >= 0; i--) {
             JSONObject q = quests.optJSONObject(i);
             if (q == null || "p".equals(q.optString("k")) == kid) continue;
-            boolean done = q.optInt("s", 0) == 1;
-            String st = kid ? (done ? "✅ 해냈어요" : "눌러서 해냈다고 알려요") : (done ? "✅ 부모님이 해냈어요" : "⏳ 부모님을 기다리는 중이에요");
-            a.put(b("card", "title", q.optString("x"), "text", st, "thumb", "", "act", kid && !done ? "quest.done:" + q.optString("i") : "", "tone", done ? "0" : "1"));
+            int qs = q.optInt("s", 0);
+            boolean done = kid ? qs >= 2 : qs == 1;                  // 자녀 미션은 부모님이 완료(2) · 부모님 미션은 자녀가 완료(1)
+            String st = kid ? (done ? "완료! 스타 +" + q.optInt("pt", 1) + " 받았어요" : "부모님이 완료해 주면 스타 +" + q.optInt("pt", 1)) : (done ? "완료했어요" : "부모님이 해 주셨으면 눌러서 완료해요");
+            a.put(b("card", "title", q.optString("x"), "text", st, "thumb", "", "act", !kid && !done ? "quest.pdone:" + q.optString("i") : "", "tone", done ? "0" : "1"));
             shown++;
         }
         if (shown == 0) {
@@ -1419,6 +1444,13 @@ final class Engine {
         } else if (v.startsWith("quest.tab:")) {
             questTab = v.substring(10).equals("p") ? "p" : "c";
             remAskT = 0L;
+        } else if (v.startsWith("quest.pdone:")) {          // 부모님 미션: 자녀가 완료를 누르면 이 화면도 바로 완료로 바뀐다
+            for (int qi = 0; qi < quests.length(); qi++) {
+                JSONObject qq = quests.optJSONObject(qi);
+                if (qq != null && v.substring(12).equals(qq.optString("i")) && "p".equals(qq.optString("k"))) put(qq, "s", 1);
+            }
+            dirty = true;
+            kidAct(v, "");
         } else if (v.startsWith("quest.done:")) {
             kidAct(v, "");
         } else if (v.equals("quest.send")) {
