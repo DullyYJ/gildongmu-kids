@@ -42,6 +42,7 @@ import java.util.ArrayList;
  */
 public class MainActivity extends Activity {
     private static final int REQ_PERM = 7;
+    private static final int REQ_BG = 8;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private HandlerThread ht;
@@ -183,6 +184,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Core.engine.setFg(true);
+        firstSetup();
         Push.fg = true;
         if (!running) {
             running = true;
@@ -425,6 +427,53 @@ public class MainActivity extends Activity {
         return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
+    /** 앱을 처음 쓸 때(동의 뒤) 필요한 권한을 한꺼번에 차례로 받는다: 위치 · 알림 → 항상 허용(백그라운드 위치) → 배터리 사용 최적화 중지. 이미 쓰던 기기도 한 번은 이어서 받는다. */
+    private void firstSetup() {
+        final android.content.SharedPreferences sp = getSharedPreferences("kids_setup", MODE_PRIVATE);
+        if (sp.getBoolean("all", false)) return;
+        eh.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!Core.engine.consented()) return;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        sp.edit().putBoolean("all", true).apply();
+                        askPerms();
+                    }
+                });
+            }
+        });
+    }
+
+    /** 위치 · 알림을 받은 뒤 이어지는 단계. 각 단계는 한 번만 묻는다(거절해도 다시 조르지 않는다). */
+    private void setupNext() {
+        try {
+            android.content.SharedPreferences sp = getSharedPreferences("kids_setup", MODE_PRIVATE);
+            if (Build.VERSION.SDK_INT >= 29 && hasLocPerm() && !sp.getBoolean("bg", false)
+                    && checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                sp.edit().putBoolean("bg", true).apply();
+                requestPermissions(new String[] {Manifest.permission.ACCESS_BACKGROUND_LOCATION}, REQ_BG);
+                return;
+            }
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(android.content.Context.POWER_SERVICE);
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName()) && !sp.getBoolean("batt", false)) {
+                sp.edit().putBoolean("batt", true).apply();
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:" + getPackageName())));
+                } catch (Throwable t) {
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                    } catch (Throwable t2) {
+                        // 설정 화면을 못 열어도 앱은 계속 쓴다
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            // 권한 단계가 실패해도 앱은 계속 쓴다
+        }
+    }
+
     private void askPerms() {
         ArrayList<String> need = new ArrayList<String>();
         if (!hasLocPerm()) {
@@ -436,6 +485,7 @@ public class MainActivity extends Activity {
             need.add(Manifest.permission.POST_NOTIFICATIONS);
         }
         if (need.isEmpty()) {
+            setupNext();
             if (Core.engine.locOn()) startLoc();
             quickFix();
             return;
@@ -446,6 +496,14 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
         super.onRequestPermissionsResult(code, perms, results);
+        if (code == REQ_BG || code == REQ_PERM) {
+            ui.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    setupNext();
+                }
+            }, 300L);
+        }
         if (code != REQ_PERM) return;
         if (hasLocPerm()) {
             if (Core.engine.locOn()) startLoc();
