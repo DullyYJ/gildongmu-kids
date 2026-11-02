@@ -15,7 +15,6 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Random;
 
 /**
  * 길동무마을 — 엔진이 알려 준 친구들(걷기/동작 칸/가만히, 말풍선, 응가 수)을 프레임 시트로 그리기만 한다.
@@ -29,13 +28,15 @@ final class VillageView extends View {
     private static final class A {
         String id = "", name = "", mode = "walk", bubble = "";
         int cell = -1, poop = 0;
-        float x, tx, lane, dir = 1f, wait;
+        float x = 0.5f, lane, dir = 1f;
+        boolean moving;
+        double vt;           // 걸은 시간(초) — 걷는 동안만 센다. 자리·방향은 엔진(Wander)이 이 시간으로 정한다
         long phase;
         final RectF hit = new RectF();
         final RectF[] poopHit = {new RectF(), new RectF(), new RectF()};
     }
 
-    private final Random rnd = new Random();
+    private final Wander.Pose pose = new Wander.Pose();
     private final HashMap<String, A> byId = new HashMap<String, A>();
     private final ArrayList<A> order = new ArrayList<A>();
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
@@ -86,10 +87,8 @@ final class VillageView extends View {
                 if (x == null) {
                     x = new A();
                     x.id = id;
-                    x.x = 0.1f + rnd.nextFloat() * 0.8f;
-                    x.tx = x.x;
-                    x.phase = rnd.nextInt(1000);
-                    x.wait = rnd.nextFloat() * 2f;
+                    x.vt = Wander.start(id);
+                    x.phase = Wander.phase(id);
                 }
                 x.lane = 0.12f + 0.76f * ((i * 5) % 8) / 7f;
                 x.name = f.optString("name");
@@ -122,21 +121,14 @@ final class VillageView extends View {
         invalidate();
     }
 
+    /** 걷는 동안만 시간을 세고, 자리·방향·걷는 중인지는 엔진(Wander)이 정한 값을 받아 둔다. */
     private void move(A x, float dt) {
-        if (!"walk".equals(x.mode)) return;
-        if (x.wait > 0f) {
-            x.wait -= dt;
-            return;
-        }
-        float d = x.tx - x.x;
-        if (Math.abs(d) < 0.01f) {
-            x.wait = 0.6f + rnd.nextFloat() * 3f;
-            x.tx = 0.08f + rnd.nextFloat() * 0.84f;
-            return;
-        }
-        x.dir = d > 0f ? 1f : -1f;
-        float sp = 0.07f * dt;
-        x.x += Math.abs(d) < sp ? d : x.dir * sp;
+        boolean walk = "walk".equals(x.mode);
+        if (walk) x.vt += dt;
+        Wander.at(x.id, x.vt, pose);
+        x.x = pose.x;
+        x.dir = pose.dir;
+        x.moving = walk && pose.moving;
     }
 
     @Override
@@ -227,8 +219,7 @@ final class VillageView extends View {
         } else if ("still".equals(x.mode)) {
             idx = 0;
         } else {
-            boolean moving = x.wait <= 0f;
-            idx = moving ? (int) (((now + x.phase) / 62L) % 16L) : 0;
+            idx = x.moving ? (int) (((now + x.phase) / 62L) % 16L) : 0;
         }
         src.set((idx % 4) * cs, (idx / 4) * cs, (idx % 4) * cs + cs, (idx / 4) * cs + cs);
         dst.set(left, top + bob, left + s, top + s + bob);

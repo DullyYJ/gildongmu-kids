@@ -75,8 +75,9 @@ final class MapPane extends LinearLayout {
 private final LinkedHashMap<String, ScreenCore.Screen> headCache = new LinkedHashMap<String, ScreenCore.Screen>();
 private int slideGen = 0;
     private String favRaw = null, alRaw = null;
-    private int favMax = 12, aliasMax = 10;
-    private String favAdd = "", favRm = "", favFull = "";
+    private int aliasMax = 10;                              // 별명 입력칸 글자 수 제한(엔진 favp.al 이 알려 준 값 — 다듬기는 엔진이 다시 한다)
+    private long pollTick = 10000L, pollStale = 20000L, pollRetry = 8000L;      // 갱신 박자: 엔진(info.poll)이 알려 준 값만 쓴다(첫 응답 전 기본값은 같은 값)
+    private String pendAct = null;                          // 별·별명을 누른 것 — 다음 요청에 act 로 실어 보내면 엔진이 새 목록·안내 글을 돌려준다
     private String ordRaw = "[]";
 
     MapPane(Context c) {
@@ -213,7 +214,7 @@ void setTheme(String t) {
     void onShow() {
         if ("bus".equals(mode)) {
             if (!headLoaded) loadHead(null, null, null);
-            if (System.currentTimeMillis() - busAt > 20000L) loadBus(busAt > 0L);
+            if (System.currentTimeMillis() - busAt > pollStale) loadBus(busAt > 0L);
             busTickStart();
             return;
         }
@@ -525,7 +526,7 @@ head.setScreen(sc, true);
     }
 
     // ───────── 버스 (길동무 서버가 지도 + 정류장 카드를 한 번에 내려 준다) ─────────
-    private String busBody(double[] g, String vw, int sel, LinkedHashMap<String, String> resIn) {
+    private String busBody(double[] g, String vw, int sel, LinkedHashMap<String, String> resIn, String act) {
         JSONObject o = new JSONObject();
         try {
             JSONObject f = new JSONObject();
@@ -549,6 +550,7 @@ head.setScreen(sc, true);
             b.put("nx", new JSONObject());
             b.put("al", new JSONObject(alRaw == null ? "{}" : alRaw));
             b.put("ord", new JSONArray(ordRaw));
+            if (act != null) b.put("act", new JSONObject(act));
             JSONObject res = new JSONObject();
             for (Map.Entry<String, String> e : resIn.entrySet()) res.put(e.getKey(), e.getValue());
             b.put("res", res);
@@ -584,18 +586,21 @@ head.setScreen(sc, true);
         needPass = false;
         resCopy.putAll(needRes);
         final int seq = ++busSeq;
+        final String act = pendAct;                                   // 누른 별·별명은 이 요청 하나에만 실린다(엔진이 새 목록을 돌려주면 그것을 저장한다)
+        pendAct = null;
         if (!quiet && !busShown) busNote("주변 정류장을 불러오는 중이에요…");
         Wire.EX.execute(new Runnable() {
             @Override
             public void run() {
                 loadPrefs();
-                final String body = busBody(g, vw, sel, resCopy);
+                final String body = busBody(g, vw, sel, resCopy, act);
                 final String r = Wire.post("/screen/map", body, 15000);
                 final ScreenCore.Screen sc = r == null ? null : SvHost.parse(SvHost.strip(r));
                 final LinkedHashMap<String, String> keep = new LinkedHashMap<String, String>();
                 final ArrayList<String> stopsNow = new ArrayList<String>();
-                final int[] lim = new int[] {favMax, aliasMax};
-                final String[] txt = new String[] {favAdd, favRm, favFull};
+                final int[] lim = new int[] {aliasMax};
+                final long[] pl = new long[] {pollTick, pollStale, pollRetry};
+                final String[] editMsg = new String[] {""};
                 if (r != null) {
                     try {
                         JSONObject info = new JSONObject(r).optJSONObject("info");
@@ -607,12 +612,23 @@ head.setScreen(sc, true);
                             }
                         }
                         JSONObject fp = info == null ? null : info.optJSONObject("favp");
-                        if (fp != null) {
-                            lim[0] = fp.optInt("max", lim[0]);
-                            lim[1] = fp.optInt("al", lim[1]);
-                            txt[0] = fp.optString("add", txt[0]);
-                            txt[1] = fp.optString("rm", txt[1]);
-                            txt[2] = fp.optString("full", txt[2]);
+                        if (fp != null) lim[0] = fp.optInt("al", lim[0]);
+                        JSONObject po = info == null ? null : info.optJSONObject("poll");
+                        if (po != null) {
+                            pl[0] = po.optLong("tick", pl[0]);
+                            pl[1] = po.optLong("stale", pl[1]);
+                            pl[2] = po.optLong("retry", pl[2]);
+                        }
+                        JSONObject ed = info == null ? null : info.optJSONObject("edit");      // 엔진이 정한 새 즐겨찾기·별명 — 그대로 저장하고 안내 글만 보인다
+                        if (ed != null) {
+                            JSONArray ef = ed.optJSONArray("fav");
+                            JSONObject ea = ed.optJSONObject("al");
+                            if (ef != null && ea != null) {
+                                favRaw = ef.toString();
+                                alRaw = ea.toString();
+                                savePrefs();
+                                editMsg[0] = ed.optString("msg", "");
+                            }
                         }
                         JSONArray nd = info == null || info.optJSONObject("bus") == null ? null : info.optJSONObject("bus").optJSONArray("need");
                 if (nd != null) { // 서버가 못 받은 정류장 목록 · 도착정보 — 기기가 직접 받아 다시 부탁한다(길동무와 같은 길)
@@ -646,11 +662,13 @@ head.setScreen(sc, true);
                 ui.post(new Runnable() {
                     @Override
                     public void run() {
+                        if (editMsg[0].length() > 0) toast(editMsg[0]);
+                        else if (act != null && r == null) toast("즐겨찾기를 바꾸지 못했어요");
                         if (seq != busSeq || !"bus".equals(mode)) return;
                         if (sc == null) {
                             if (!busShown) busNote("정류장 정보를 불러오지 못했어요. 잠시 뒤 다시 시도해 주세요");
                             else toast("정류장 정보를 새로 받지 못했어요");
-                            busAt = System.currentTimeMillis() - 12000L;
+                            busAt = System.currentTimeMillis() - (pollStale - pollRetry);
                             return;
                         }
                         if (!keep.isEmpty()) {
@@ -659,11 +677,10 @@ head.setScreen(sc, true);
                         }
                         lastStops.clear();
                         lastStops.addAll(stopsNow);
-                        favMax = lim[0];
-                        aliasMax = lim[1];
-                        favAdd = txt[0];
-                        favRm = txt[1];
-                        favFull = txt[2];
+                        aliasMax = lim[0];
+                        pollTick = pl[0];
+                        pollStale = pl[1];
+                        pollRetry = pl[2];
                         note.setVisibility(View.GONE);
                         bus.setVisibility(View.VISIBLE);
                         if (!(busShown && !needNext.isEmpty() && busRound < 2) && !r.equals(lastBusJs)) { // 이미 그림이 떠 있는데 새 화면이 '불러오는 중' 줄뿐이면(받을 게 남음) 그리지 않고 다 받은 뒤에 그린다 — 도착정보가 깜박이지 않게 // 받은 화면이 그대로면 다시 짜지 않는다(깜박임 · 스크롤 흔들림 없음)
@@ -684,7 +701,7 @@ head.setScreen(sc, true);
         public void run() {
             busTicking = false;
             if (!"bus".equals(mode) || !isShown()) return;
-            if (System.currentTimeMillis() - busAt > 20000L) loadBus(true);
+            if (System.currentTimeMillis() - busAt > pollStale) loadBus(true);
             busTickStart();
         }
     };
@@ -775,7 +792,7 @@ head.setScreen(sc, true);
     private void busTickStart() {
         if (busTicking || !"bus".equals(mode)) return;
         busTicking = true;
-        ui.postDelayed(busTick, 10000L);
+        ui.postDelayed(busTick, pollTick);
     }
 
     private void onBusAct(String kind, String v) {
@@ -875,34 +892,14 @@ head.setScreen(sc, true);
         });
     }
 
+    /** 별을 눌렀다 — 넣을지 뺄지·몇 곳까지·안내 글은 엔진이 정한다. 앱은 누른 정류장만 실어 보낸다. */
     private void toggleFav(int i) {
-        if (i < 0 || favRaw == null) return;
+        if (i < 0 || i >= lastStops.size()) return;
         try {
-            JSONObject stop = new JSONObject(lastStops.get(i));
-            String id = stop.optString("id", "");
-            if (id.isEmpty()) return;
-            JSONArray fl = new JSONArray(favRaw);
-            int at = -1;
-            for (int k = 0; k < fl.length(); k++) {
-                JSONObject x = fl.optJSONObject(k);
-                if (x != null && id.equals(x.optString("id", ""))) {
-                    at = k;
-                    break;
-                }
-            }
-            if (at >= 0) {
-                fl.remove(at);
-                toast(favRm);
-            } else {
-                if (fl.length() >= favMax) {
-                    toast(favFull);
-                    return;
-                }
-                fl.put(stop);
-                toast(favAdd);
-            }
-            favRaw = fl.toString();
-            savePrefs();
+            JSONObject a = new JSONObject();
+            a.put("k", "fv");
+            a.put("stop", new JSONObject(lastStops.get(i)));
+            pendAct = a.toString();
             loadBus(true);
         } catch (Exception e) {
             toast("즐겨찾기를 바꾸지 못했어요");
@@ -933,15 +930,15 @@ head.setScreen(sc, true);
                 .setPositiveButton("저장", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int w) {
-                        String t = et.getText().toString().trim();
-                        try {
-                            if (t.isEmpty()) al.remove(id);
-                            else al.put(id, t);
-                            alRaw = al.toString();
+                        try {                                                // 다듬기(앞뒤 공백·글자 수)·저장할 내용은 엔진이 정한다 — 앱은 쓴 글만 보낸다
+                            JSONObject a = new JSONObject();
+                            a.put("k", "al");
+                            a.put("id", id);
+                            a.put("t", et.getText().toString());
+                            pendAct = a.toString();
                         } catch (Exception e) {
                             return;
                         }
-                        savePrefs();
                         loadBus(true);
                     }
                 })
