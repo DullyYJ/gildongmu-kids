@@ -164,3 +164,8 @@
 - 앱: Sheets.file(id, act, look) 이 두덩이 모자를 쓴 경우만 wear_dudung_nh · wear_dudung_act_nh 를 돌려준다(DressView · VillageView 가 사용, 꾸미기 창은 두덩을 고르면 미리 읽음). 두덩 모자는 이제 구운 조각 없이 다른 친구처럼 원본 그림 + HADJ(두덩 20개도 hbox_5 = 맨머리 마스크로 계산)로 그린다. BHAT 은 뽀푸 · 둘숑 귀띠만. 옛 wear/dudung_g20~39.webp 는 안 쓴다(지워도 됨, YJ가 지울 때).
 - 다시 만들 때: tools/wardrobe/nh/ (export_nh.js = 걷기 · act5_nh.py = 동작 · mkall_nh.py = 부위 마스크 → m3d/mk_nh). c3d/models.js 에 두 줄 패치 필요: buildMole 에서 `window.NOHELM` 이면 hat.visible=false 이고 머리 데칼 키를 'dudung_head_nh'(TEXIMG 에 nh_head.png 를 넣는다)로 쓴다. 시험 갱신: 두덩 구운 모자 0개.
 - 기기 미확인.
+
+## p-kids64b (이상한 모자 3개 교체)
+- 러블 모자 13 자수정 고글 → 자수정 카우보이 모자 · 모자 19 별똥 헤드폰 → 별똥 벙거지 · 히뽀 모자 7 레모네이드 헤드폰 → 레모네이드 선장 모자(patch_items64.py, p-kids61 의 patch_items.py 와 같은 방식). 헤드폰 · 고글은 머리에 가는 띠로 걸려 어색했다. 도감 요리사 모자 틀은 윗둔덕이 챙에서 떨어져 그려져 못 쓴다(히뽀에 먼저 넣었다가 선장 모자로 바꿈).
+- HADJ 다시 계산. 기기 미확인.
+
