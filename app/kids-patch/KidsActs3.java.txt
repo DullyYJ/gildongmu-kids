@@ -206,6 +206,7 @@ final class KidsActs {
         for (int i = 0; i < 4; i++) {
             double ix = c[0] + Math.cos(M_ANG[i]) * M_R, iy = c[1] + Math.sin(M_ANG[i]) * M_R;
             if (Math.hypot(x - ix, y - iy) <= M_IR + 7) {
+                if (i > 0 && Poke.sleepPoop(menuA.id)) return true;                  // 응가 싸고 자는 친구: 응가 치우기만 눌린다(나머지는 회색 · 눌러도 아무 일 없음)
                 String id = menuA.id;
                 closeMenu();
                 S.haptic("release");
@@ -395,17 +396,18 @@ final class KidsActs {
                 double p = clamp((el - i * .045) / .34, 0, 1);
                 double e = p >= 1 ? 1 : 1 + 2.7 * Math.pow(p - 1, 3) + 1.7 * Math.pow(p - 1, 2);
                 double px = ctr[0] + Math.cos(M_ANG[i]) * M_R * e, py = ctr[1] + Math.sin(M_ANG[i]) * M_R * e, r = M_IR * clamp(e, .05, 1.15);
-                c.globalAlpha(clamp(p * 1.6, 0, 1));
+                boolean dis = i > 0 && Poke.sleepPoop(menuA.id);                      // 자는 친구: 응가 치우기 말고는 회색(누를 수 없다)
+                c.globalAlpha(clamp(p * 1.6, 0, 1) * (dis ? .55 : 1));
                 c.fillStyle(rgba(0, 0, 0, .18)); c.beginPath(); c.ellipse(px, py + 2.2, r, r * .9, 0, 0, PI2); c.fill();
-                c.fillStyle(rgba(255, 255, 255, .96)); c.beginPath(); c.arc(px, py, r, 0, PI2); c.fill();
-                c.strokeStyle(M_COL[i]); c.lineWidth(2.2); c.beginPath(); c.arc(px, py, r, 0, PI2); c.stroke();
+                c.fillStyle(dis ? rgba(200, 200, 204, .96) : rgba(255, 255, 255, .96)); c.beginPath(); c.arc(px, py, r, 0, PI2); c.fill();
+                c.strokeStyle(dis ? 0xFF9A9AA0 : M_COL[i]); c.lineWidth(2.2); c.beginPath(); c.arc(px, py, r, 0, PI2); c.stroke();
                 c.font(r * .95);
                 c.fillStyle("#222222");
                 c.fillTextC(M_ICON[i], px, py + 1);
                 c.font(9);
                 double tw = c.measureText(M_LABEL[i]) + 10;
                 c.fillStyle(rgba(255, 255, 255, .94)); rr(c, px - tw / 2, py + r + 2, tw, 13, 6.5); c.fill();
-                c.fillStyle(M_COL[i]); c.fillTextC(M_LABEL[i], px, py + r + 8.6);
+                c.fillStyle(dis ? 0xFF8A8A90 : M_COL[i]); c.fillTextC(M_LABEL[i], px, py + r + 8.6);
             }
             c.globalAlpha(1);
             c.restore();
