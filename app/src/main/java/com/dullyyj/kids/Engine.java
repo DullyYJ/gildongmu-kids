@@ -79,6 +79,8 @@ final class Engine {
         long nextEvt;
         long nextLong;
         long angerUntil;
+        long joinUntil;                    // 같이 놀기(모이기) 부름에 응해 모여 있는 때까지(자던 친구도 깨어 모인다)
+        boolean joinSleepy;                // 졸린 채로 모였다(자다가 불려 나온 친구) — 장면이 졸린 말을 한다
         String pend = "";                  // 밥을 기다리는 끼니("b" 아침 · "l" 점심)
         long pendT;
         long bfDay = -1L, lunchDay = -1L;  // 그 끼니를 시작한 날(현지 날짜 번호)
@@ -166,6 +168,7 @@ final class Engine {
             @Override
             public void run() {
                 store.put("wear", Dress.I.export());
+                WearImg.warmAll();                    // 꾸민 모습에 필요한 시트를 미리 읽어 둔다(친구가 나올 때 시트가 읽히는 사이 그림이 바뀌지 않게)
             }
         });
     }
@@ -396,6 +399,7 @@ final class Engine {
         Poke.setStudy(studyCsv(now));
         Poke.setSleep(sleepCsv(now));
         Poke.setStates(statesCsv(now));
+        Poke.setSleepy(sleepyCsv(now));
         if (now - lastPrune > 60000L) {
             lastPrune = now;
             pruneChat(now);
@@ -1049,6 +1053,16 @@ final class Engine {
         }
         locSentT = 0L;
         kidLoc(fixLa, fixLo, fixAcc, lastNow > 0L ? lastNow : System.currentTimeMillis());
+    }
+
+    /** 부모가 처음 열었는데 위치가 없어 서버가 '위치 한 번 올려' 푸시를 보냈다 — 방금 잡은 위치(2분 안)가 있으면 곧바로 올리고, 없으면 다음 위치를 바로(주기를 기다리지 않고) 올린다. */
+    synchronized void locAsk() {
+        if (!locOn()) return;
+        if (!Double.isNaN(fixLa) && !Double.isNaN(fixLo) && lastFixT > 0L && System.currentTimeMillis() - lastFixT < 120000L) kidLocNow();
+        else {
+            locPending = true;
+            locSentT = 0L;
+        }
     }
 
     private void kidLoc(final double la, final double lo, final float acc, long t) {
@@ -1908,6 +1922,7 @@ final class Engine {
         if (f.sick) return "sick";
         if (f.angerUntil > now) return "sleep".equals(f.tm) ? "wake" : "angry";
         if (f.sulkUntil > now) return "sulk";
+        if (f.joinUntil > now) return "play";                                           // 모이라는 부름: 자던 친구도 모여 논다(끝나면 원래 자던 잠으로 돌아간다)
         if (!f.tm.isEmpty() && (f.tm.equals("study") || f.tm.equals("sleep") || f.tm.equals("play") || f.tm.equals("eat"))) return f.tm;
         if (f.hunger >= BEG_AT) return "beg";
         if (f.poop > 0) return "poop";
@@ -2066,12 +2081,30 @@ lk.put("place", rmP);
         boolean any = false;
         for (int i = 0; i < g.size(); i++) {
             F f = g.get(i);
+            boolean asleep = wakeAt(f, now) != 0L || ("sleep".equals(f.tm) && f.tmUntil > now);
+            if ("play".equals(m) && asleep && !f.sick && f.sulkUntil <= now) {
+                f.joinUntil = now + ms;                                                       // 자는 친구도 깨어 모인다 — 잠(tm)은 그대로 두어 모임이 끝나면 다시 잔다
+                f.joinSleepy = true;
+                any = true;
+                continue;
+            }
             if (f.sick || f.sulkUntil > now || wakeAt(f, now) != 0L) continue;
+            if ("play".equals(m)) f.joinUntil = 0L;
             setTm(f, m, now + ms);
             any = true;
             if (!"play".equals(m)) f.nextLong = now + 8L * 60L * 1000L;
         }
         if (any) kidEv("p" + m, "친구들");                                                   // 한꺼번에 누른 것은 한 줄로(친구마다 한 줄씩 쌓이지 않게)
+    }
+
+    /** 졸린 채로 모여 있는 친구들(형식 ",id,id,") — 장면이 이 친구들에게 졸린 말을 하게 한다. */
+    private String sleepyCsv(long now) {
+        StringBuilder sb = new StringBuilder(",");
+        for (int i = 0; i < fs.size(); i++) {
+            F f = fs.get(i);
+            if (f.joinUntil > now && f.joinSleepy) sb.append(f.id).append(',');
+        }
+        return sb.toString();
     }
 
     /** 장면에서 공부 중인 친구를 건드렸다(엔진 스레드에서 부른다). */

@@ -91,6 +91,10 @@ public class Push extends FirebaseMessagingService {
             if (!Core.engine.consented()) return;
             Map<String, String> d = m.getData();
             if (d == null) return;
+            if ("locreq".equals(d.get("k"))) {                    // 서버가 '위치 한 번 올려' 를 요청했다(부모가 처음 열었는데 위치가 없을 때) — 알림은 띄우지 않는다
+                LocReq.once(getApplicationContext());
+                return;
+            }
             String title = d.get("title"), body = d.get("body"), tag = d.get("tag");
             if (body == null || body.isEmpty()) return;
             if (fg && "chat".equals(Core.engine.tab())) return; // 대화 탭을 보고 있을 때만 숨긴다(다른 탭이면 카톡처럼 알림이 온다)
