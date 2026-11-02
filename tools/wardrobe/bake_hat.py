@@ -7,6 +7,11 @@ import bake as B
 from PIL import Image
 from scipy import ndimage as ndi
 CI = 5; N = 512
+# 모자번호: (헬멧 폭 대비 모자 폭, 맞춤 'bot' 아래선 · 'top' 위선 · 'mid' 가운데, 헬멧 높이 대비 위치) — 모자가 머리(헬멧 자리)를 덮도록 크게
+HAT_FIT = {0: (1.30, 'top', -0.10), 1: (1.32, 'top', -0.10), 2: (1.00, 'mid', 0.55), 3: (0.66, 'top', -0.10), 4: (1.20, 'top', -0.10), 5: (0.95, 'top', -0.15),
+           6: (1.00, 'top', -0.22), 7: (1.10, 'mid', 0.58), 8: (1.22, 'top', -0.08), 9: (1.14, 'mid', 0.50), 10: (1.20, 'top', -0.08), 11: (1.32, 'top', -0.10),
+           12: (1.18, 'top', -0.08), 13: (1.16, 'top', -0.12), 14: (0.95, 'top', -0.18), 15: (1.05, 'top', -0.14), 16: (1.20, 'top', -0.06), 17: (1.16, 'top', -0.10),
+           18: (0.85, 'top', -0.20), 19: (1.18, 'top', -0.08)}
 HAT_SC = json.load(open('hat_sc.json')) if os.path.exists('hat_sc.json') else {}   # {모자번호: [폭 배율, 아래로 옮김(칸 256 픽셀)]}
 
 def fur_color(a, R):
@@ -22,8 +27,10 @@ def fur_color(a, R):
 def fur_layer(a, R):
     """헬멧 자리를 덮는 털색 둥근 머리(512 premult RGBA)."""
     col = fur_color(a, R)
-    Rb = np.asarray(Image.fromarray((R * 255).astype(np.uint8)).resize((N, N), Image.BILINEAR)).astype(np.float32) / 255
-    Rb = ndi.gaussian_filter(Rb, 1.2)
+    Rs = ndi.gaussian_filter(R.astype(np.float32), 3.0) > 0.45            # 울퉁불퉁한 가장자리를 둥글게
+    Rs = Rs | R
+    Rb = np.asarray(Image.fromarray((Rs * 255).astype(np.uint8)).resize((N, N), Image.BILINEAR)).astype(np.float32) / 255
+    Rb = ndi.gaussian_filter(Rb, 1.5)
     A = Rb > 0.5
     dist = ndi.distance_transform_edt(A); Rr = 40.0
     tt = np.clip(dist / Rr, 0, 1); hh = ndi.gaussian_filter(np.sqrt(1 - (1 - tt) ** 2) * Rr, 4)
@@ -34,7 +41,7 @@ def fur_layer(a, R):
     al = np.clip((Rb - 0.35) / 0.3, 0, 1)
     return np.concatenate([rgb * al[..., None], al[..., None]], axis=2)
 
-def hat_layer(sh, c, i):
+def hat_layer(sh, c, i, gbox=None):
     """모자 한 장을 엔진 자리 · 크기 · 기울기대로 512 premult RGBA 로."""
     pl = eng.place(CI, sh, c, 0)
     out = np.zeros((N, N, 4), np.float32)
@@ -60,6 +67,22 @@ def hat_layer(sh, c, i):
         if bb:
             px = (bb[0] + bb[2]) / 2.0; py = bb[1] + 0.8 * (bb[3] - bb[1])
             base = base.rotate(-math.degrees(tl), resample=Image.BICUBIC, center=(px, py))
+    if gbox is not None:
+        bb = base.getbbox()
+        if bb:
+            gx0, gx1, gy0, gy1 = [v * S for v in gbox]
+            gw = gx1 - gx0; gh = gy1 - gy0
+            wt, mode, fr = HAT_FIT.get(i, (1.08, 'bot', 0.55))
+            cw = bb[2] - bb[0]; ch = bb[3] - bb[1]
+            sc2 = (wt * gw) / float(cw)
+            if mode == 'top': sc2 = max(sc2, min(0.62 * gh / ch, 1.25 * sc2))     # 납작한 모자는 머리 위를 더 덮게
+            nw_, nh_ = max(1, int(round(cw * sc2))), max(1, int(round(ch * sc2)))
+            tile_ = base.crop(bb).resize((nw_, nh_), Image.LANCZOS)
+            tx = int(round((gx0 + gx1) / 2.0 - nw_ / 2.0))
+            if mode == 'bot': ty = int(round(gy0 + fr * gh - nh_))
+            elif mode == 'top': ty = int(round(gy0 + fr * gh))
+            else: ty = int(round(gy0 + fr * gh - nh_ / 2.0))        # 가운데 맞춤
+            base = Image.new('RGBA', (N, N), (0, 0, 0, 0)); base.alpha_composite(tile_, (max(tx, 0), max(ty, 0)))
     a = np.asarray(base).astype(np.float32) / 255
     out[..., :3] = a[..., :3] * a[..., 3:4]; out[..., 3] = a[..., 3]
     return out
@@ -71,7 +94,9 @@ def over(top, bot):
 def tile(sh, c, i):
     R, g, a = helm.helmet(sh, c)
     if R is None: return B.EMPTY
-    L = over(hat_layer(sh, c, i), fur_layer(a, R))
+    ys_, xs_ = np.where(g)
+    gb = (xs_.min(), xs_.max() + 1, ys_.min(), ys_.max() + 1)
+    L = over(hat_layer(sh, c, i, gb), fur_layer(a, R))
     la = L[..., 3]
     la = la.reshape(256, 2, 256, 2).mean((1, 3)); pm = L[..., :3].reshape(256, 2, 256, 2, 3).mean((1, 3))
     colr = np.where(la[..., None] > 1e-4, pm / np.maximum(la[..., None], 1e-4), 0)

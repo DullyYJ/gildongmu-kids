@@ -39,6 +39,14 @@ def torso(ci,sheet,cell):
     cls[(a>0.35)&(r>g+0.25)&(r>b+0.25)]=1
     cls[(a>0.35)&(g>r+0.25)&(g>b+0.25)]=2
     cls[(a>0.35)&(b>r+0.25)&(b>g+0.25)]=3
+    if ci==4:
+        # 독슐: 깃털 무늬로 몸통 마스크가 줄무늬로 갈라져(기타=4) 옷이 일부에만 입혀졌다 → 몸 덩어리(가장 큰 조각)에 둘러싸인 기타 · 팔다리 칸도 몸통(p-kids58)
+        M=ndi.binary_closing((cls==1)|(cls==4),iterations=6)
+        M=ndi.binary_fill_holes(M)
+        lab,nl=ndi.label(M)
+        if nl:
+            sz=ndi.sum(M,lab,range(1,nl+1)); M=lab==(1+int(np.argmax(sz)))
+            cls[M&(cls!=2)]=1
     return cls
 EMPTY=(0,0,np.zeros((2,2,4),np.uint8))
 def bake(ci,sheet,cell,i,ext=None):

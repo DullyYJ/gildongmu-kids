@@ -146,8 +146,12 @@ def sash_dog(ci, i, g, ba, shade):
     P, r0, r1, c0, c1 = spr(ci, i)
     hw, hh = g['hw'], g['hh']
     sx, dyy = SC.get((ci, 'sash'), (1.0, 0.0))
-    w = 0.50 * hw * sx
-    cx = g['hxm'] - 0.04 * hw; cy = g['hy1'] - 0.08 * hh + dyy * hh
+    w = 0.44 * hw * sx
+    if 'T' in g:
+        cx = g['tcx']; cy = 0.5 * (g['ty0'] + g['ty1']) - 0.05 * (g['ty1'] - g['ty0']) + dyy * hh   # 가슴팍(몸통 가운데)에 붙인다
+        w = max(w, 0.9 * (g['tx1'] - g['tx0'])) if False else w
+    else:
+        cx = g['hxm'] - 0.04 * hw; cy = g['hy1'] - 0.08 * hh + dyy * hh
     S = put(ci, i, cx, cy, w, 0.0, 'center')
     A = (ba > 0.5)
     dist = ndi.distance_transform_edt(A); R = 30.0
@@ -202,6 +206,10 @@ def bake_item(ci, sheet, cell, i, k, g, Bm, ba, shade):
     cy = hy1 + (p['dy'] + dyy) * hh
     if CFG.get(ci, {}).get('dog'):
         width *= DOG['kw'].get(k, 1.0); cy += DOG['dyo'] * hh
+        if k in ('tie', 'medal'):      # 가슴팍에 붙게: 턱 바로 아래에서 가슴 위로 늘어뜨림(p-kids58)
+            width = (0.30 if k == 'tie' else 0.27) * g['hw'] * sx
+            cy = hy1 - 0.10 * hh + dyy * hh
+            nx = g['tcx'] if 'tcx' in g else nx
     rot = chin * p['rot']
     S = put(ci, i, nx, cy, width, rot, p['anchor'])
     clip = np.clip(ndi.gaussian_filter(ndi.binary_dilation(ba > 0.3, iterations=4).astype(np.float32), 1.0), 0, 1)
