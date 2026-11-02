@@ -51,11 +51,14 @@ public class WardrobeTest {
             int cells = sh == 1 ? 8 : 16;
             for (int cell = 0; cell < cells; cell++) for (int sl = 0; sl < 3; sl++) {
                 boolean r = Wardrobe.place(c, sh, cell, sl, o);
-                if (sh == 1 && (cell == 1 || (cell >= 6 && c < 6))) { if (r) all = false; continue; }   // 자는 모습 · 빈 칸
+                if (sh == 1 && cell >= 6 && c < 6) { if (r) all = false; continue; }   // 빈 칸(자는 모습은 이제 입힌다)
                 if (!r || !(o[0] > 0 && o[0] < 256 && o[1] > 0 && o[1] < 300 && o[2] > 5 && o[2] < 200)) { all = false; System.out.println("   범위 밖 " + c + "/" + sh + "/" + cell + "/" + sl + " " + o[0] + "," + o[1] + "," + o[2]); }
             }
         }
-        ok(all, "모든 칸(걷기 16 · 자세 · 동작 16)에서 놓을 자리가 정해진다(자는 모습 · 빈 칸만 빼고)");
+        ok(all, "모든 칸(걷기 16 · 자세 · 동작 16)에서 놓을 자리가 정해진다(자는 모습 포함 · 빈 칸만 빼고)");
+        { boolean sl = true;                                              // 잠자는 모습(자세 1)에도 모자 · 옷 · 소지품 자리가 있다(자는 동안 옷이 사라지지 않게)
+          for (int c = 0; c < 8; c++) for (int s2 = 0; s2 < 3; s2++) if (!Wardrobe.place(c, 1, 1, s2, o) || !(o[2] > 5)) sl = false;
+          ok(sl, "잠자는 모습에도 모자 · 옷 · 소지품을 놓을 자리가 있다"); }
         ok(!Wardrobe.place(-1, 0, 0, 0, o) && !Wardrobe.place(0, 3, 0, 0, o) && !Wardrobe.place(0, 0, 99, 0, o), "잘못된 값은 거절");
         // 3D 그림 시트 자리: 모든 칸(480) 에 가운데·크기가 있고 시트 칸 번호가 8x8 안
         float[] sp = new float[3];
@@ -123,7 +126,7 @@ public class WardrobeTest {
           ok(hb == 0 && hok, "두덩 모자는 구운 조각 없이 안전모 없는 시트에 얹고, 뽀푸 · 둘숑 귀띠만 이마에 구운 조각(번호 20+)"); }
         for (int c = 0; c < 8; c++) for (int it = 0; it < Wardrobe.PER; it++) if (Wardrobe.baked(c, 1, it) && !Wardrobe.wraps(c, 1, it)) bk++;
         ok(bk == 21, "몸에 맞춰 구운 장신구 옷(넥타이 · 목도리 · 어깨띠) 21벌(메달 · 꽃목걸이 · 나비넥타이 · 날개는 모두 조끼 · 우비 같은 옷으로 바뀜): " + bk);
-        // 소지품은 친구 옆에서 둥실둥실: 모든 칸에서 자리가 나오고 · 몸 오른쪽(앞)에 있고 · 시간에 따라 위아래로 움직이며 · 자는 모습은 없다
+        // 소지품은 친구 옆에서 둥실둥실: 모든 칸에서 자리가 나오고 · 몸 오른쪽(앞)에 있고 · 시간에 따라 위아래로 움직이며 · 자는 모습에도 따라다닌다
         float[] fo = new float[4], f2 = new float[4];
         boolean fok = true; double maxd = 0;
         for (int c = 0; c < 8; c++) for (int sh = 0; sh < 3; sh++) for (int cell = 0; cell < (sh == 1 ? 8 : 16); cell++) {
@@ -133,7 +136,7 @@ public class WardrobeTest {
             maxd = Math.max(maxd, Math.abs(fo[1] - f2[1]));
             if (!(fo[0] > pl[0] - 30 && fo[0] < 420 && fo[2] > 5 && fo[2] < 120 && Math.abs(fo[3]) <= 0.13f && Math.abs(f2[3]) <= 0.13f)) { fok = false; System.out.println("   떠다님 이상 " + c + "/" + sh + "/" + cell + " " + fo[0] + "," + fo[1] + "," + fo[2] + "," + fo[3]); }
         }
-        ok(fok && maxd > 1.0 && !Wardrobe.floatAt(0, 1, 1, 0L, fo) && !Wardrobe.floatAt(8, 0, 0, 0L, fo), "소지품은 친구 옆에서 둥실둥실 떠다닌다(위아래 움직임 최대 " + (int) maxd + "px)");
+        ok(fok && maxd > 1.0 && Wardrobe.floatAt(0, 1, 1, 0L, fo) && !Wardrobe.floatAt(8, 0, 0, 0L, fo), "소지품은 친구 옆에서 둥실둥실 떠다닌다(위아래 움직임 최대 " + (int) maxd + "px)");
         // 모자 기울기: 모든 칸에서 ±0.26 안 · 잘못된 값은 0 · 기울어지는 칸이 실제로 있다
         boolean hok = true; int tilted = 0;
         for (int c = 0; c < 8; c++) for (int sh = 0; sh < 3; sh++) for (int cell = 0; cell < (sh == 1 ? 8 : 16); cell++) {
