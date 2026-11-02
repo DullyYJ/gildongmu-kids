@@ -186,8 +186,128 @@ def sash(ci, i, g, Bm, ba, shade):
     clip = np.clip((ndi.gaussian_filter(A.astype(np.float32), 0.9) - 0.25) / 0.5, 0, 1) * (ba > 0.2)
     return finish(S, clip, ba, shade)
 
+
+# ---- p-kids59: 목걸이 · 목도리는 그림 한 장을 늘이지 않고, 목 둘레 곡선을 따라 구슬 · 천 관을 직접 그린다(색은 도감 그림에서 뽑음) ----
+def palette(ci, i, n=5):
+    """도감 그림에서 많이 쓰인 색(빈도 순, 서로 다른 것). → [(r,g,b) 0~1]"""
+    P, r0, r1, c0, c1 = spr(ci, i)
+    a = P[..., 3] > 0.6
+    rgb = (P[..., :3] / np.maximum(P[..., 3:4], 1e-4))[a]
+    if len(rgb) < 30: return [(0.8, 0.6, 0.4)] * n
+    im = Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8).reshape(-1, 1, 3))
+    q = im.quantize(colors=8, method=Image.Quantize.MEDIANCUT)
+    pal = np.array(q.getpalette()[:24]).reshape(-1, 3) / 255.0
+    cnt = np.bincount(np.array(q).ravel(), minlength=len(pal))
+    out = []
+    for k in np.argsort(-cnt):
+        c = pal[k]
+        if cnt[k] < 0.02 * cnt.sum(): continue
+        if all(np.abs(c - o).sum() > 0.35 for o in out): out.append(tuple(c))
+    def sat(c, k=1.25):
+        c = np.array(c); m = c.mean(); return tuple(np.clip(m + (c - m) * k, 0, 1))
+    return [sat(c) for c in out[:n]] if out else [(0.8, 0.6, 0.4)]
+
+def sph(img, cx, cy, r, col, spec=0.45):
+    """구슬 하나(둥근 빛 · 그림자)를 img(premult RGBA 512) 위에 얹는다."""
+    x0, x1 = int(max(cx - r - 2, 0)), int(min(cx + r + 3, N)); y0, y1 = int(max(cy - r - 2, 0)), int(min(cy + r + 3, N))
+    if x1 <= x0 or y1 <= y0: return
+    yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+    dx = (xx - cx) / r; dy = (yy - cy) / r; d = np.sqrt(dx * dx + dy * dy)
+    m = np.clip((1 - d) * r / 1.1 + 0.5, 0, 1)
+    nz = np.sqrt(np.clip(1 - d * d, 0, 1))
+    dif = np.clip(-0.40 * dx - 0.55 * dy + 0.73 * nz, 0, 1)
+    sh = 0.50 + 0.62 * dif
+    hl = np.clip(-0.40 * dx - 0.55 * dy + 0.73 * nz, 0, 1) ** 24 * spec
+    c = np.array(col, np.float32)
+    rgb = np.clip(c[None, None, :] * sh[..., None] + hl[..., None], 0, 1)
+    sub = img[y0:y1, x0:x1]
+    sub[..., :3] = rgb * m[..., None] + sub[..., :3] * (1 - m[..., None])
+    sub[..., 3] = m + sub[..., 3] * (1 - m)
+
+def curve(p0, p1, sag, tilt, n=240):
+    """양 끝 p0 → p1, 가운데가 sag 만큼 처지는 U 곡선(수직 포물선)을 tilt 라디안 돌려 n 점으로."""
+    t = np.linspace(-1, 1, n)
+    cx = 0.5 * (p0[0] + p1[0]); cy = 0.5 * (p0[1] + p1[1]); hw = 0.5 * (p1[0] - p0[0])
+    x = t * hw; y = sag * (1 - t * t)
+    c, s = math.cos(tilt), math.sin(tilt)
+    return np.stack([cx + c * x - s * y, cy + s * x + c * y], 1)
+
+def resample(pts, step):
+    d = np.r_[0, np.cumsum(np.hypot(*np.diff(pts, axis=0).T))]
+    ss = np.arange(0, d[-1], step)
+    return np.stack([np.interp(ss, d, pts[:, 0]), np.interp(ss, d, pts[:, 1])], 1), ss
+
+def head_occ(g, ba):
+    cls = g['cls']
+    if cls is None: return np.ones_like(ba)
+    Hm = ndi.binary_erosion(cls == 2, iterations=4)
+    return 1 - np.clip(ndi.gaussian_filter(Hm.astype(np.float32), 1.6), 0, 1)
+
+def neck_anchor(ci, g, kind):
+    dog = CFG.get(ci, {}).get('dog') and g.get('head')
+    if dog:
+        nx = g['tcx'] if 'tcx' in g else g['nx']; W = (0.58 if kind == 'neck' else 0.62) * g['hw']; y0 = g['hy1'] - (0.12 if kind == 'neck' else 0.07) * g['hh']
+    else:
+        nx = g['nx']; W = (0.84 if kind == 'neck' else 0.80) * g['nw']; y0 = g['hy1'] - 0.07 * g['hh']
+    return nx, y0, W
+
+def necklace(ci, i, g, ba, shade):
+    pal = palette(ci, i, 6)
+    pal = [c for c in pal if (max(c) - min(c) > 0.2) or (sum(c) / 3 > 0.8)] or pal
+    pal = pal[:5]
+    nx, y0, W = neck_anchor(ci, g, 'neck')
+    r = max(6.0, 0.085 * W)
+    pts = curve((nx - W / 2, y0), (nx + W / 2, y0), 0.36 * W, g['chin'] * 0.8)
+    q, ss = resample(pts, 2 * r * 0.92)
+    img = np.zeros((N, N, 4), np.float32)
+    order = np.argsort(np.abs(np.arange(len(q)) - len(q) / 2.0))[::-1]       # 옆(뒤)부터 · 가운데(앞) 나중에
+    for k in order:
+        t = abs(k - len(q) / 2.0) / (len(q) / 2.0)
+        rr = r * (1.0 - 0.18 * t)
+        sph(img, q[k][0], q[k][1], rr, pal[k % len(pal)])
+    m = len(q) // 2                                                          # 가운데 큰 구슬(펜던트)
+    ac = pal[(len(pal) - 1) // 2 + 1] if len(pal) > 2 else pal[-1]
+    sph(img, q[m][0], q[m][1] + r * 0.9, r * 1.55, ac, spec=0.6)
+    a = img[..., 3] * head_occ(g, ba)
+    rgb = img[..., :3] * head_occ(g, ba)[..., None]
+    S = np.concatenate([rgb, a[..., None]], 2)
+    clip = np.ones_like(ba)
+    return finish(S, clip, ba, np.ones_like(ba), shadow=True)
+
+def scarf(ci, i, g, ba, shade):
+    pal = palette(ci, i, 4)
+    base = pal[0]; acc = pal[1] if len(pal) > 1 else tuple(np.clip(np.array(base) * 1.5, 0, 1))
+    nx, y0, W = neck_anchor(ci, g, 'scarf')
+    r = max(7.0, 0.115 * W)
+    pts = curve((nx - W / 2, y0 - 0.02 * W), (nx + W / 2, y0 - 0.02 * W), 0.20 * W, g['chin'] * 0.8)
+    q, ss = resample(pts, r * 0.45)
+    img = np.zeros((N, N, 4), np.float32)
+    order = np.argsort(np.abs(np.arange(len(q)) - len(q) / 2.0))[::-1]
+    rng = np.random.RandomState(ci * 31 + i)
+    for k in order:
+        st = int(ss[k] / (r * 1.7)) % 3 == 0
+        col = np.array(acc if st else base) * (0.94 + 0.12 * rng.rand())
+        sph(img, q[k][0], q[k][1], r * (1.0 - 0.10 * abs(k - len(q) / 2.0) / (len(q) / 2.0)), col, spec=0.18)
+    # 매듭 + 늘어진 끝 두 가닥(앞쪽 오른쪽)
+    kx, ky = q[int(len(q) * 0.68)]
+    for (ang, ln, rw) in ((0.10, 1.05, 1.0), (-0.20, 0.72, 0.95)):
+        n = int(ln * W * 0.34 / (r * 0.45))
+        for j in range(n):
+            f = j / max(1, n - 1)
+            x = kx + math.sin(ang) * f * ln * W * 0.34 + 0.04 * W * math.sin(f * 3.0)
+            y = ky + r * 0.4 + f * ln * W * 0.34
+            col = np.array(acc if int(f * ln * 6) % 3 == 0 else base)
+            sph(img, x, y, r * 0.95 * rw, col, spec=0.15)
+    sph(img, kx, ky, r * 1.25, np.array(base) * 0.92, spec=0.2)
+    oc = head_occ(g, ba)
+    a = img[..., 3] * oc; rgb = img[..., :3] * oc[..., None]
+    S = np.concatenate([rgb, a[..., None]], 2)
+    return finish(S, np.ones_like(ba), ba, np.ones_like(ba), shadow=True)
+
 def bake_item(ci, sheet, cell, i, k, g, Bm, ba, shade):
     if k == 'sash': return sash(ci, i, g, Bm, ba, shade)
+    if k == 'neck': return necklace(ci, i, g, ba, shade)
+    if k == 'scarf': return scarf(ci, i, g, ba, shade)
     nx, hy1, hy0, hw, hh, chin = g['nx'], g['hy1'], g['hy0'], g['hw'], g['hh'], g['chin']
     if k == 'wing':
         if 'T' in g and (g['tx1'] - g['tx0']) > 0.8 * hw * 0.6 and not CFG.get(ci, {}).get('wing_head'):
