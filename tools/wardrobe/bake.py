@@ -50,7 +50,11 @@ def bake(ci,sheet,cell,i,ext=None):
     T=ndi.binary_opening(T,iterations=1)
     lab,nl=ndi.label(T)
     if nl>1:
-        sz=ndi.sum(T,lab,range(1,nl+1)); T=lab==(1+int(np.argmax(sz)))
+        # 가장 큰 조각 + 그 가까이(45px 안)의 큰 조각(큰 조각의 8% 이상)도 몸통이다 — 대나무 · 삽 같은 앞 물건이 몸통을 가르면 뒤쪽 몸도 입힌다(p-kids56)
+        sz=ndi.sum(T,lab,range(1,nl+1)); big=int(np.argmax(sz))
+        near=ndi.binary_dilation(lab==big+1,iterations=45)
+        keep=[k+1 for k in range(nl) if k==big or (sz[k]>=0.08*sz[big] and (near&(lab==k+1)).any())]
+        T=np.isin(lab,keep)
     if T.sum()<60*4: return EMPTY
     # 1~2px 살짝 키워 털이 비치지 않게(머리 · 팔다리 자리는 안 건드림)
     grow=ndi.binary_dilation(T,iterations=3)&((cls==1)|(cls==4)|(cls==0)|(cls==3)&False)
