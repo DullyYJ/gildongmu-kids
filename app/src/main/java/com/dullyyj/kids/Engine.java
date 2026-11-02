@@ -827,7 +827,7 @@ final class Engine {
                 try {
                     if (!ensureReg()) return;
                     if (ch) {
-                        remGot("chat", Kid.call("GET", "/c/screen?tab=chat", null, cid, csec));
+                        remGot("chat", Kid.call("GET", "/c/screen?tab=chat" + (fg ? "&fg=1" : ""), null, cid, csec));       // fg=1: 앞에서 대화 탭을 보는 중 = 부모 글을 읽는 중(서버가 읽음으로 적는다)
                     } else if (qu) {
                         remGot("quest:c", Kid.call("GET", "/c/screen?tab=quest&qt=c", null, cid, csec));
                         remGot("quest:p", Kid.call("GET", "/c/screen?tab=quest&qt=p", null, cid, csec));
@@ -898,7 +898,7 @@ final class Engine {
                     continue;
                 }
                 String t = tab();
-                String r = Kid.callT("GET", "/c/wait?since=" + svRev + "&tab=" + t + "&qt=" + ("p".equals(questTabNow()) ? "p" : "c"), null, cid, csec, 24000);
+                String r = Kid.callT("GET", "/c/wait?since=" + svRev + "&fg=1&tab=" + t + "&qt=" + ("p".equals(questTabNow()) ? "p" : "c"), null, cid, csec, 24000);
                 if (r == null) {
                     fails++;
                     Thread.sleep(Math.min(500L * fails, 4000L));
@@ -976,7 +976,7 @@ final class Engine {
             JSONArray k = bx.getJSONArray("kids");
             JSONArray n = new JSONArray();
             for (int i = 0; i < k.length() - 1; i++) n.put(k.get(i));
-            n.put(b("msg", "text", s, "me", "1", "time", new SimpleDateFormat("M/d a h:mm", Locale.KOREA).format(new Date(now))));
+            n.put(b("msg", "text", s, "me", "1", "un", "1", "time", new SimpleDateFormat("M/d a h:mm", Locale.KOREA).format(new Date(now))));
             n.put(k.get(k.length() - 1));
             bx.put("kids", n);
             remPut("chat", o.toString());

@@ -93,7 +93,7 @@ public class Push extends FirebaseMessagingService {
             if (d == null) return;
             String title = d.get("title"), body = d.get("body"), tag = d.get("tag");
             if (body == null || body.isEmpty()) return;
-            if (fg) return; // 앞에 떠 있으면 화면이 이미 실시간으로 바뀐다
+            if (fg && "chat".equals(Core.engine.tab())) return; // 대화 탭을 보고 있을 때만 숨긴다(다른 탭이면 카톡처럼 알림이 온다)
             show(this, title == null || title.isEmpty() ? "길동무 키즈" : title, body, tag == null ? "k" : tag);
         } catch (Throwable t) {
             // 알림 하나를 못 띄워도 앱은 계속 쓴다

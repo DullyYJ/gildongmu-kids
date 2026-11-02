@@ -860,7 +860,14 @@ lp2.height = Math.max(1, bt - t - 2 * inset);
         t.setMaxWidth(ctx.getResources().getDisplayMetrics().widthPixels * 3 / 4);
         t.setBackground(me ? Ui.box(ctx, Pal.c(Pal.GOLD), 18, 0) : Ui.box(ctx, Pal.c(Pal.CARD), 18, Pal.c(Pal.BORDER)));
         r.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        r.addView(Ui.text(ctx, b.optString("time"), 9.5f, Pal.c(Pal.SUB), false));
+        TextView tm = Ui.text(ctx, b.optString("time"), 9.5f, Pal.c(Pal.SUB), false);
+        if ("1".equals(b.optString("un"))) {                                   // 상대가 아직 안 읽은 내 글: 시각 앞에 노란 '1'(카톡처럼)
+            android.text.SpannableString ss = new android.text.SpannableString("1  " + b.optString("time"));
+            ss.setSpan(new android.text.style.ForegroundColorSpan(Pal.c(Pal.GOLD)), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            ss.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            tm.setText(ss);
+        }
+        r.addView(tm);
         r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8));
         return r;
     }
