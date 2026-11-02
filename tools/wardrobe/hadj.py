@@ -79,7 +79,7 @@ def hatbox(ci, i):
 
 def solve(ci, i):
     name = eng.N[ci * 3][i]
-    rw, mode, fr, xo = OV.get((ci, i), typeof(name))
+    ov = OV.get((ci, i), typeof(name)); rw, mode, fr, xo = ov[:4]; ay = ov[4] if len(ov) > 4 else 1.0
     r0, r1, c0, c1 = hatbox(ci, i)
     b0 = i * 3; fcx, fcy, side = eng.WM[ci][b0:b0 + 3]
     hb = headbox(ci); f = FR.get(ci, {})
@@ -91,30 +91,30 @@ def solve(ci, i):
         hwe = hw * f.get('hw', 1.0); hhe = hh * f.get('hh', 1.0)
         cw = (c1 - c0) / 192.0 * side * u
         ds = rw * hwe / cw
-        sw = side * u * ds
+        sw = side * u * ds; sh = sw * ay
         tcx = hxm + xo * hwe
         cxs = tcx - ((c0 + c1) / 2.0 / 192.0 - 0.5) * sw
         yy = hy0 + fr * hhe
-        if mode == 'bot': cys = yy - (r1 / 192.0 - 0.5) * sw
-        elif mode == 'top': cys = yy - (r0 / 192.0 - 0.5) * sw
-        else: cys = yy - ((r0 + r1) / 2.0 / 192.0 - 0.5) * sw
+        if mode == 'bot': cys = yy - (r1 / 192.0 - 0.5) * sh
+        elif mode == 'top': cys = yy - (r0 / 192.0 - 0.5) * sh
+        else: cys = yy - ((r0 + r1) / 2.0 / 192.0 - 0.5) * sh
         acc.append((math.log(ds), (cxs - x) / u - fcx, (cys - y) / u - fcy))
     a = np.array(acc)
-    return (round(float(math.exp(np.median(a[:, 0]))), 3), round(float(np.median(a[:, 1])), 3), round(float(np.median(a[:, 2])), 3))
+    return (round(float(math.exp(np.median(a[:, 0]))), 3), round(float(np.median(a[:, 1])), 3), round(float(np.median(a[:, 2])), 3), round(ay, 3))
 
 def table():
     T = {}
     for ci in range(8):
         for i in range(20):
-            T[(ci, i)] = (1.0, 0.0, 0.0) if ci == 5 else solve(ci, i)
+            T[(ci, i)] = (1.0, 0.0, 0.0, 1.0) if ci == 5 else solve(ci, i)
     return T
 
 def gen_java(T, src):
     import re
     rows = []
     for ci in range(8):
-        rows.append('        {' + ', '.join('%sf, %sf, %sf' % T[(ci, i)] for i in range(20)) + '}')
-    body = '    // <hadj>\n    /** 모자 · 머리 장신구를 친구 · 모자마다 머리에 맞춘 보정: 모자마다 {크기 배율, 가로(u 단위), 세로(u 단위)} (두덩은 구운 모자라 쓰지 않음). */\n    private static final float[][] HADJ = {\n' + ',\n'.join(rows) + '\n    };\n    // </hadj>\n'
+        rows.append('        {' + ', '.join('%sf, %sf, %sf, %sf' % T[(ci, i)] for i in range(20)) + '}')
+    body = '    // <hadj>\n    /** 모자 · 머리 장신구를 친구 · 모자마다 머리에 맞춘 보정: 모자마다 {크기 배율, 가로(u 단위), 세로(u 단위), 세로 배율} (두덩은 구운 모자라 쓰지 않음). */\n    private static final float[][] HADJ = {\n' + ',\n'.join(rows) + '\n    };\n    // </hadj>\n'
     J = open(src, encoding='utf-8').read()
     if '// <hadj>' in J: J = re.sub(r'    // <hadj>.*?    // </hadj>\n', lambda m: body, J, flags=re.S)
     else:

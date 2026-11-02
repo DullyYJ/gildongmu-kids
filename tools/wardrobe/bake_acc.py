@@ -353,7 +353,7 @@ def head_occ(g, ba):
 def neck_anchor(ci, g, kind):
     dog = CFG.get(ci, {}).get('dog') and g.get('head')
     if dog:
-        nx = g['tcx'] if 'tcx' in g else g['nx']; W = (0.58 if kind == 'neck' else 0.62) * g['hw']; y0 = g['hy1'] - (0.12 if kind == 'neck' else 0.07) * g['hh']
+        nx = g['tcx'] if 'tcx' in g else g['nx']; W = (0.56 if kind == 'neck' else 0.62) * g['hw']; y0 = g['hy1'] - (0.08 if kind == 'neck' else 0.07) * g['hh']
     else:
         nx = g['nx']; W = (0.84 if kind == 'neck' else 0.80) * g['nw']; y0 = g['hy1'] - 0.07 * g['hh']
     return nx, y0, W
@@ -364,7 +364,8 @@ def necklace(ci, i, g, ba, shade):
     pal = pal[:5]
     nx, y0, W = neck_anchor(ci, g, 'neck')
     r = max(6.0, 0.085 * W)
-    pts = curve((nx - W / 2, y0), (nx + W / 2, y0), 0.36 * W, g['chin'] * 0.8)
+    dogn = CFG.get(ci, {}).get('dog') and g.get('head')
+    pts = curve((nx - W / 2, y0), (nx + W / 2, y0), (0.28 if dogn else 0.36) * W, g['chin'] * 0.8)
     q, ss = resample(pts, 2 * r * 0.92)
     img = np.zeros((N, N, 4), np.float32)
     order = np.argsort(np.abs(np.arange(len(q)) - len(q) / 2.0))[::-1]       # 옆(뒤)부터 · 가운데(앞) 나중에
@@ -425,6 +426,8 @@ def bake_item(ci, sheet, cell, i, k, g, Bm, ba, shade):
             bw = 0.9 * hw; cxx = (g['nx'] if not CFG.get(ci, {}).get('wing_head') else 0.5 * (g['nx'] + (hx_mid(g)))); cyy = hy0 + 0.60 * hh
         sx, dyy = SC.get((ci, 'wing'), (1.0, 0.0))
         span = 1.75 * max(bw, 0.9 * hw) * sx
+        if CFG.get(ci, {}).get('dog') and 'T' in g:                 # p-kids60: 개 친구는 어깨(몸통 위쪽) 좌우에 붙어 몸 뒤로 나온다
+            cxx = g['hxm']; cyy = g['hy1'] - CFG[ci].get('wy', 0.20) * hh; span = CFG[ci].get('ws', 1.20) * hw * sx
         span = min(span, 2 * min(cxx, N - cxx) - 24)
         S = put(ci, i, cxx, cyy + dyy * hh, span, 0.0, 'center')
         behind = 1 - np.clip((ndi.gaussian_filter((ba > 0.5).astype(np.float32), 1.2) - 0.2) / 0.6, 0, 1)
@@ -436,8 +439,8 @@ def bake_item(ci, sheet, cell, i, k, g, Bm, ba, shade):
     if CFG.get(ci, {}).get('dog'):
         width *= DOG['kw'].get(k, 1.0); cy += DOG['dyo'] * hh
         if k in ('tie', 'medal'):      # 가슴팍에 붙게: 턱 바로 아래에서 가슴 위로 늘어뜨림(p-kids58)
-            width = (0.30 if k == 'tie' else 0.27) * g['hw'] * sx
-            cy = hy1 - 0.10 * hh + dyy * hh
+            width = (0.30 if k == 'tie' else 0.21) * g['hw'] * sx
+            cy = hy1 - (0.10 if k == 'tie' else 0.19) * hh + dyy * hh
             nx = g['tcx'] if 'tcx' in g else nx
     rot = chin * p['rot']
     S = put(ci, i, nx, cy, width, rot, p['anchor'])

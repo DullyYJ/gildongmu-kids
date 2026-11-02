@@ -40,9 +40,10 @@ def load_hadj(fn='hadj.json'):
 load_hadj()
 def strips(ci,sheet,cell,slot,i,x,y,u,allow_wrap=True):
     b0=(slot*20+i)*3; fcx,fcy,side=WM[ci][b0:b0+3]
-    ds,ddx,ddy=HADJ.get((ci,i),(1,0,0)) if slot==0 else (1,0,0)
-    sw=side*u*ds
-    cxs=x+(fcx+ddx)*u; cys=y+(fcy+ddy)*u; sx0=cxs-sw/2; sy0=cys-sw/2; P=192/sw
+    hv=HADJ.get((ci,i),(1,0,0,1)) if slot==0 else (1,0,0,1)
+    ds,ddx,ddy=hv[:3]; ay=hv[3] if len(hv)>3 else 1
+    sw=side*u*ds; shh=sw*ay
+    cxs=x+(fcx+ddx)*u; cys=y+(fcy+ddy)*u; sx0=cxs-sw/2; sy0=cys-shh/2; P=192/sw
     idx=[cell,16+cell,24+cell][sheet]
     wrap= allow_wrap and slot==1 and WRAPS[ci][i]=='1'
     if wrap:
@@ -52,7 +53,7 @@ def strips(ci,sheet,cell,slot,i,x,y,u,allow_wrap=True):
         top=y+by0*u; bot=y+by1*u; ctr=(top+bot)/2
         bo=bodyAt(ci,idx,ty,bh,ctr)
         if natw<=0 or not bo: wrap=False
-    if not wrap: return [(0,0,192,192,sx0,sy0,sx0+sw,sy0+sw)]
+    if not wrap: return [(0,0,192,192,sx0,sy0,sx0+sw,sy0+shh)]
     g=min(max((bo[1]-bo[0])*0.98/natw,1),1.5); H=(bot-top)*g**0.75
     out=[]; lastS=-1; lastM=0; sx=SXS[ci]
     for k in range(NS):
