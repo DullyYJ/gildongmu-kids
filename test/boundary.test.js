@@ -59,4 +59,10 @@ const noClear = timeMaps.filter(n => !new RegExp('\\b' + n + '\\.clear\\(\\)').t
 ok(timeMaps.length >= 8 && noClear.length === 0, `장면 패치의 장면 시간 값 ${timeMaps.length}개를 새 장면마다 비운다` + (noClear.length ? ' ← ' + noClear.join(', ') : ''));
 ok(/au - S\.t <= ANGRY_SEC/.test(ka) && /angryUntil\.put\(a\.id, S\.t \+ ANGRY_SEC\)/.test(ka), '화남은 건드린 뒤 ANGRY_SEC 를 넘겨 이어지지 않는다(옛 값이 남아도)');
 
+// 부모가 처음 열었는데 자녀 위치가 없으면 서버가 '위치 한 번 올려'(k=locreq) 푸시를 보낸다 — 앱은 받아서 읽기만 하고 올리는 판단은 엔진이(s390)
+const pushSrc = code('Push.java'), lrSrc = code('LocReq.java'), engSrc = code('Engine.java');
+ok(/"locreq"\.equals\(d\.get\("k"\)\)[\s\S]{0,200}LocReq\.once\(/.test(pushSrc) && pushSrc.indexOf('locreq') < pushSrc.indexOf('body == null || body.isEmpty()'), '푸시: locreq 는 알림 글(body) 검사보다 먼저 처리하고 알림을 띄우지 않는다');
+ok(/locOn\(\)/.test(lrSrc) && /ACCESS_FINE_LOCATION/.test(lrSrc) && /Core\.engine\.locAsk\(\)/.test(lrSrc) && /Core\.engine\.lastFix\(/.test(lrSrc), '위치 요청: 공유가 켜져 있고 권한이 있을 때만 · 올리는 판단은 엔진(locAsk · lastFix)');
+ok(/synchronized void locAsk\(\) \{\s*if \(!locOn\(\)\) return;/.test(engSrc) && /locPending = true/.test(engSrc.slice(engSrc.indexOf('void locAsk()'), engSrc.indexOf('void locAsk()') + 500)), '엔진 locAsk: 공유가 꺼져 있으면 아무것도 안 하고 · 없으면 다음 위치를 바로 올리게 표시');
+
 console.log(`\n${pass} 통과, ${fail} 실패`); process.exit(fail ? 1 : 0);
