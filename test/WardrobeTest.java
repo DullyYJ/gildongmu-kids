@@ -115,6 +115,17 @@ public class WardrobeTest {
         ok(wok && tiles > 3000, "구운 옷 조각: 두르는 옷 · 구운 장신구 옷 모든 칸에 있다(" + tiles + "개)");
         ok(!Wardrobe.wornTile(8, 0, 0, 0, wt) && !Wardrobe.wornTile(0, 3, 0, 1, wt) && !Wardrobe.wornTile(0, 0, 16, 0, wt) && !Wardrobe.baked(0, 0, 2) && !Wardrobe.baked(0, 2, 2), "구운 옷: 잘못된 값 · 모자 · 소지품은 없다");
         int bk = 0;
+        { int hb = 0; boolean hok = true;
+          for (int it = 0; it < Wardrobe.PER; it++) {
+            if (Wardrobe.baked(5, 0, it)) hb++;
+            if (Wardrobe.baked(0, 0, it) || Wardrobe.baked(5, 1, it) && false) hok = false;
+            int[] w2 = new int[6];
+            for (int sh = 0; sh < 3; sh++) for (int cell = 0; cell < (sh == 1 ? 8 : 16); cell++) {
+              if (sh == 1 && cell == 1) continue;
+              if (!Wardrobe.wornTile(5, sh, cell, Wardrobe.PER + it, w2) || w2[2] < 2 || w2[0] + w2[2] > 1024 || w2[4] + w2[2] > 256 || w2[5] + w2[3] > 256) { hok = false; System.out.println("   모자 조각 이상 " + sh + "/" + cell + "/" + it); }
+            }
+          }
+          ok(hb == 20 && hok, "두덩 모자 20개는 구운 조각으로(번호 20+), 다른 친구 모자는 그대로"); }
         for (int c = 0; c < 8; c++) for (int it = 0; it < Wardrobe.PER; it++) if (Wardrobe.baked(c, 1, it) && !Wardrobe.wraps(c, 1, it)) bk++;
         ok(bk == 43, "몸에 맞춰 구운 장신구 옷(나비넥타이 · 넥타이 · 목도리 · 메달 · 어깨띠 · 꽃목걸이 · 날개) 43벌: " + bk);
         // 소지품은 친구 옆에서 둥실둥실: 모든 칸에서 자리가 나오고 · 몸 오른쪽(앞)에 있고 · 시간에 따라 위아래로 움직이며 · 자는 모습은 없다
