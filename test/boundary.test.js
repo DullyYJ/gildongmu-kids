@@ -50,4 +50,13 @@ ok(pb.length === 0, `장면 패치 ${pt.length}개에는 시드 없는 무작위
 const vv = code('VillageView.java');
 ok(/Wander\.at\(/.test(vv) && !/\.nextFloat\(|\.nextInt\(|\bRandom\b/.test(vv), '마을 화면: 자리·방향·걷는 중은 Wander 가 정하고 뷰는 난수를 안 쓴다');
 
+// 장면이 새로 만들어지면 시간(S.t)이 0 부터 다시 간다 — 장면 시간으로 적어 둔 값은 register 에서 모두 비우고, 화남은 10초를 넘기지 못한다
+// (옛 angryUntil 이 남아 아침에 켜면 친구들이 몇십 분 동안 "깨우지 마!" 하던 일 — s390)
+const ka = strip(fs.readFileSync(path.join(PATCH, 'KidsActs3.java.txt'), 'utf8'));
+const reg = ka.slice(ka.indexOf('static void register(final SceneCore S) {'), ka.indexOf('SceneActs.A_(S, "kstudy"'));
+const timeMaps = [...ka.matchAll(/static final HashMap<String, (?:Double|Integer|String)> (\w+) = new HashMap/g)].map(m => m[1]).filter(n => n !== 'STICKY');
+const noClear = timeMaps.filter(n => !new RegExp('\\b' + n + '\\.clear\\(\\)').test(reg));
+ok(timeMaps.length >= 8 && noClear.length === 0, `장면 패치의 장면 시간 값 ${timeMaps.length}개를 새 장면마다 비운다` + (noClear.length ? ' ← ' + noClear.join(', ') : ''));
+ok(/au - S\.t <= ANGRY_SEC/.test(ka) && /angryUntil\.put\(a\.id, S\.t \+ ANGRY_SEC\)/.test(ka), '화남은 건드린 뒤 ANGRY_SEC 를 넘겨 이어지지 않는다(옛 값이 남아도)');
+
 console.log(`\n${pass} 통과, ${fail} 실패`); process.exit(fail ? 1 : 0);
