@@ -66,6 +66,7 @@ final class KidsActs {
                 || n.equals("kangry") || n.equals("kwake") || n.equals("kplay");
     }
 
+    static final double ANGRY_SEC = 10.0;                               // 건드려서 화내는 시간(엔진 ANGRY_MS 와 같다)
     static final HashMap<String, Double> angryUntil = new HashMap<>();
     static final HashMap<String, String> angryAct = new HashMap<>();
     static final HashMap<String, Double> lastPoke = new HashMap<>();
@@ -165,7 +166,7 @@ final class KidsActs {
         int pk = Poke.kind(a.id);
         if (pk == 0) return false;
         String an = pk == 2 ? "kwake" : "kangry";
-        angryUntil.put(a.id, S.t + 10.0);
+        angryUntil.put(a.id, S.t + ANGRY_SEC);
         angryAct.put(a.id, an);
         reset(a);
         S.startAct(a, an);
@@ -271,7 +272,8 @@ final class KidsActs {
             poopN.put(a.id, n);
             // 화내는 중이면 그 동작을 이어 간다
             Double au = angryUntil.get(a.id);
-            boolean angry = au != null && S.t < au;
+            boolean angry = au != null && S.t < au && au - S.t <= ANGRY_SEC + .5;      // 화남은 건드린 뒤 10초뿐 — 시간이 뒤로 가거나 옛 값이 남아도 그보다 길게 멈추지 않는다
+            if (au != null && !angry) { angryUntil.remove(a.id); angryAct.remove(a.id); }
             String name = angry ? angryAct.get(a.id) : STICKY.get(s);
             String cur = a.st.equals("act") && a.act != null ? a.act.n : "";
             if (S.bigAct(a) && !isKids(cur)) continue;
@@ -423,7 +425,10 @@ final class KidsActs {
 
     // ───────── 동작 등록 ─────────
     static void register(final SceneCore S) {
-        rest.clear(); blockedSince.clear(); playNext.clear(); enterEdgeUntil = 0; menuA = null;      // 장면이 새로 만들어졌다 — 시간이 처음부터 다시 간다
+        // 장면이 새로 만들어졌다 — 시간(S.t)이 0 부터 다시 간다. 장면 시간으로 적어 둔 것은 전부 비운다
+        // (화남 끝 시각 angryUntil 이 옛 장면의 큰 시간 값으로 남으면 새 장면에서 몇십 분 동안 화난 채 멈춘다 — 아침에 켜면 친구들이 계속 "깨우지 마!" 하던 일)
+        rest.clear(); blockedSince.clear(); playNext.clear(); enterEdgeUntil = 0; menuA = null;
+        angryUntil.clear(); angryAct.clear(); lastPoke.clear(); applied.clear(); poopT.clear(); popT.clear(); poopN.clear(); poopSide.clear();
         // 공부: 앉아서 가만히 집중(앞에 책)
         SceneActs.A_(S, "kstudy", 3600, null, (a, u, dt, A) -> {
             double T = S.t, el = T - A.t0; S.standF(a);
