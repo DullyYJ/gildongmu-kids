@@ -8,13 +8,14 @@ def ch_(v): return chr(0x100 + int(v))
 rows = []
 for ci in range(8):
     st = ''
-    for i in range(20):
+    for i in range(40):
         t = meta.get('%d_%d' % (ci, i), {}).get('tiles', {})
         for c in range(40):
             v = t.get(str(c))
             st += ''.join(ch_(x) for x in (v if v else (0, 0, 0, 0, 0, 0)))
     rows.append(st)
 bacc = []
+bhat = [''.join('1' if meta.get('%d_%d' % (ci, 20 + i), {}).get('tiles') else '0' for i in range(20)) for ci in range(8)]
 J0 = open(src, encoding='utf-8').read()
 wr = re.findall(r'"([01]{20})"', re.search(r'WRAPS = \{(.*?)\};', J0, re.S).group(1))
 for ci in range(8):
@@ -27,10 +28,13 @@ body = '''    // <worn>
     // 두르지는 않지만 몸에 맞춰 구운 옷(나비넥타이 · 넥타이 · 목도리 · 메달 · 어깨띠 · 꽃목걸이 · 날개): 친구 × 옷 20개
     private static final String[] BACC = {
 %s};
+    // 머리에 맞춰 구운 모자(두덩: 헬멧을 털 머리로 덮고 모자를 얹음): 조각은 옷 번호 20 + 모자 번호 자리에 있다
+    private static final String[] BHAT = {
+%s};
 
     /** 구운 조각으로 그리는 옷인지(몸에 두르는 옷 + 몸에 맞춰 구운 장신구 옷). */
     public static boolean baked(int ci, int slot, int i) {
-        return wraps(ci, slot, i) || (slot == 1 && ci >= 0 && ci < 8 && i >= 0 && i < PER && BACC[ci].charAt(i) == '1');
+        return wraps(ci, slot, i) || (slot == 0 && ci >= 0 && ci < 8 && i >= 0 && i < PER && BHAT[ci].charAt(i) == '1') || (slot == 1 && ci >= 0 && ci < 8 && i >= 0 && i < PER && BACC[ci].charAt(i) == '1');
     }
 
     /**
@@ -56,7 +60,7 @@ body = '''    // <worn>
 
     /** 몸에 입혀 구운 옷 조각: out = {시트 x, y, 너비, 높이, 칸 안 x, y}. 없으면 false(→ 줄 단위 · 한 장으로 그린다). */
     public static boolean wornTile(int ci, int sheet, int cell, int i, int[] out) {
-        if (ci < 0 || ci >= 8 || sheet < 0 || sheet > 2 || cell < 0 || cell >= (sheet == 1 ? 8 : 16) || i < 0 || i >= PER) return false;
+        if (ci < 0 || ci >= 8 || sheet < 0 || sheet > 2 || cell < 0 || cell >= (sheet == 1 ? 8 : 16) || i < 0 || i >= 2 * PER) return false;
         int b = (i * 40 + (sheet == 0 ? cell : sheet == 1 ? 16 + cell : 24 + cell)) * 6;
         String s = WTS[ci];
         if (s.charAt(b + 2) == 0x100) return false;
@@ -64,7 +68,7 @@ body = '''    // <worn>
         return true;
     }
     // </worn>
-''' % (",\n".join('        "' + r + '"' for r in rows), ",\n".join('        "' + r + '"' for r in bacc))
+''' % (",\n".join('        "' + r + '"' for r in rows), ",\n".join('        "' + r + '"' for r in bacc), ",\n".join('        "' + r + '"' for r in bhat))
 J = open(src, encoding='utf-8').read()
 if '// <worn>' in J:
     J = re.sub(r'    // <worn>.*?    // </worn>\n', lambda m: body, J, flags=re.S)

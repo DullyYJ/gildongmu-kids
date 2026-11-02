@@ -28,7 +28,8 @@ PAR = {
     'medal': dict(w=0.34, dy=-0.06, anchor='top', rot=0.5),
     'neck':  dict(w=0.74, dy=-0.10, anchor='top', rot=0.8),
 }
-CFG = {0: dict(w=0.78, nx='chest', wing_head=1), 1: dict(w=0.78, nx='chest', wing_head=1)}   # 친구마다: 폭 배율 · 목 가운데를 가슴(몸통 가운데)에 둘지 · 옆으로 옮김
+CFG = {0: dict(w=0.78, nx='chest', wing_head=1, dog=1), 1: dict(w=0.78, nx='chest', wing_head=1, dog=1)}
+DOG = dict(headw=0.60, dyo=-0.15, kw={'bow': 1.0, 'tie': 1.45, 'scarf': 1.25, 'medal': 1.5, 'neck': 1.0})   # 개 친구: 머리털 덩어리 아래 턱선에 맞춤   # 친구마다: 폭 배율 · 목 가운데를 가슴(몸통 가운데)에 둘지 · 옆으로 옮김
 SC = {}      # SC[(ci,kind)] = (폭 배율, 아래로 옮김(머리 높이 비율))
 try:
     SC = {tuple(k.split(':')[:1] + [k.split(':')[1]]): v for k, v in json.load(open('acc_sc.json')).items()}
@@ -109,6 +110,8 @@ def geo(ci, sheet, cell, ba):
     g['nw'] = nw * cf.get('w', 1.0)
     if cf.get('nx') == 'chest' and 'T' in g: g['nx'] = 0.5 * g['tcx'] + 0.5 * g['nx'] if False else g['tcx']
     g['nx'] += cf.get('dx', 0.0) * g['hw']
+    if cf.get('dog') and g.get('head'):
+        g['nw'] = DOG['headw'] * g['hw']; g['nx'] = g['hxm'] + 0.02 * g['hw']
     return g
 
 def hx_mid(g): return g.get('hxm', g['nx'])
@@ -138,9 +141,28 @@ def finish(S, clip, ba, shade, shadow=True):
     x0, x1, y0, y1 = max(xs_.min() - 1, 0), min(xs_.max() + 2, 256), max(ys_.min() - 1, 0), min(ys_.max() + 2, 256)
     return (int(x0), int(y0), img[y0:y1, x0:x1])
 
+def sash_dog(ci, i, g, ba, shade):
+    """개 친구: 머리털 덩어리 아래쪽~가슴에 걸치는 비스듬한 띠. 몸 윤곽으로 잘라 곡면 음영."""
+    P, r0, r1, c0, c1 = spr(ci, i)
+    hw, hh = g['hw'], g['hh']
+    sx, dyy = SC.get((ci, 'sash'), (1.0, 0.0))
+    w = 0.50 * hw * sx
+    cx = g['hxm'] - 0.04 * hw; cy = g['hy1'] - 0.08 * hh + dyy * hh
+    S = put(ci, i, cx, cy, w, 0.0, 'center')
+    A = (ba > 0.5)
+    dist = ndi.distance_transform_edt(A); R = 30.0
+    tt = np.clip(dist / R, 0, 1); h2 = ndi.gaussian_filter(np.sqrt(1 - (1 - tt) ** 2) * R, 3)
+    gy, gx = np.gradient(h2); nz = 1 / np.sqrt(1 + gx ** 2 + gy ** 2); nx = -gx * nz; ny = -gy * nz
+    dome = 0.80 + 0.30 * np.clip(nx * -0.45 + ny * -0.6 + nz * 0.66, 0, 1)
+    S[..., :3] = S[..., :3] * dome[..., None]
+    clip = np.clip((ndi.gaussian_filter(A.astype(np.float32), 0.9) - 0.25) / 0.5, 0, 1)
+    return finish(S, clip, ba, shade)
+
 def sash(ci, i, g, Bm, ba, shade):
     """어깨띠: 몸통 한가운데에 몸통 크기만큼의 곧은 띠를 놓고 몸통 모양(+곡면 음영)으로 잘라 몸을 두른 듯 보이게 한다."""
     T = g.get('T')
+    if CFG.get(ci, {}).get('dog') and g.get('head'):
+        return sash_dog(ci, i, g, ba, shade)
     if T is None: return B.EMPTY
     cls = g['cls']
     grow = ndi.binary_dilation(T, iterations=3) & ((cls == 1) | (cls == 4) | (cls == 0))
@@ -178,6 +200,8 @@ def bake_item(ci, sheet, cell, i, k, g, Bm, ba, shade):
     sx, dyy = SC.get((ci, k), (1.0, 0.0))
     width = p['w'] * g['nw'] * sx
     cy = hy1 + (p['dy'] + dyy) * hh
+    if CFG.get(ci, {}).get('dog'):
+        width *= DOG['kw'].get(k, 1.0); cy += DOG['dyo'] * hh
     rot = chin * p['rot']
     S = put(ci, i, nx, cy, width, rot, p['anchor'])
     clip = np.clip(ndi.gaussian_filter(ndi.binary_dilation(ba > 0.3, iterations=4).astype(np.float32), 1.0), 0, 1)
