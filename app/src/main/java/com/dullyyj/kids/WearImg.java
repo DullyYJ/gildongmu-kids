@@ -17,4 +17,14 @@ public final class WearImg {
         if (ci < 0 || ci >= Wardrobe.IDS.length || i < 0 || i >= 2 * Wardrobe.PER || Core.sheets == null) return null;
         return Core.sheets.get("wear_" + Wardrobe.IDS[ci] + "_g" + i, null);
     }
+
+    /** 고른 친구의 구운 옷 · 모자 조각 시트를 미리 읽어 둔다(눌렀을 때 시트가 읽히는 사이 화면이 튀지 않게). 읽는 일은 뒤 스레드. done 은 읽힐 때마다 메인 스레드에서 부른다. */
+    static void prefetch(int ci, int slot, Runnable done) {
+        if (ci < 0 || ci >= Wardrobe.IDS.length || Core.sheets == null || slot < 0 || slot > 1) return;
+        Core.sheets.get("wear_" + Wardrobe.IDS[ci], done);
+        for (int i = 0; i < Wardrobe.PER; i++) {
+            if (!Wardrobe.baked(ci, slot, i)) continue;
+            Core.sheets.get("wear_" + Wardrobe.IDS[ci] + "_g" + (slot == 0 ? Wardrobe.PER + i : i), done);
+        }
+    }
 }

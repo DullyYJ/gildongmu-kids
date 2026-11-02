@@ -26,7 +26,7 @@ final class DressView extends View {
     private final RectF avR = new RectF(), offR = new RectF(), stripR = new RectF();
     private final float[] spr = new float[3];
     private float scrollX, scrollV, scrollTo = -1f, stripCw, stripGap, stripContent;
-    private int lastSel = -1;
+    private int lastSel = -1, pfCi = -1, pfSlot = -1;
     private long lastFrame = 0L;
     private VelocityTracker vt;
     private boolean dragging, avSwipe;
@@ -92,6 +92,12 @@ final class DressView extends View {
         if (w <= 0) return;
         if (contentH <= 0f) lay(w);
         int ci = d.sel(), slot = d.tab();
+        if (ci != pfCi || slot != pfSlot) {            // 친구 · 탭을 바꾸면 그 탭의 구운 옷 시트를 미리 읽어 둔다
+            pfCi = ci;
+            pfSlot = slot;
+            WearImg.prefetch(ci, slot, inv);
+            WearImg.prefetch(ci, slot == 0 ? 1 : 0, inv);
+        }
         long now = SystemClock.uptimeMillis();
         boolean moving = false;
         // ── 미리보기: 걷는 모습에 입은 것 그대로 ──

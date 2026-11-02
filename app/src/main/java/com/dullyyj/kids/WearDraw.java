@@ -60,11 +60,15 @@ final class WearDraw {
             if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
                 // 몸에 입혀 구운 옷(칸마다 한 장): 읽혀 있으면 그것만 그린다
                 int bi = slot == 0 ? Wardrobe.PER + i : i;         // 구운 모자는 번호 20 + 모자 번호(옷과 안 겹치게)
-                Bitmap wb = Wardrobe.baked(ci, slot, i) ? WearImg.worn(ci, bi) : null;
-                if (wb != null && Wardrobe.wornTile(ci, sheet, cell, bi, WT)) {
-                    SRC.set(WT[0], WT[1], WT[0] + WT[2], WT[1] + WT[3]);
-                    DST.set(left + WT[4] * k, top + WT[5] * k, left + (WT[4] + WT[2]) * k, top + (WT[5] + WT[3]) * k);
-                    c.drawBitmap(wb, SRC, DST, IP);
+                if (Wardrobe.baked(ci, slot, i)) {
+                    // 구운 옷은 구운 조각만 그린다. 시트가 아직 읽히는 중이거나 이 칸에 조각이 없으면 아무것도 안 그린다 —
+                    // 예전에는 이때 도감 그림 원본을 한 장으로 크게 그려서, 옷을 바꾸는 순간 화면에 큼직한 그림이 번쩍 튀었다(p-kids62).
+                    Bitmap wb = WearImg.worn(ci, bi);
+                    if (wb != null && Wardrobe.wornTile(ci, sheet, cell, bi, WT)) {
+                        SRC.set(WT[0], WT[1], WT[0] + WT[2], WT[1] + WT[3]);
+                        DST.set(left + WT[4] * k, top + WT[5] * k, left + (WT[4] + WT[2]) * k, top + (WT[5] + WT[3]) * k);
+                        c.drawBitmap(wb, SRC, DST, IP);
+                    }
                     continue;
                 }
                 // 옷은 몸 윤곽을 따라 줄마다 몸 폭에 맞춰 입히고(엔진이 줄 · 자리를 계산), 나머지는 한 장
@@ -84,6 +88,9 @@ final class WearDraw {
                     c.drawBitmap(at, SRC, DST, IP);
                 }
                 if (tilt != 0f && nn > 0) c.restore();
+            } else if (at == null && Wardrobe.sprite(ci, slot, i, SP)) {
+                // 3D 시트가 아직 읽히는 중이면 2D 그림으로 먼저 그리지 않고 잠깐 비워 둔다(읽히면 바로 3D 로 나타남 — 모양이 바뀌며 튀지 않게)
+                continue;
             } else {
                 Art.draw(pen, ops, left + pen.o[0] * k, top + pen.o[1] * k, pen.o[2] * k);
             }
