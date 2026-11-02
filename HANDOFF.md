@@ -200,3 +200,10 @@
 - **마을 화면 어슬렁(개선 2)**: `VillageView` 가 `Random` 으로 목표·대기를 뽑던 것을 엔진 함수 `Wander`(순수 자바)로 옮겼다. 같은 친구 id·같은 '걸은 시간'이면 늘 같은 자리·방향·걷는 중(무작위 없음, 48구간 한 바퀴로 이어짐, 약 4~5분). 뷰는 걷는 동안만 시간을 세어(`vt`) 묻고 받은 자리에 그리기만 한다. 활동 중(걷기 아님)이면 시간이 멈춰 그 자리에 선다. 시작 자리·흔들림(`phase`)도 id 에서 정해진다. `test/WanderTest.java` 8건(결정적 · 범위 · 순간이동 없음 · 주기 이음 · 방향 · 음수 시간).
 - **경계 자동 시험(개선 3)**: `test/boundary.test.js` 37건 — 그림 클래스(VillageView · AvatarView · DressView · ThumbView · WearDraw · TabBar · Renderer · QuestStars)는 무작위·저장소·직접 네트워크·Engine/Store 호출 없음 / 엔진·계산 클래스 10개는 android 를 모름 / 시드 없는 무작위는 Engine.java 에서만 / 장면 패치에도 없음. 실행: `node test/boundary.test.js`. 예외 없음(AvatarView 의 Wire.EX 는 assets 읽기용 뒤 스레드라 규칙에서 제외).
 - 한계: `MapPane`/`MainActivity` 같은 화면 틀(컨트롤러)은 저장소·네트워크를 쓴다(그림 클래스가 아님). 안드로이드 계층은 여기서 컴파일 못 함 → 기기 미확인.
+
+## s389 — 아침에 켜면 친구들이 계속 화냄("깨우지 마!") 고침
+- **증상(영상)**: 새벽 5:50 에 앱만 켰는데 친구 5마리가 전부 화난 얼굴과 "깨우지 마… 졸려!" · "으… 왜 깨워!" · "쿨쿨 중이었어!" 를 계속 한다.
+- **원인**: 장면 패치(`KidsActs3`)의 `angryUntil`(화남 끝 시각)은 **장면 시간 S.t** 로 적는데 `static` 이라 앱 프로세스가 살아 있는 동안 남는다. 밤새 켜 둔 장면에서 건드린 값(예: S.t=5000s → 5010s)이 남은 채 아침에 장면이 새로 만들어지면 S.t 가 0 부터 다시 가서 `S.t < angryUntil` 이 한참(약 80분) 참이다 → 건드리지도 않았는데 화난 동작(kwake)이 계속 이어졌다. `register()` 는 `rest`·`blockedSince`·`playNext` 만 비우고 시간 값 `angryUntil`·`angryAct`·`lastPoke`·`applied`·`poopT`·`popT`·`poopN`·`poopSide` 는 안 비웠다.
+- **고침**: ① 새 장면마다 장면 시간 값 11개를 모두 비운다(응가 있는 친구는 `poopN` 이 비어 있으므로 기존 "새로 만들어졌는데 이미 응가가 있다 → 바로 보이게" 길을 탄다). ② 화남은 `au - S.t <= ANGRY_SEC(10)+0.5` 일 때만 — 옛 값이 남거나 시간이 뒤로 가도 10초를 넘겨 멈추지 않고, 지난 값은 지운다. 엔진(`Engine.angered` ANGRY_MS 10초)은 실시간 시계라 문제없음.
+- **시험**: `test/boundary.test.js` 에 두 건(장면 시간 맵 모두 `register` 에서 clear · 화남 상한). 39 통과. 장면 패치를 길동무 장면 클래스와 같이 `javac` 컴파일 확인(안드로이드 클래스 제외). **기기 미확인** — APK 재빌드 필요.
+- **한계**: 영상만으로 원인을 코드에서 추정했다(기기 로그 없음). 새 APK 로도 아침에 같은 일이 나면 `adb logcat` 와 앱을 켜기 전 마지막으로 친구를 건드린 시각을 알려 달라.
