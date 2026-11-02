@@ -12,6 +12,7 @@ def cells():
             if sheet == 1 and c == 1: continue
             yield sheet, c
 
+SKULL = {2: 0.55, 6: 0.5, 7: 0.5}
 def headbox(ci):
     fn = 'hbox_%d.json' % ci
     if os.path.exists(fn): return {tuple(map(int, k.split(':'))): v for k, v in json.load(open(fn)).items()}
@@ -20,9 +21,19 @@ def headbox(ci):
     for sh, c in cells():
         Bm = np.asarray(eng.sheetcell(ci, sh, c).resize((N, N), Image.LANCZOS)).astype(np.float32) / 255
         if Bm[..., 3].sum() < 500: continue
-        g = A.geo(ci, sh, c, Bm[..., 3])
+        mk0 = B.MKD
+        if ci == 5: B.MKD = 'm3d/mk_nh/'
+        try: g = A.geo(ci, sh, c, Bm[..., 3])
+        finally: B.MKD = mk0
         if g is None or not g.get('head'): continue
-        out['%d:%d' % (sh, c)] = [g['hxm'] / 2, g['hy0'] / 2, g['hy1'] / 2, g['hw'] / 2, g['hh'] / 2]
+        hy0 = g['hy0']
+        if ci in SKULL:    # 귀가 머리 위로 솟은 친구: 귀 끝이 아니라 머리통 꼭대기(행 폭이 머리 폭의 일정 비율을 넘는 첫 행)를 머리 위로 본다
+            from scipy import ndimage as ndi
+            H = ndi.binary_opening(g['cls'] == 2, iterations=1); H = A.largest(H)
+            cnt = H.sum(1); ys, xs = np.where(H); w = xs.max() - xs.min()
+            sk = [y for y in range(ys.min(), ys.max()) if cnt[y] >= SKULL[ci] * w]
+            if sk: hy0 = float(sk[0])
+        out['%d:%d' % (sh, c)] = [g['hxm'] / 2, hy0 / 2, g['hy1'] / 2, g['hw'] / 2, (g['hy1'] - hy0) / 2]
     json.dump(out, open(fn, 'w'))
     return {tuple(map(int, k.split(':'))): v for k, v in out.items()}
 
@@ -43,7 +54,7 @@ TYPES = [
     ('마법사', 0.98, 'bot', 0.16, 0.0),
     ('밀짚', 1.38, 'bot', 0.18, 0.0),
     ('카우보이', 1.32, 'bot', 0.18, 0.0),
-    ('삿갓', 1.30, 'bot', 0.18, 0.0),
+    ('삿갓', 1.30, 'bot', 0.32, 0.0),
     ('벙거지', 1.16, 'bot', 0.18, 0.0),
     ('실크햇', 0.96, 'bot', 0.16, 0.0),
     ('요리사', 0.86, 'bot', 0.16, 0.0),
@@ -75,7 +86,10 @@ def hatbox(ci, i):
     q = i; ox = (q % 8) * 192; oy = (q // 8) * 192
     a = np.asarray(eng.atlas(ci).crop((ox, oy, ox + 192, oy + 192)))[..., 3] > 60
     rr = np.where(a.any(1))[0]; cc = np.where(a.any(0))[0]
-    return rr.min(), rr.max() + 1, cc.min(), cc.max() + 1
+    r1 = rr.max() + 1
+    if '삿갓' in eng.N[ci * 3][i]:    # 턱끈이 늘어진 맨 아래가 아니라 챙(가장 넓은 줄 근처의 맨 아래 줄)을 모자 아랫선으로 본다
+        cnt = a.sum(1); r1 = int(np.where(cnt >= 0.5 * cnt.max())[0].max()) + 1
+    return rr.min(), r1, cc.min(), cc.max() + 1
 
 def solve(ci, i):
     name = eng.N[ci * 3][i]
@@ -106,7 +120,7 @@ def table():
     T = {}
     for ci in range(8):
         for i in range(20):
-            T[(ci, i)] = (1.0, 0.0, 0.0, 1.0) if ci == 5 else solve(ci, i)
+            T[(ci, i)] = solve(ci, i)
     return T
 
 def gen_java(T, src):
@@ -114,7 +128,7 @@ def gen_java(T, src):
     rows = []
     for ci in range(8):
         rows.append('        {' + ', '.join('%sf, %sf, %sf, %sf' % T[(ci, i)] for i in range(20)) + '}')
-    body = '    // <hadj>\n    /** 모자 · 머리 장신구를 친구 · 모자마다 머리에 맞춘 보정: 모자마다 {크기 배율, 가로(u 단위), 세로(u 단위), 세로 배율} (두덩은 구운 모자라 쓰지 않음). */\n    private static final float[][] HADJ = {\n' + ',\n'.join(rows) + '\n    };\n    // </hadj>\n'
+    body = '    // <hadj>\n    /** 모자 · 머리 장신구를 친구 · 모자마다 머리에 맞춘 보정: 모자마다 {크기 배율, 가로(u 단위), 세로(u 단위), 세로 배율}. */\n    private static final float[][] HADJ = {\n' + ',\n'.join(rows) + '\n    };\n    // </hadj>\n'
     J = open(src, encoding='utf-8').read()
     if '// <hadj>' in J: J = re.sub(r'    // <hadj>.*?    // </hadj>\n', lambda m: body, J, flags=re.S)
     else:

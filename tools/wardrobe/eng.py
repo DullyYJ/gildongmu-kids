@@ -74,9 +74,12 @@ def strips(ci,sheet,cell,slot,i,x,y,u,allow_wrap=True):
     return [(o[0],o[1],o[2],o[3],o[4]-o[5]/2,o[6]-.35,o[4]+o[5]/2,o[7]+.35) for o in out]
 CH='par/shell-android/app/src/main/assets/chars3d/'
 FILES={'ppopu':'ppopu','dolsom':'dolsom','lovel':'lovel','chaeng':'chaeng','sul':'sul','dudung':'dudung','bbosong':'bbosong_0','juksun':'juksun'}
-def sheetcell(ci,sheet,cell):
+NH={5:True}    # 두덩: 모자를 쓸 때 안전모 없는 시트(wear/dudung_nh · dudung_act_nh)에 입힌다
+def sheetcell(ci,sheet,cell,nh=True):
     ch=IDS[ci]; fn=FILES[ch]+['','_pose','_act'][sheet]
-    im=Image.open(CH+fn+'.webp').convert('RGBA'); c=cell%4; r=cell//4
+    if nh and NH.get(ci) and sheet in (0,2): im=Image.open('k/app/src/main/assets/wear/%s%s_nh.webp'%(ch,['','','_act'][sheet])).convert('RGBA')
+    else: im=Image.open(CH+fn+'.webp').convert('RGBA')
+    c=cell%4; r=cell//4
     return im.crop((c*256,r*256,c*256+256,r*256+256))
 ATL={}
 def atlas(ci):
