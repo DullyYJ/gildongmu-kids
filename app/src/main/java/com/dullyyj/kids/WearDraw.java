@@ -59,8 +59,9 @@ final class WearDraw {
             int i = lk.idx[slot];
             if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
                 // 몸에 입혀 구운 옷(칸마다 한 장): 읽혀 있으면 그것만 그린다
-                Bitmap wb = Wardrobe.baked(ci, slot, i) ? WearImg.worn(ci, i) : null;
-                if (wb != null && Wardrobe.wornTile(ci, sheet, cell, i, WT)) {
+                int bi = slot == 0 ? Wardrobe.PER + i : i;         // 구운 모자는 번호 20 + 모자 번호(옷과 안 겹치게)
+                Bitmap wb = Wardrobe.baked(ci, slot, i) ? WearImg.worn(ci, bi) : null;
+                if (wb != null && Wardrobe.wornTile(ci, sheet, cell, bi, WT)) {
                     SRC.set(WT[0], WT[1], WT[0] + WT[2], WT[1] + WT[3]);
                     DST.set(left + WT[4] * k, top + WT[5] * k, left + (WT[4] + WT[2]) * k, top + (WT[5] + WT[3]) * k);
                     c.drawBitmap(wb, SRC, DST, IP);

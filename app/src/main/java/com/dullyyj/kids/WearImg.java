@@ -12,9 +12,9 @@ public final class WearImg {
         return Core.sheets.get("wear_" + Wardrobe.IDS[ci], null);
     }
 
-    /** 몸에 입혀 구운 옷 한 벌의 시트(assets/wear/<친구>_g<옷 번호>.webp). 아직 읽는 중이거나 없으면 null. */
+    /** 몸에 입혀 구운 옷 한 벌의 시트(assets/wear/<친구>_g<옷 번호>.webp · 두덩 같은 구운 모자는 번호 20 + 모자 번호). 아직 읽는 중이거나 없으면 null. */
     public static Bitmap worn(int ci, int i) {
-        if (ci < 0 || ci >= Wardrobe.IDS.length || i < 0 || i >= Wardrobe.PER || Core.sheets == null) return null;
+        if (ci < 0 || ci >= Wardrobe.IDS.length || i < 0 || i >= 2 * Wardrobe.PER || Core.sheets == null) return null;
         return Core.sheets.get("wear_" + Wardrobe.IDS[ci] + "_g" + i, null);
     }
 }
