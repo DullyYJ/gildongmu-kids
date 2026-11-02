@@ -34,6 +34,12 @@ final class Sheets {
         return "bbosong".equals(id) ? "bbosong_0" : id;
     }
 
+    /** 그릴 시트 이름. 두덩은 모자를 쓰면 안전모가 없는 시트(assets/wear/dudung_nh · dudung_act_nh)에 새 모자를 씌운다(안전모 위에 겹쳐 보이지 않게). */
+    static String file(String id, boolean act, Dress.Look lk) {
+        if ("dudung".equals(id) && lk != null && lk.ops[0] != null) return act ? "wear_dudung_act_nh" : "wear_dudung_nh";
+        return act ? actFile(id) : walkFile(id);
+    }
+
     static String actFile(String id) {
         return "bbosong".equals(id) ? "bbosong_0_act" : id + "_act";
     }

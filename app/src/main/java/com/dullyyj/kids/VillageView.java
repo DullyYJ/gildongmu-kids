@@ -210,7 +210,8 @@ final class VillageView extends View {
 
     private void drawSprite(Canvas c, A x, long now, float left, float top, float s) {
         boolean act = "cell".equals(x.mode) && x.cell >= 0;
-        String file = act ? Sheets.actFile(x.id) : Sheets.walkFile(x.id);
+        Dress.Look lk = Dress.I.look(x.id);          // 입은 모습(엔진이 계산한 자리에 그리기만 한다)
+        String file = Sheets.file(x.id, act, lk);
         Bitmap b = Core.sheets.get(file, inv);
         if (b == null) {
             p.setColor(Pal.c(Pal.BORDER));
@@ -237,7 +238,6 @@ final class VillageView extends View {
             c.scale(-1f, 1f, left + s / 2f, 0f);
         }
         c.drawBitmap(b, src, dst, p);
-        Dress.Look lk = Dress.I.look(x.id);          // 입은 모습(엔진이 계산한 자리에 그리기만 한다)
         if (lk != null) WearDraw.worn(c, wearPen, lk, Wardrobe.ci(x.id), act ? 2 : 0, idx, dst.left, dst.top, s);
         if (flip) c.restore();
     }

@@ -97,6 +97,7 @@ final class DressView extends View {
             pfSlot = slot;
             WearImg.prefetch(ci, slot, inv);
             WearImg.prefetch(ci, slot == 0 ? 1 : 0, inv);
+            if (ci == 5 && Core.sheets != null) Core.sheets.get("wear_dudung_nh", inv);      // 두덩 모자용 맨머리 시트를 미리 읽어 둔다
         }
         long now = SystemClock.uptimeMillis();
         boolean moving = false;
@@ -105,7 +106,8 @@ final class DressView extends View {
         p.setColor(Pal.c(Pal.IMGBG));
         cv.drawRoundRect(avR, dp(18), dp(18), p);
         String id = Wardrobe.IDS[ci];
-        Bitmap b = Core.sheets == null ? null : Core.sheets.get(Sheets.walkFile(id), inv);
+        Dress.Look wl = d.look(id);
+        Bitmap b = Core.sheets == null ? null : Core.sheets.get(Sheets.file(id, false, wl), inv);
         float room = Math.min(avR.height() - dp(30), w * 0.6f);
         if (b != null) {
             int cs = b.getWidth() / 4, cell = (int) ((now / 140L) % 4L);
@@ -114,7 +116,7 @@ final class DressView extends View {
             float l = (w - room) / 2f, t = dp(6) + bob;
             dst.set(l, t, l + room, t + room);
             cv.drawBitmap(b, src, dst, p);
-            WearDraw.worn(cv, pen, d.look(id), ci, 0, cell, l, t, room);
+            WearDraw.worn(cv, pen, wl, ci, 0, cell, l, t, room);
             moving = true;
         }
         tp.setTextAlign(Paint.Align.CENTER);
