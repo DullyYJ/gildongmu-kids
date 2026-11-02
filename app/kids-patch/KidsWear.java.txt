@@ -61,18 +61,22 @@ final class KidsWear {
         if (ci < 0) return;
         PEN.c = c;
         c.lineCapRound(true);
-        AndroidCv.AImg at = img(ci);
         for (int n = 0; n < 3; n++) {
             int slot = n == 0 ? 1 : n == 1 ? 2 : 0;          // 옷 → 소지품 → 모자
             Art.Op[] ops = lk.ops[slot];
             if (ops == null || !(slot == 2 ? Wardrobe.floatAt(ci, kind, idx, android.os.SystemClock.uptimeMillis(), O) : Wardrobe.place(ci, kind, idx, slot, O))) continue;   // 소지품은 친구 옆에서 둥실둥실(엔진 floatAt)
             int i = lk.idx[slot];
-            if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
-                // 몸에 입혀 구운 옷(칸마다 한 장): 읽혀 있으면 그것만 그린다
+            if (Wardrobe.sprite(ci, slot, i, SP)) {
+                // 몸에 입혀 구운 옷(칸마다 한 장): 읽혀 있으면 그것만 그린다 — 큰 도감 시트는 이때 읽지 않는다(여덟이 모두 꾸미고 나와도 메모리가 넘치지 않게)
                 int bi = slot == 0 ? Wardrobe.PER + i : i;         // 구운 모자는 번호 20 + 모자 번호
                 AndroidCv.AImg wi = Wardrobe.baked(ci, slot, i) ? worn(ci, bi) : null;
                 if (wi != null && Wardrobe.wornTile(ci, kind, idx, bi, WT)) {
                     c.drawImage(wi, WT[0], WT[1], WT[2], WT[3], dx + WT[4] * sc, dy + WT[5] * sc, WT[2] * sc, WT[3] * sc);
+                    continue;
+                }
+                AndroidCv.AImg at = img(ci);                        // 구워지지 않은 것(또는 구운 조각이 아직 읽히는 중)만 도감 시트에서 줄 단위로
+                if (at == null) {
+                    Art.draw(PEN, ops, (float) (dx + O[0] * sc), (float) (dy + O[1] * sc), (float) (O[2] * sc));
                     continue;
                 }
                 // 옷은 몸 윤곽을 따라 줄마다 몸 폭에 맞춰 입힌다(엔진이 줄 · 자리를 계산) — 나머지는 한 장

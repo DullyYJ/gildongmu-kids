@@ -46,6 +46,7 @@ final class KidsActs {
     };
     static final String[] STUDY = {"공부 중이에요 📖", "조용히 해 주세요, 집중!", "받아쓰기 연습 중이에요", "구구단을 외우는 중이에요"};
     static final String[] SULK = {"흥! 삐졌어요", "말 걸지 마요…", "밥도 안 주고!"};
+    static final String[] SLEEPY = {"너무 졸려요…", "하암~ 졸려요", "눈이 자꾸 감겨요…", "조금만 놀고 잘래요", "쿨… 아니, 놀아요!", "잠이 솔솔 와요", "더 자고 싶은데…", "함~ 하품이 나와요", "으음… 아직 밤인데요", "눈 비비는 중이에요", "졸려도 같이 있을래요", "이불이 보고 싶어요"};
     static final String[] SICK = {"아파요… 도와주세요", "콜록콜록… 힘이 없어요", "쉬고 싶어요…"};
 
     static int ix(String id) {
@@ -69,6 +70,7 @@ final class KidsActs {
     static final HashMap<String, String> angryAct = new HashMap<>();
     static final HashMap<String, Double> lastPoke = new HashMap<>();
     static final HashMap<String, String> applied = new HashMap<>();
+    static final HashMap<String, Double> playNext = new HashMap<>();   // 졸린 채 모인 친구가 다음에 졸린 말을 할 때
     static final HashMap<String, Double> poopT = new HashMap<>();      // 응가가 땅에 나온 때(나온 뒤에만 그린다)
     static final HashMap<String, Double> popT = new HashMap<>();       // 마지막 응가가 늘어난 때(통통 튀는 연출)
     static final HashMap<String, Integer> poopN = new HashMap<>();
@@ -279,11 +281,16 @@ final class KidsActs {
                     S.startAct(a, name);
                 }
             } else {
-                if (isKids(cur) && !cur.equals("kplay")) S.endAct(a);
+                if (isKids(cur) && !cur.equals("kplay")) { S.endAct(a); cur = ""; }          // 자다가·공부하다가 놀기로 바뀌면 같은 틱에 놀기를 시작한다
                 String last = applied.get(a.id);
-                if ("play".equals(s) && !"play".equals(last) && !isKids(cur)) {
-                    reset(a);
-                    S.startAct(a, "kplay");
+                if ("play".equals(s) && !isKids(cur)) {
+                    Double nx = playNext.get(a.id);
+                    boolean again = Poke.sleepy(a.id) && (nx == null || S.t >= nx);      // 졸린 채 모인 친구는 모여 있는 동안 졸린 말을 사이사이 계속 한다
+                    if (!"play".equals(last) || again) {
+                        reset(a);
+                        S.startAct(a, "kplay");
+                        playNext.put(a.id, S.t + 3.6 + 2.5 + S.rnd() * 3.5);
+                    }
                 }
             }
             applied.put(a.id, angry ? "angry" : s);
@@ -416,7 +423,7 @@ final class KidsActs {
 
     // ───────── 동작 등록 ─────────
     static void register(final SceneCore S) {
-        rest.clear(); blockedSince.clear(); enterEdgeUntil = 0; menuA = null;      // 장면이 새로 만들어졌다 — 시간이 처음부터 다시 간다
+        rest.clear(); blockedSince.clear(); playNext.clear(); enterEdgeUntil = 0; menuA = null;      // 장면이 새로 만들어졌다 — 시간이 처음부터 다시 간다
         // 공부: 앉아서 가만히 집중(앞에 책)
         SceneActs.A_(S, "kstudy", 3600, null, (a, u, dt, A) -> {
             double T = S.t, el = T - A.t0; S.standF(a);
@@ -429,9 +436,15 @@ final class KidsActs {
             double T = S.t; S.standF(a); a.pose = 1; a.sy = 1 + Math.sin(T * 1.7) * .014;
             if (S.every(A, "zz", .8)) S.ptx("zzz", a.x + a.dir * S.HH(a) * .3, S.feetY(a) - S.HH(a) * .8, 1, po().a(-PI * .6, -PI * .4).s(6, 9).g(-4).l(1, 1.4).r(1));
         }, null);
-        // 같이 놀기: 폴짝폴짝 신나게
+        // 같이 놀기: 폴짝폴짝 신나게 — 자다가 불려 나온 친구(엔진이 알려 줌)는 졸린 채로 느릿느릿, 졸린 말을 한다
         SceneActs.A_(S, "kplay", 3.6, null, (a, u, dt, A) -> {
-            double h = S.HH(a), T = S.t; S.standF(a); boolean on = u > .06 && u < .94;
+            double h = S.HH(a), T = S.t; S.standF(a); boolean on = u > .06 && u < .94, zz = Poke.sleepy(a.id);
+            if (zz) {
+                a.pose = on ? 0 : -1; a.y = on ? -Math.abs(Math.sin(T * 3.2)) * 3 : 0; a.sy = 1 + (on ? .02 * Math.sin(T * 5) : 0); a.ang = on ? Math.sin(T * 2.1) * .05 : 0;
+                if (S.every(A, "zy", 1.1)) S.ptx("zzz", a.x + a.dir * h * .3, S.feetY(a) - h * .8, 1, po().a(-PI * .6, -PI * .4).s(6, 9).g(-4).l(1, 1.4).r(1));
+                if (u > .05 && S.once(A, "sy")) S.say(a, SLEEPY[(ix(a.id) * 3 + (int) (T / 3.6) + (int) (S.rnd() * SLEEPY.length)) % SLEEPY.length], 2.6);
+                return;
+            }
             a.pose = on ? 2 : -1; a.y = on ? -Math.abs(Math.sin(T * 6.6)) * 8 : 0; a.sy = 1 + (on ? .03 * Math.sin(T * 13.2) : 0);
             if (S.every(A, "sp", .25)) S.ptx("spark", a.x + (S.rnd() - .5) * h * .9, S.feetY(a) - h * (.5 + S.rnd() * .6), 1, po().a(-PI * .8, -PI * .2).s(8, 16).g(0).l(.3, .5).r(.9));
             if (u > .05 && S.once(A, "sy")) S.say(a, new String[] {"같이 놀자!", "우리 같이 놀아요!", "신난다!", "야호!"}[(int) (S.rnd() * 4) % 4], 1.8);
