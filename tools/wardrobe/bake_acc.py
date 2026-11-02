@@ -28,7 +28,7 @@ PAR = {
     'medal': dict(w=0.34, dy=-0.06, anchor='top', rot=0.5),
     'neck':  dict(w=0.74, dy=-0.10, anchor='top', rot=0.8),
 }
-CFG = {0: dict(w=0.78, nx='chest', wing_head=1, dog=1), 1: dict(w=0.78, nx='chest', wing_head=1, dog=1)}
+CFG = {0: dict(w=0.78, nx='chest', wing_head=1, dog=1, sgrow=22, sw=0.62), 1: dict(w=0.78, nx='chest', wing_head=1, dog=1, sgrow=22, sw=0.62), 4: dict(sw=0.36)}
 DOG = dict(headw=0.60, dyo=-0.15, kw={'bow': 1.0, 'tie': 1.45, 'scarf': 1.25, 'medal': 1.5, 'neck': 1.0})   # 개 친구: 머리털 덩어리 아래 턱선에 맞춤   # 친구마다: 폭 배율 · 목 가운데를 가슴(몸통 가운데)에 둘지 · 옆으로 옮김
 SC = {}      # SC[(ci,kind)] = (폭 배율, 아래로 옮김(머리 높이 비율))
 try:
@@ -187,6 +187,113 @@ def sash(ci, i, g, Bm, ba, shade):
     return finish(S, clip, ba, shade)
 
 
+
+# ---- p-kids60: 어깨띠 · 넥타이를 친구마다 몸통에 맞춰 그린다 ----
+_strip = {}
+def strip(ci, i):
+    """도감 그림(비스듬한 띠)을 가로로 곧게 펴서 (RGBA float straight, 길이, 두께)로. 가운데 메달 · 무늬는 그대로."""
+    k = (ci, i)
+    if k in _strip: return _strip[k]
+    G = B.sprite(ci, i); a = G[..., 3] > 0.47
+    ys, xs = np.where(a); pts = np.stack([xs, ys], 1).astype(np.float32); pts -= pts.mean(0)
+    w, v = np.linalg.eigh(np.cov(pts.T)); d = v[:, 1]
+    if d[0] < 0: d = -d
+    ang = math.degrees(math.atan2(d[1], d[0]))
+    im = Image.fromarray((np.clip(G, 0, 1) * 255).astype(np.uint8), 'RGBA')
+    big = Image.new('RGBA', (G.shape[1] * 2, G.shape[0] * 2), (0, 0, 0, 0)); big.paste(im, (G.shape[1] // 2, G.shape[0] // 2))
+    big = big.rotate(ang, resample=Image.BICUBIC)
+    R = np.asarray(big).astype(np.float32) / 255
+    aa = R[..., 3] > 0.47; rr = np.where(aa.any(1))[0]; cc = np.where(aa.any(0))[0]
+    R = R[rr.min():rr.max() + 1, cc.min():cc.max() + 1]
+    _strip[k] = (R, R.shape[1], R.shape[0]); return _strip[k]
+
+def bez(p0, pc, p1, n=300):
+    t = np.linspace(0, 1, n)[:, None]
+    return (1 - t) ** 2 * np.array(p0) + 2 * (1 - t) * t * np.array(pc) + t * t * np.array(p1)
+
+def body_area(g):
+    cls = g['cls']; T = g['T']
+    grow = ndi.binary_dilation(T, iterations=3) & ((cls == 1) | (cls == 4) | (cls == 0))
+    return T | grow
+
+def dome_of(A, R=26.0, k=0.40, base=0.72):
+    dist = ndi.distance_transform_edt(A)
+    tt = np.clip(dist / R, 0, 1); hh = ndi.gaussian_filter(np.sqrt(1 - (1 - tt) ** 2) * R, 3)
+    gy, gx = np.gradient(hh); nz = 1 / np.sqrt(1 + gx ** 2 + gy ** 2); nx = -gx * nz; ny = -gy * nz
+    return base + k * np.clip(nx * -0.45 + ny * -0.6 + nz * 0.66, 0, 1)
+
+def sash_band(ci, i, g, ba, shade):
+    """어깨띠: 한쪽 어깨(머리 뒤)에서 가슴을 가로질러 반대쪽 옆구리로 가는 휜 띠. 몸통 모양으로 잘려 몸을 두른 듯 끝이 옆으로 넘어간다."""
+    T = g['T']; A = body_area(g)
+    sg = CFG.get(ci, {}).get('sgrow', 0)
+    if sg: A = A | (ndi.binary_dilation(T, iterations=sg) & ((g['cls'] == 1) | (g['cls'] == 3) | (g['cls'] == 4)) & (ba > 0.5))
+    Tw = g['tx1'] - g['tx0']; Th = g['ty1'] - g['ty0']
+    ys, xs = np.where(T); cx = float(xs.mean()); cy = float(ys.mean())
+    sx, dyy = SC.get((ci, 'sash'), (1.0, 0.0))
+    ew = min(Tw, 1.25 * Th)                                  # 길쭉한 몸통(고양이 · 개)도 가슴 한 뼘만
+    side = CFG.get(ci, {}).get('sside', 1)                  # 1: 왼쪽 어깨 → 오른쪽 옆구리
+    a0 = (cx - side * 0.55 * ew, g['ty0'] - 0.12 * Th + dyy * Th)
+    a1 = (cx + side * 0.55 * ew, g['ty1'] + 0.08 * Th + dyy * Th)
+    L0 = math.hypot(a1[0] - a0[0], a1[1] - a0[1])
+    dxn, dyn = (a1[0] - a0[0]) / L0, (a1[1] - a0[1]) / L0
+    bul = CFG.get(ci, {}).get('sbul', 0.10)
+    pc = ((a0[0] + a1[0]) / 2 - dyn * bul * L0 * side, (a0[1] + a1[1]) / 2 + dxn * bul * L0 * side)
+    pts = bez(a0, pc, a1)
+    seg = np.hypot(*np.diff(pts, axis=0).T); sl = np.r_[0, np.cumsum(seg)]; L = sl[-1]
+    Wb = CFG.get(ci, {}).get('sw', 0.30) * min(Th, Tw) * sx * 1.0
+    Wb = max(Wb, 0.12 * max(Tw, Th))
+    from scipy.spatial import cKDTree
+    tr = cKDTree(pts)
+    ptsq = np.stack([X.ravel(), Y.ravel()], 1)
+    dist, idx = tr.query(ptsq)
+    tang = np.gradient(pts, axis=0); tang /= np.maximum(np.hypot(*tang.T)[:, None], 1e-6)
+    off = ptsq - pts[idx]
+    dsg = (tang[idx, 0] * off[:, 1] - tang[idx, 1] * off[:, 0])     # 부호 있는 수직 거리
+    s_ = sl[idx]
+    inband = (np.abs(dsg) <= Wb / 2)
+    vis = (inband.reshape(N, N)) & A
+    sc_ = s_.reshape(N, N)
+    s_c = float(sc_[vis].mean()) if vis.sum() > 20 else L / 2
+    R, Ls, Hs = strip(ci, i)
+    scale = Wb / float(Hs)
+    u = 0.5 * Ls + (sc_ - s_c) / scale
+    u = np.clip(u, 0.30 * Ls, 0.70 * Ls - 1) if False else np.where(np.abs(u - 0.5 * Ls) > 0.22 * Ls, 0.5 * Ls + np.sign(u - 0.5 * Ls) * 0.22 * Ls, u)
+    v = 0.5 * Hs + dsg.reshape(N, N) / scale
+    v = np.clip(v, 0, Hs - 1)
+    S = np.stack([ndi.map_coordinates(R[..., k] * R[..., 3] if k < 3 else R[..., 3], [v, u], order=1, mode='nearest') for k in range(4)], axis=-1)
+    edge = np.clip((Wb / 2 - np.abs(dsg.reshape(N, N))) / 1.2, 0, 1)
+    S = S * edge[..., None]
+    S[..., 3] = np.where(inband.reshape(N, N), S[..., 3], 0)
+    dome = dome_of(A, R=24.0, k=0.34, base=0.74)
+    S[..., :3] = S[..., :3] * dome[..., None]
+    clip = np.clip((ndi.gaussian_filter(A.astype(np.float32), 0.9) - 0.25) / 0.5, 0, 1) * (ba > 0.2)
+    return finish(S, clip, ba, shade)
+
+def tie_fit(ci, i, g, ba, shade):
+    """넥타이: 매듭을 턱 바로 아래 가슴 가운데에 두고 몸통 가운데 선을 따라 늘어뜨린다. 몸통 길이에 맞춰 크기 · 몸통 모양으로 잘라 가슴에 붙인다."""
+    T = g['T']; A = body_area(g)
+    P, r0, r1, c0, c1 = spr(ci, i)
+    asp = (c1 - c0) / float(r1 - r0)
+    hy1, hh, hw = g['hy1'], g['hh'], g['hw']
+    Tw = g['tx1'] - g['tx0']; Th = g['ty1'] - g['ty0']
+    sx, dyy = SC.get((ci, 'tie'), (1.0, 0.0))
+    yk = hy1 - 0.10 * hh + dyy * hh
+    rows = (Y >= g['ty0']) & (Y <= g['ty0'] + 0.40 * Th) & T
+    xt = float(X[rows].mean()) if rows.sum() > 20 else g['tcx']
+    xk = CFG.get(ci, {}).get('tx', 0.65) * xt + (1 - CFG.get(ci, {}).get('tx', 0.65)) * g['nx']
+    avail = (g['ty1'] - yk)
+    Lb = min(CFG.get(ci, {}).get('tl', 0.88) * avail, 0.95 * hh) * sx
+    Lb = max(Lb, 0.30 * hh)
+    width = min(Lb * asp, 0.62 * Tw)
+    S = put(ci, i, xk, yk, width, g['chin'] * 0.5, 'top')
+    H = (g['cls'] == 2)
+    lowhead = H & (Y > hy1 - 0.14 * hh)
+    C = A | lowhead
+    dome = dome_of(A | (H & (Y > hy1 - 0.3 * hh)), R=30.0, k=0.22, base=0.86)
+    S[..., :3] = S[..., :3] * dome[..., None]
+    clip = np.clip((ndi.gaussian_filter(C.astype(np.float32), 0.9) - 0.25) / 0.5, 0, 1) * (ba > 0.2)
+    return finish(S, clip, ba, shade)
+
 # ---- p-kids59: 목걸이 · 목도리는 그림 한 장을 늘이지 않고, 목 둘레 곡선을 따라 구슬 · 천 관을 직접 그린다(색은 도감 그림에서 뽑음) ----
 def palette(ci, i, n=5):
     """도감 그림에서 많이 쓰인 색(빈도 순, 서로 다른 것). → [(r,g,b) 0~1]"""
@@ -305,7 +412,9 @@ def scarf(ci, i, g, ba, shade):
     return finish(S, np.ones_like(ba), ba, np.ones_like(ba), shadow=True)
 
 def bake_item(ci, sheet, cell, i, k, g, Bm, ba, shade):
+    if k == 'sash' and g.get('T') is not None: return sash_band(ci, i, g, ba, shade)
     if k == 'sash': return sash(ci, i, g, Bm, ba, shade)
+    if k == 'tie' and g.get('T') is not None: return tie_fit(ci, i, g, ba, shade)
     if k == 'neck': return necklace(ci, i, g, ba, shade)
     if k == 'scarf': return scarf(ci, i, g, ba, shade)
     nx, hy1, hy0, hw, hh, chin = g['nx'], g['hy1'], g['hy0'], g['hw'], g['hh'], g['chin']

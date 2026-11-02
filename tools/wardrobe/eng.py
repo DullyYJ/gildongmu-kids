@@ -32,9 +32,17 @@ def bodyAt(ci,idx,ty,bh,y):
     if b: return lb,rb
     return None
 WIDEN=1.0
+import json as _j, os as _o
+HADJ={}
+def load_hadj(fn='hadj.json'):
+    HADJ.clear()
+    if _o.path.exists(fn): HADJ.update({tuple(map(int,k.split(':'))):v for k,v in _j.load(open(fn)).items()})
+load_hadj()
 def strips(ci,sheet,cell,slot,i,x,y,u,allow_wrap=True):
-    b0=(slot*20+i)*3; fcx,fcy,side=WM[ci][b0:b0+3]; sw=side*u
-    cxs=x+fcx*u; cys=y+fcy*u; sx0=cxs-sw/2; sy0=cys-sw/2; P=192/sw
+    b0=(slot*20+i)*3; fcx,fcy,side=WM[ci][b0:b0+3]
+    ds,ddx,ddy=HADJ.get((ci,i),(1,0,0)) if slot==0 else (1,0,0)
+    sw=side*u*ds
+    cxs=x+(fcx+ddx)*u; cys=y+(fcy+ddy)*u; sx0=cxs-sw/2; sy0=cys-sw/2; P=192/sw
     idx=[cell,16+cell,24+cell][sheet]
     wrap= allow_wrap and slot==1 and WRAPS[ci][i]=='1'
     if wrap:
