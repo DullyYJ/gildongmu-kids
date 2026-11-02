@@ -31,15 +31,15 @@ final class KidsWear {
     private static final float[] O = new float[4], SP = new float[3], ST = new float[8 * Wardrobe.NS];
     private static final Bitmap[] BM = new Bitmap[8];
     private static final AndroidCv.AImg[] IM = new AndroidCv.AImg[8];
-    private static final Bitmap[] WBM = new Bitmap[8 * Wardrobe.PER];
-    private static final AndroidCv.AImg[] WIM = new AndroidCv.AImg[8 * Wardrobe.PER];
+    private static final Bitmap[] WBM = new Bitmap[8 * 2 * Wardrobe.PER];
+    private static final AndroidCv.AImg[] WIM = new AndroidCv.AImg[8 * 2 * Wardrobe.PER];
     private static final int[] WT = new int[6];
 
     /** 몸에 입혀 구운 옷 한 벌의 시트. 없거나 아직 읽는 중이면 null. */
     private static AndroidCv.AImg worn(int ci, int i) {
         Bitmap b = WearImg.worn(ci, i);
         if (b == null) return null;
-        int k = ci * Wardrobe.PER + i;
+        int k = ci * 2 * Wardrobe.PER + i;
         if (WBM[k] != b) { WBM[k] = b; WIM[k] = new AndroidCv.AImg(b); }
         return WIM[k];
     }
@@ -69,8 +69,9 @@ final class KidsWear {
             int i = lk.idx[slot];
             if (at != null && Wardrobe.sprite(ci, slot, i, SP)) {
                 // 몸에 입혀 구운 옷(칸마다 한 장): 읽혀 있으면 그것만 그린다
-                AndroidCv.AImg wi = Wardrobe.baked(ci, slot, i) ? worn(ci, i) : null;
-                if (wi != null && Wardrobe.wornTile(ci, kind, idx, i, WT)) {
+                int bi = slot == 0 ? Wardrobe.PER + i : i;         // 구운 모자는 번호 20 + 모자 번호
+                AndroidCv.AImg wi = Wardrobe.baked(ci, slot, i) ? worn(ci, bi) : null;
+                if (wi != null && Wardrobe.wornTile(ci, kind, idx, bi, WT)) {
                     c.drawImage(wi, WT[0], WT[1], WT[2], WT[3], dx + WT[4] * sc, dy + WT[5] * sc, WT[2] * sc, WT[3] * sc);
                     continue;
                 }
