@@ -127,7 +127,7 @@ public class WardrobeTest {
           }
           ok(hb == 20 && hok, "두덩 모자 20개 + 뽀푸 · 둘숑 귀띠는 구운 조각으로(번호 20+), 다른 모자는 그대로"); }
         for (int c = 0; c < 8; c++) for (int it = 0; it < Wardrobe.PER; it++) if (Wardrobe.baked(c, 1, it) && !Wardrobe.wraps(c, 1, it)) bk++;
-        ok(bk == 34, "몸에 맞춰 구운 장신구 옷(나비넥타이 · 넥타이 · 목도리 · 어깨띠 · 날개) 34벌(메달 · 꽃목걸이는 모두 조끼 · 우비 같은 옷으로 바뀜): " + bk);
+        ok(bk == 21, "몸에 맞춰 구운 장신구 옷(넥타이 · 목도리 · 어깨띠) 21벌(메달 · 꽃목걸이 · 나비넥타이 · 날개는 모두 조끼 · 우비 같은 옷으로 바뀜): " + bk);
         // 소지품은 친구 옆에서 둥실둥실: 모든 칸에서 자리가 나오고 · 몸 오른쪽(앞)에 있고 · 시간에 따라 위아래로 움직이며 · 자는 모습은 없다
         float[] fo = new float[4], f2 = new float[4];
         boolean fok = true; double maxd = 0;
