@@ -101,12 +101,11 @@ w("    private static final String[] WRAPS = {"+", ".join(jstr(t) for t in wraps
 w(open('/tmp/wg/strips.java.txt',encoding='utf-8').read())
 
 w("""    /**
-     * 한 칸에서 그림을 놓을 자리와 크기를 계산한다. out = {x, y, 크기} (칸 256 기준 픽셀). 그릴 수 없으면(자는 모습 등) false.
+     * 한 칸에서 그림을 놓을 자리와 크기를 계산한다. out = {x, y, 크기} (칸 256 기준 픽셀). 그릴 수 없으면(빈 칸 등) false. 자는 모습(자세 1)도 입힌다.
      * sheet: 0 걷기 · 1 자세 · 2 동작. slot: 0 모자 · 1 옷 · 2 소지품(앞쪽 = +x 쪽).
      */
     public static boolean place(int ci, int sheet, int cell, int slot, float[] out) {
         if (ci < 0 || ci >= 8 || sheet < 0 || sheet > 2 || slot < 0 || slot > 2) return false;
-        if (sheet == 1 && cell == 1) return false;                // 자는 모습엔 입히지 않는다
         int[] m = MET[ci][sheet];
         int b = cell * 5;
         if (cell < 0 || b + 4 >= m.length) return false;
