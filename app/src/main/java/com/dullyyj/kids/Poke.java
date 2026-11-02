@@ -33,9 +33,14 @@ public final class Poke {
     public static int poops(String id) {
         try { return id == null ? 0 : Integer.parseInt(field(id, 1)); } catch (NumberFormatException e) { return 0; }
     }
+    /** 자는 중(깨지 않은 채)인데 응가가 있으면 true — 이때는 건드려도 화내지 않고 원형 메뉴에서 '응가 치우기'만 누를 수 있다(나머지는 회색). 치우면 그대로 다시 잔다. */
+    public static boolean sleepPoop(String id) {
+        return id != null && "sleep".equals(state(id)) && poops(id) > 0;
+    }
     /** 건드린 친구가 공부 중이면 1, 자는 중이면 2, 아니면 0 — 화낼 일이면 엔진에도 알린다. */
     public static int kind(String id) {
         if (id == null) return 0;
+        if (sleepPoop(id)) return 0;                                              // 응가 싸고 자는 친구: 화내지 않는다(메뉴에서 응가만 치울 수 있다)
         int k = study.indexOf("," + id + ",") >= 0 ? 1 : sleep.indexOf("," + id + ",") >= 0 ? 2 : 0;
         Sink s = sink;
         if (k != 0 && s != null) s.angry(id);
