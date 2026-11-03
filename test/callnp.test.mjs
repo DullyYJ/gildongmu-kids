@@ -76,12 +76,23 @@ r = await req('POST', '/c/call', 'c', { k: 'arr' });
 chk(r.ok && r.np === 0, '부모 기기에 알림 열쇠가 없으면 np=0');
 DB._db.prepare("UPDATE devices SET ft='parent-token-1234567890abcd' WHERE id=?").run(PID);
 
-// 부모 화면: 확인 카드 가운데 맞춤
-const hub = await req('GET', '/p/screen?v=hub&cid=' + CID, 'p');
-const cards = (hub.screen.head || []).filter((n) => n.t === 'panel' && JSON.stringify(n).includes('데리러 와 달라고'));
-chk(cards.length === 1, '부모 화면 머리에 데리러 와줘 카드가 있다');
-const tt = cards[0] ? cards[0].kids.filter((k) => k.t === 'text') : [];
+// 부모 화면: 카드는 가장 급한 하나만(긴급 우선) · 가운데 맞춤 · 카드가 얹힌 만큼 지도가 줄어 아래 칸 크기는 그대로
+const mapOf = (h) => h.screen.head.find((n) => n.t === 'tmap');
+const cardsOf = (h) => (h.screen.head || []).filter((n) => n.t === 'panel' && /긴급 호출|데리러 와 달라고/.test(JSON.stringify(n)));
+let hub = await req('GET', '/p/screen?v=hub&cid=' + CID, 'p');
+let cards = cardsOf(hub);
+chk(cards.length === 1 && JSON.stringify(cards[0]).includes('긴급 호출'), '긴급 호출과 데리러 와줘가 함께 있으면 카드는 긴급 하나만');
+let tt = cards[0] ? cards[0].kids.filter((k) => k.t === 'text') : [];
 chk(tt.length === 2 && tt.every((k) => k.align === 'center'), '카드 제목 · 안내 글이 가운데 맞춤이다');
+chk(mapOf(hub).h === 150, '카드가 있으면 지도가 줄어든다(250 → 150, 아래 칸 크기는 그대로): ' + mapOf(hub).h);
+await req('POST', '/c/call', 'c', { k: 'sos', op: 'cancel' });
+hub = await req('GET', '/p/screen?v=hub&cid=' + CID, 'p');
+cards = cardsOf(hub);
+chk(cards.length === 1 && JSON.stringify(cards[0]).includes('데리러 와 달라고'), '긴급이 끝나면 데리러 와줘 카드가 보인다');
+await req('POST', '/p/act', 'p', { v: 'kx.done', cid: CID, id: DB._db.prepare("SELECT id FROM calls WHERE k='pick'").get().id });
+DB._db.prepare("UPDATE calls SET st=3 WHERE k='pick'").run();
+hub = await req('GET', '/p/screen?v=hub&cid=' + CID, 'p');
+chk(cardsOf(hub).length === 0 && mapOf(hub).h === 250, '카드가 없으면 지도는 원래 높이(250)');
 
 // 지난 경로: 아래 줄이 아니라 '+ 장소 등록 · 등록한 장소' 줄의 세 번째 단추(누르면 kr.open 팝업)
 const flat = (n) => (Array.isArray(n) ? n.flatMap(flat) : n && typeof n === 'object' ? [n].concat(Object.values(n).flatMap(flat)) : []);

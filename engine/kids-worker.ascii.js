@@ -862,6 +862,7 @@ function alertLines(nm, pls, trips, loc, now) {
   return out;
 }
 
+const HUB_CARD_H = 112;                                              // \ud5c8\ube0c \uc704\uc5d0 \uc5b9\ud788\ub294 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \uce74\ub4dc \ud55c \uc7a5\uc758 \ub192\uc774(dp, \uc5b4\ub9bc) \u2014 \uc9c0\ub3c4\ub97c \uc774\ub9cc\ud07c \uc904\uc778\ub2e4
 const EV_SHOW = 50, EV_VIS = 4, HUB_CHAT = 40, CHAT_BOX = 230;     // \ud5c8\ube0c \uc544\ub798 3\uce78\uc740 \uae00 \uc218\uc640 \uc0c1\uad00\uc5c6\uc774 \ud06c\uae30 \uace0\uc815: \ud65c\ub3d9 \uce78 = \uc0c1\ud0dc 2\uc904 + \ud65c\ub3d9 EV_VIS \uc904 \u00b7 \ud018\uc2a4\ud2b8 \uce78 = \ub2e8\ucd94\u00b7\uae38\ub3d9\ubb34\ud3ec\uc778\ud2b8\u00b7\ubc14\ub85c\uac00\uae30 \u00b7 \ub300\ud654 \uce78 = \uae00 \uc601\uc5ed CHAT_BOX(dp). \ub118\uce58\ub294 \uae00\uc740 \uce78 \uc548\uc5d0\uc11c\ub9cc \uc704\uc544\ub798\ub85c \ubbfc\ub2e4                    
 const KIDS_TAB = { label: '\ud0a4\uc988', icon: 'M12 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM6.8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17.2 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM12 12.5c-3.9 0-7 2-7 4.5V22h14v-5c0-2.5-3.1-4.5-7-4.5z' };      // \ud0a4\uc988 \ubaa8\ub4dc\uc758 \uc544\ub798 \ud0ed(\ud648 \uce78\uc744 \ubc14\uafd4 \uadf8\ub9b0\ub2e4): \uc5b4\ub9b0\uc774 \ubaa8\uc591 + \uae00\uc790 \u2014 \uc571\uc740 \uc774\ub300\ub85c \uadf8\ub9b0\ub2e4
 const evWhen = (t, now) => { if (kstParts(t).ds === kstParts(now).ds) return clock(t); const d = new Date(t + KST); return d.getUTCMonth() + 1 + '/' + d.getUTCDate() + ' ' + clock(t); };
@@ -931,11 +932,14 @@ async function hubScreen(DB, pid, cid, now) {
     pins.push({ la: rpts[0][0], lo: rpts[0][1], k: 's', n: '\ucd9c', l: rview.sn || '\ucd9c\ubc1c' }, { la: rpts[rpts.length - 1][0], lo: rpts[rpts.length - 1][1], k: 's', n: '\ub3c4', l: rview.en || '\ub3c4\ucc29' });
   }
   const follow = !viewing && cpin < 0 && !!loc && !noLoc && watching && now - loc.t < 60000;                  // \uc2e4\uc2dc\uac04 \ub530\ub77c\uac00\uae30(s393): \ubcf4\ub294 \uc911\uc774\uace0 \uc704\uce58\uac00 \ubc29\uae08 \uc628 \uac83\uc77c \ub54c\ub9cc \u2014 \uc571\uc740 \uc810\uc744 \ubd80\ub4dc\ub7fd\uac8c \uc62e\uae30\uace0 \uc9c0\ub3c4\uac00 \ub530\ub77c\uac04\ub2e4
+  // \ud55c \ud654\uba74\uc5d0 \uc2a4\ud06c\ub864 \uc5c6\uc774(s414): \uc704\uc5d0 \uce74\ub4dc\uac00 \uc5b9\ud788\uba74 \uadf8\ub9cc\ud07c \uc9c0\ub3c4\ub97c \uc904\uc5ec \uc544\ub798 \uce78 \ud06c\uae30\uac00 \uadf8\ub300\ub85c\uc774\uac8c \ud55c\ub2e4 \u2014 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \uce74\ub4dc\ub294 \uac00\uc7a5 \uae09\ud55c \ud558\ub098\ub9cc(\uae34\uae09 \uc6b0\uc120, \uc544\ub2c8\uba74 \ucd5c\uadfc)
+  const topCall = calls.find((c) => c.k === 'sos') || calls[0] || null;
+  const mapH = Math.max(150, 250 - (topCall ? HUB_CARD_H : 0) - (kids.length > 1 ? 44 : 0));
   const head = [
     viewing ? { t: 'lth', s: nm + ' \uc9c0\ub09c \uacbd\ub85c', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '\uc790\ub140 \uc704\uce58', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
-    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: 250, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '\uc9c0\ub09c \uacbd\ub85c \u00b7 \uc544\ub798 \ub2e8\ucd94\ub85c \uc2e4\uc2dc\uac04\uc73c\ub85c \ub3cc\uc544\uac00\uc694' : noLoc ? '\uc790\ub140 \uc704\uce58\ub97c \uc544\uc9c1 \ubc1b\uc9c0 \ubabb\ud588\uc5b4\uc694' : follow ? '\uc2e4\uc2dc\uac04\uc73c\ub85c \ub530\ub77c\uac00\ub294 \uc911 \u00b7 \uc9c0\ub3c4\ub97c \ubc00\uba74 \uc7a0\uc2dc \uba48\ucdb0\uc694' : '\uc9c0\ub3c4\ub97c 3\ucd08 \ub204\ub974\uba74 \uc7a5\uc18c\ub97c \ub4f1\ub85d\ud574\uc694', lp: 'kpl.new', fp: 40, fz: 16 },
+    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: mapH, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '\uc9c0\ub09c \uacbd\ub85c \u00b7 \uc544\ub798 \ub2e8\ucd94\ub85c \uc2e4\uc2dc\uac04\uc73c\ub85c \ub3cc\uc544\uac00\uc694' : noLoc ? '\uc790\ub140 \uc704\uce58\ub97c \uc544\uc9c1 \ubc1b\uc9c0 \ubabb\ud588\uc5b4\uc694' : follow ? '\uc2e4\uc2dc\uac04\uc73c\ub85c \ub530\ub77c\uac00\ub294 \uc911 \u00b7 \uc9c0\ub3c4\ub97c \ubc00\uba74 \uc7a0\uc2dc \uba48\ucdb0\uc694' : '\uc9c0\ub3c4\ub97c 3\ucd08 \ub204\ub974\uba74 \uc7a5\uc18c\ub97c \ub4f1\ub85d\ud574\uc694', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
-  for (const c of calls.slice().reverse()) head.unshift(panel([
+  for (const c of topCall ? [topCall] : []) head.unshift(panel([
     tx((c.k === 'sos' ? '\ud83d\udea8 ' + nm + ' \uae34\uae09 \ud638\ucd9c' : '\ud83d\ude97 ' + nm + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694'), { size: 15, bold: true, color: 'orange', lines: 1, align: 'center' }),
     tx(clock(c.t) + (c.pl ? ' \u00b7 ' + c.pl + ' \uadfc\ucc98' : '') + (c.st === 1 ? ' \u00b7 \ubd80\ubaa8\ub2d8 \uc911 \ud55c \ubd84\uc774 \ud655\uc778\ud588\uc5b4\uc694' : '') + ((c.la || c.lo) ? ' \u00b7 \uc9c0\ub3c4\uc5d0 \ud45c\uc2dc\ud588\uc5b4\uc694' : ' \u00b7 \uc704\uce58\ub97c \uc544\uc9c1 \ubabb \ubc1b\uc558\uc5b4\uc694'), { size: 11.5, color: 'sub', lines: 2, align: 'center', pad: [0, 3, 0, 8] }),
     { t: 'row', gap: 8, kids: [c.st === 0 ? btn(c.k === 'sos' ? '\ud655\uc778\ud588\uc5b4\uc694' : '\uc9c0\uae08 \uac00\uc694', call('kx.ack', '', c.id), gold) : btn(c.k === 'sos' ? '\uc0c1\ud669\uc774 \ub05d\ub0ac\uc5b4\uc694' : '\ub9cc\ub0ac\uc5b4\uc694', call('kx.done', '', c.id), gold)] },
@@ -982,15 +986,7 @@ async function hubScreen(DB, pid, cid, now) {
   ], { pad: [12, 1, 12, 0] }));
   // \uc9c0\ub09c \uacbd\ub85c(s391): 30\ubd84 \ub118\uac8c \uba38\ubb3c \ub54c\ub9c8\ub2e4 \uadf8 \uc804\uae4c\uc9c0\uc758 \uae38\uc774 \uc800\uc7a5\ub41c\ub2e4 \u2014 \uc790\ub140\ub2f9 RT_KEEP \uac1c. \ubaa9\ub85d\uc740 \uc704 '\uc9c0\ub09c \uacbd\ub85c' \ub2e8\ucd94\uc758 \ud31d\uc5c5(rtSheet)\uc5d0\uc11c \ubcf8\ub2e4(s413: \uc904 \u2192 \ub2e8\ucd94)
   // \ub4f1\ub85d\ud55c \uc7a5\uc18c\ub294 \uc704 \uc624\ub978\ucabd \ub2e8\ucd94\uc758 \ud31d\uc5c5(placesSheet)\uc5d0\uc11c \ubcf8\ub2e4
-  const hist = (await DB.prepare('SELECT t.day day,t.st st,t.tn tn,t.td td,t.ta ta,t.tc tc,p.name name FROM trips t JOIN places p ON p.id=t.pl WHERE t.cid=? AND t.td>0 ORDER BY t.td DESC LIMIT 4').bind(cid).all()).results || [];
-  if (hist.length) {
-    const k = [tx('\ucd5c\uadfc \uc774\ub3d9 \uae30\ub85d', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 4] })];
-    for (const h of hist) {
-      const dd = String(h.day).slice(4, 6) * 1 + '/' + String(h.day).slice(6) * 1;
-      k.push(tx(dd + ' ' + h.name + ' \u00b7 ' + clock(h.td) + ' \ucd9c\ubc1c' + (h.tc ? ' \u2192 ' + clock(h.tc) + ' \ub3c4\ucc29 (\ud3ec\uc778\ud2b8 +' + ARRIVE_PT + ')' : h.ta ? ' \u2192 ' + clock(h.ta) + ' \ub3c4\ucc29(\ubbf8\ud655\uc778)' : ' \u2192 \ub3c4\ucc29 \uc804'), { size: 12, color: h.tc ? 'text' : 'sub', pad: [0, 2, 0, 2] }));
-    }
-    body.push(panel(k, { pad: [12, 8, 12, 0] }));
-  }
+  // \ucd5c\uadfc \uc774\ub3d9 \uae30\ub85d\uc740 '\uc9c0\ub09c \uacbd\ub85c' \ud31d\uc5c5(rtSheet)\uc73c\ub85c \uc62e\uacbc\ub2e4(s414: \ud5c8\ube0c\ub294 \ud55c \ud654\uba74\uc5d0 \uc2a4\ud06c\ub864 \uc5c6\uc774 \u2014 \uce78 \ud06c\uae30\uac00 \uae00 \uc218\uc5d0 \ub530\ub77c \ub2ec\ub77c\uc9c0\uc9c0 \uc54a\uac8c)
   // \uac00\uc871 \uc2e4\uc2dc\uac04 \ub300\ud654(\ud30c\ub780 \uc810): \uc81c\ubaa9\uc740 \ub124\ubaa8\uce78 \ubc16(\uc704)\uc5d0 \u2014 \ub124\ubaa8\uce78 \uc548\uc740 \uc704\uac00 \ub300\ud654 \ub0b4\uc6a9(\ub0a8\ub294 \uc138\ub85c\ub97c \ucc98\uc74c\ubd80\ud130 \ub2e4 \ucc28\uc9c0 \u00b7 \uc544\ub798\uac00 \ucd5c\uadfc \u00b7 \uc9c0\ub09c \uae00\uc740 \uce78 \uc548\uc5d0\uc11c\ub9cc \ubc00\uc5b4 \ubd04), \ub9e8 \uc544\ub798\uac00 \uc785\ub825\uc904. \ubc15\uc2a4\ub97c \ub204\ub974\uba74 \uc804\uccb4 \ub300\ud654 \ud31d\uc5c5
   const msgs = ((await DB.prepare('SELECT id,f,x,t FROM chat WHERE cid=? AND t>=? ORDER BY id DESC LIMIT ?').bind(cid, now - CHAT_KEEP, HUB_CHAT).all()).results || []).reverse();
   const rd = await rdMap(DB, cid);
@@ -1008,6 +1004,17 @@ async function hubScreen(DB, pid, cid, now) {
   return scr('kids', head, body, Object.assign({ foot, fl: false }, sw ? { sw } : {}));
 }
 
+/** \ucd5c\uadfc \uc774\ub3d9 \uae30\ub85d(\ucd9c\ubc1c \u00b7 \ub3c4\ucc29 4\uac74) \uae00 \uc904 \u2014 \uc5c6\uc73c\uba74 \ube48 \ubc30\uc5f4. */
+async function histLines(DB, cid) {
+  const hist = (await DB.prepare('SELECT t.day day,t.st st,t.tn tn,t.td td,t.ta ta,t.tc tc,p.name name FROM trips t JOIN places p ON p.id=t.pl WHERE t.cid=? AND t.td>0 ORDER BY t.td DESC LIMIT 4').bind(cid).all()).results || [];
+  if (!hist.length) return [];
+  const k = [tx('\ucd5c\uadfc \uc774\ub3d9 \uae30\ub85d', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 4] })];
+  for (const h of hist) {
+    const dd = String(h.day).slice(4, 6) * 1 + '/' + String(h.day).slice(6) * 1;
+    k.push(tx(dd + ' ' + h.name + ' \u00b7 ' + clock(h.td) + ' \ucd9c\ubc1c' + (h.tc ? ' \u2192 ' + clock(h.tc) + ' \ub3c4\ucc29 (\ud3ec\uc778\ud2b8 +' + ARRIVE_PT + ')' : h.ta ? ' \u2192 ' + clock(h.ta) + ' \ub3c4\ucc29(\ubbf8\ud655\uc778)' : ' \u2192 \ub3c4\ucc29 \uc804'), { size: 12, color: h.tc ? 'text' : 'sub', pad: [0, 2, 0, 2] }));
+  }
+  return k;
+}
 /** \uc9c0\ub09c \uacbd\ub85c \uc904 \uae00: '11/03 06:20 \u2192 06:48 \u00b7 3.2km' (\uac19\uc740 \ub0a0\uc774\uba74 \ub0a0\uc9dc \uc0dd\ub7b5) */
 function rtTitle(r, now) { return evWhen(r.t0, now) + ' \u2192 ' + clock(r.t1) + ' \u00b7 ' + fmtDist(r.m); }
 function rtSub(r) { const mi = Math.max(1, Math.round((r.t1 - r.t0) / 60000)); return (r.sn || '\ucd9c\ubc1c') + ' \u2192 ' + (r.en || '\ub3c4\ucc29') + ' \u00b7 ' + (mi >= 60 ? Math.floor(mi / 60) + '\uc2dc\uac04 ' + (mi % 60 ? mi % 60 + '\ubd84' : '') : mi + '\ubd84'); }
@@ -1019,6 +1026,8 @@ async function rtSheet(DB, pid, cid, now, notice) {
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 0, 16, 6] }));
   if (!rows.length) body.push(tx('\uc544\uc9c1 \uc800\uc7a5\ub41c \uacbd\ub85c\uac00 \uc5c6\uc5b4\uc694', { size: 12.5, color: 'sub', pad: [16, 12, 16, 12] }));
   if (rows.length) body.push(panel(rows.map((r) => ({ t: 'navrow', title: rtTitle(r, now), sub: rtSub(r), act: call('kr.' + r.id), size: 13, vp: 8 })), { pad: [12, 0, 12, 0], ip: [14, 6, 14, 6] }));
+  const hk = await histLines(DB, cid);
+  if (hk.length) body.push(panel(hk, { pad: [12, 8, 12, 0] }));
   body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('\ub2eb\uae30', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
   return scr('kidrt', [], body, { dlg: dlg() });
 }

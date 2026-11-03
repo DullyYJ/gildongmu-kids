@@ -862,6 +862,7 @@ function alertLines(nm, pls, trips, loc, now) {
   return out;
 }
 
+const HUB_CARD_H = 112;                                              // 허브 위에 얹히는 긴급 호출 · 데리러 와줘 카드 한 장의 높이(dp, 어림) — 지도를 이만큼 줄인다
 const EV_SHOW = 50, EV_VIS = 4, HUB_CHAT = 40, CHAT_BOX = 230;     // 허브 아래 3칸은 글 수와 상관없이 크기 고정: 활동 칸 = 상태 2줄 + 활동 EV_VIS 줄 · 퀘스트 칸 = 단추·길동무포인트·바로가기 · 대화 칸 = 글 영역 CHAT_BOX(dp). 넘치는 글은 칸 안에서만 위아래로 민다                    
 const KIDS_TAB = { label: '키즈', icon: 'M12 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM6.8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17.2 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM12 12.5c-3.9 0-7 2-7 4.5V22h14v-5c0-2.5-3.1-4.5-7-4.5z' };      // 키즈 모드의 아래 탭(홈 칸을 바꿔 그린다): 어린이 모양 + 글자 — 앱은 이대로 그린다
 const evWhen = (t, now) => { if (kstParts(t).ds === kstParts(now).ds) return clock(t); const d = new Date(t + KST); return d.getUTCMonth() + 1 + '/' + d.getUTCDate() + ' ' + clock(t); };
@@ -931,11 +932,14 @@ async function hubScreen(DB, pid, cid, now) {
     pins.push({ la: rpts[0][0], lo: rpts[0][1], k: 's', n: '출', l: rview.sn || '출발' }, { la: rpts[rpts.length - 1][0], lo: rpts[rpts.length - 1][1], k: 's', n: '도', l: rview.en || '도착' });
   }
   const follow = !viewing && cpin < 0 && !!loc && !noLoc && watching && now - loc.t < 60000;                  // 실시간 따라가기(s393): 보는 중이고 위치가 방금 온 것일 때만 — 앱은 점을 부드럽게 옮기고 지도가 따라간다
+  // 한 화면에 스크롤 없이(s414): 위에 카드가 얹히면 그만큼 지도를 줄여 아래 칸 크기가 그대로이게 한다 — 긴급 호출 · 데리러 와줘 카드는 가장 급한 하나만(긴급 우선, 아니면 최근)
+  const topCall = calls.find((c) => c.k === 'sos') || calls[0] || null;
+  const mapH = Math.max(150, 250 - (topCall ? HUB_CARD_H : 0) - (kids.length > 1 ? 44 : 0));
   const head = [
     viewing ? { t: 'lth', s: nm + ' 지난 경로', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '자녀 위치', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
-    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: 250, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '자녀 위치를 아직 받지 못했어요' : follow ? '실시간으로 따라가는 중 · 지도를 밀면 잠시 멈춰요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
+    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: mapH, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '자녀 위치를 아직 받지 못했어요' : follow ? '실시간으로 따라가는 중 · 지도를 밀면 잠시 멈춰요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
-  for (const c of calls.slice().reverse()) head.unshift(panel([
+  for (const c of topCall ? [topCall] : []) head.unshift(panel([
     tx((c.k === 'sos' ? '🚨 ' + nm + ' 긴급 호출' : '🚗 ' + nm + ' 데리러 와 달라고 해요'), { size: 15, bold: true, color: 'orange', lines: 1, align: 'center' }),
     tx(clock(c.t) + (c.pl ? ' · ' + c.pl + ' 근처' : '') + (c.st === 1 ? ' · 부모님 중 한 분이 확인했어요' : '') + ((c.la || c.lo) ? ' · 지도에 표시했어요' : ' · 위치를 아직 못 받았어요'), { size: 11.5, color: 'sub', lines: 2, align: 'center', pad: [0, 3, 0, 8] }),
     { t: 'row', gap: 8, kids: [c.st === 0 ? btn(c.k === 'sos' ? '확인했어요' : '지금 가요', call('kx.ack', '', c.id), gold) : btn(c.k === 'sos' ? '상황이 끝났어요' : '만났어요', call('kx.done', '', c.id), gold)] },
@@ -982,15 +986,7 @@ async function hubScreen(DB, pid, cid, now) {
   ], { pad: [12, 1, 12, 0] }));
   // 지난 경로(s391): 30분 넘게 머물 때마다 그 전까지의 길이 저장된다 — 자녀당 RT_KEEP 개. 목록은 위 '지난 경로' 단추의 팝업(rtSheet)에서 본다(s413: 줄 → 단추)
   // 등록한 장소는 위 오른쪽 단추의 팝업(placesSheet)에서 본다
-  const hist = (await DB.prepare('SELECT t.day day,t.st st,t.tn tn,t.td td,t.ta ta,t.tc tc,p.name name FROM trips t JOIN places p ON p.id=t.pl WHERE t.cid=? AND t.td>0 ORDER BY t.td DESC LIMIT 4').bind(cid).all()).results || [];
-  if (hist.length) {
-    const k = [tx('최근 이동 기록', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 4] })];
-    for (const h of hist) {
-      const dd = String(h.day).slice(4, 6) * 1 + '/' + String(h.day).slice(6) * 1;
-      k.push(tx(dd + ' ' + h.name + ' · ' + clock(h.td) + ' 출발' + (h.tc ? ' → ' + clock(h.tc) + ' 도착 (포인트 +' + ARRIVE_PT + ')' : h.ta ? ' → ' + clock(h.ta) + ' 도착(미확인)' : ' → 도착 전'), { size: 12, color: h.tc ? 'text' : 'sub', pad: [0, 2, 0, 2] }));
-    }
-    body.push(panel(k, { pad: [12, 8, 12, 0] }));
-  }
+  // 최근 이동 기록은 '지난 경로' 팝업(rtSheet)으로 옮겼다(s414: 허브는 한 화면에 스크롤 없이 — 칸 크기가 글 수에 따라 달라지지 않게)
   // 가족 실시간 대화(파란 점): 제목은 네모칸 밖(위)에 — 네모칸 안은 위가 대화 내용(남는 세로를 처음부터 다 차지 · 아래가 최근 · 지난 글은 칸 안에서만 밀어 봄), 맨 아래가 입력줄. 박스를 누르면 전체 대화 팝업
   const msgs = ((await DB.prepare('SELECT id,f,x,t FROM chat WHERE cid=? AND t>=? ORDER BY id DESC LIMIT ?').bind(cid, now - CHAT_KEEP, HUB_CHAT).all()).results || []).reverse();
   const rd = await rdMap(DB, cid);
@@ -1008,6 +1004,17 @@ async function hubScreen(DB, pid, cid, now) {
   return scr('kids', head, body, Object.assign({ foot, fl: false }, sw ? { sw } : {}));
 }
 
+/** 최근 이동 기록(출발 · 도착 4건) 글 줄 — 없으면 빈 배열. */
+async function histLines(DB, cid) {
+  const hist = (await DB.prepare('SELECT t.day day,t.st st,t.tn tn,t.td td,t.ta ta,t.tc tc,p.name name FROM trips t JOIN places p ON p.id=t.pl WHERE t.cid=? AND t.td>0 ORDER BY t.td DESC LIMIT 4').bind(cid).all()).results || [];
+  if (!hist.length) return [];
+  const k = [tx('최근 이동 기록', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 4] })];
+  for (const h of hist) {
+    const dd = String(h.day).slice(4, 6) * 1 + '/' + String(h.day).slice(6) * 1;
+    k.push(tx(dd + ' ' + h.name + ' · ' + clock(h.td) + ' 출발' + (h.tc ? ' → ' + clock(h.tc) + ' 도착 (포인트 +' + ARRIVE_PT + ')' : h.ta ? ' → ' + clock(h.ta) + ' 도착(미확인)' : ' → 도착 전'), { size: 12, color: h.tc ? 'text' : 'sub', pad: [0, 2, 0, 2] }));
+  }
+  return k;
+}
 /** 지난 경로 줄 글: '11/03 06:20 → 06:48 · 3.2km' (같은 날이면 날짜 생략) */
 function rtTitle(r, now) { return evWhen(r.t0, now) + ' → ' + clock(r.t1) + ' · ' + fmtDist(r.m); }
 function rtSub(r) { const mi = Math.max(1, Math.round((r.t1 - r.t0) / 60000)); return (r.sn || '출발') + ' → ' + (r.en || '도착') + ' · ' + (mi >= 60 ? Math.floor(mi / 60) + '시간 ' + (mi % 60 ? mi % 60 + '분' : '') : mi + '분'); }
@@ -1019,6 +1026,8 @@ async function rtSheet(DB, pid, cid, now, notice) {
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 0, 16, 6] }));
   if (!rows.length) body.push(tx('아직 저장된 경로가 없어요', { size: 12.5, color: 'sub', pad: [16, 12, 16, 12] }));
   if (rows.length) body.push(panel(rows.map((r) => ({ t: 'navrow', title: rtTitle(r, now), sub: rtSub(r), act: call('kr.' + r.id), size: 13, vp: 8 })), { pad: [12, 0, 12, 0], ip: [14, 6, 14, 6] }));
+  const hk = await histLines(DB, cid);
+  if (hk.length) body.push(panel(hk, { pad: [12, 8, 12, 0] }));
   body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
   return scr('kidrt', [], body, { dlg: dlg() });
 }
