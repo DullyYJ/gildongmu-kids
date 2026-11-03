@@ -35,6 +35,39 @@ async function askLoc(env, DB, cid, now) {
   later(notifyChild(env, DB, cid, { k: 'locreq', tag: 'locreq' }));
   return true;
 }
+// ───────── 실시간 보기(s393) ─────────
+// 부모 앱이 키즈 화면(허브)에 긴 대기를 걸어 두는 동안만 '보는 중'이다(WATCH_MS 안에 대기가 이어져 있으면). 보기 시작하면 자녀 폰에 'watch' 푸시를 보내 앱이 꺼져 있어도 위치를 빨리 올리게 하고,
+// 그 뒤로는 자녀 위치 보고(/c/loc)의 응답에 w(주기 종류)를 실어 보낸다: 1 = 움직이는 중 2.5초 · 2 = 15분 넘게 이어 봄 10초 · 3 = 가만히 있음 15초 · 없음 = 보는 사람 없음(원래 주기).
+// 몇 초마다 보낼지 · 언제 멈출지는 서버(엔진)가 정하고 자녀 앱은 그대로 따른다.
+const WATCH_MS = 40000, WATCH_FAST_MS = 15 * 60000, WATCH_PUSH_GAP = 20000, MOVE_REC_MS = 60000;
+const watchPushAt = new Map();
+/** 이 자녀를 지금 보고 있는 부모가 있으면 {ws}(가장 먼저 보기 시작한 시각), 없으면 null */
+async function watchOf(DB, cid, now) {
+  const r = await DB.prepare('SELECT MIN(d.ws) ws FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.wt>?').bind(cid, now - WATCH_MS).first();
+  return r && r.ws ? { ws: r.ws } : null;
+}
+/** 부모가 키즈 화면을 보고 있다고 적는다. 새로 보기 시작했으면 자녀 폰에 'watch' 푸시. */
+async function watchTouch(env, DB, pid, cid, now) {
+  const d = await DB.prepare('SELECT wt FROM devices WHERE id=?').bind(pid).first();
+  if (!d) return false;
+  if (d.wt > now - WATCH_MS) { if (now - d.wt >= 5000) await DB.prepare('UPDATE devices SET wt=? WHERE id=?').bind(now, pid).run(); return false; }
+  await DB.prepare('UPDATE devices SET wt=?,ws=? WHERE id=?').bind(now, now, pid).run();
+  if (now - (watchPushAt.get(cid) || 0) < WATCH_PUSH_GAP) return false;
+  watchPushAt.set(cid, now);
+  later(notifyChild(env, DB, cid, { k: 'watch', tag: 'watch' }));
+  return true;
+}
+/** 자녀 앱에 알려 줄 주기 종류(위 설명). 보는 사람이 없으면 0. */
+function watchCode(w, mt, now) {
+  if (!w) return 0;
+  if (now - w.ws > WATCH_FAST_MS) return 2;
+  return mt && now - mt < MOVE_REC_MS ? 1 : 3;
+}
+/** 두 점 사이 가는 방향(도 · 북쪽 0 · 시계 방향) */
+function bearing(a, b, c, d) {
+  const r = Math.PI / 180, y = Math.sin((d - b) * r) * Math.cos(c * r), x = Math.cos(a * r) * Math.sin(c * r) - Math.sin(a * r) * Math.cos(c * r) * Math.cos((d - b) * r);
+  return Math.round((Math.atan2(y, x) / r + 360) % 360) % 360;
+}
 const EV_KEEP = 3 * DAY, MAX_EV = 150;
 // 이동 이력(p-kids65): 자녀가 보낸 위치를 CRUMB_M(40m, 오차가 더 크면 오차) 넘게 움직였을 때마다 한 점씩 쌓아 3일 보관하고, 부모 키즈 탭 지도에 지난 TRAIL_MS 의 경로(line)로 그린다.
 // 활동 줄 'mv'(이동 중 · 동네 · 거리)는 마지막 줄을 남긴 자리에서 MV_EV_M(200m) 넘게, 그리고 MV_EV_GAP(2.8분) 넘게 지났을 때만 남긴다.
@@ -375,6 +408,14 @@ async function init(DB) {
   await addCol(DB, 'loc', 'pla', 'REAL');
   await addCol(DB, 'loc', 'plo', 'REAL');
   await addCol(DB, 'loc', 'plt', 'INTEGER NOT NULL DEFAULT 0');
+  await addCol(DB, 'loc', 'hd', 'INTEGER NOT NULL DEFAULT -1');           // 가는 방향(도 · 북쪽 0 · 시계 방향, 모르면 -1) — 바로 앞 보고에서 6m 넘게 움직였을 때만 새로 계산
+  await addCol(DB, 'loc', 'hdt', 'INTEGER NOT NULL DEFAULT 0');           // 방향을 계산한 시각
+  await addCol(DB, 'loc', 'mt', 'INTEGER NOT NULL DEFAULT 0');            // 마지막으로 '움직이는 중'(연속 보고 사이 6m 넘게)이라 본 시각
+  await addCol(DB, 'loc', 'ha', 'REAL NOT NULL DEFAULT 0');                // 움직임 판단 기준점(위도 · 경도 · 시각) — 이 점에서 8m 넘게 벗어나면 '움직이는 중'이고 가는 방향을 새로 계산한다
+  await addCol(DB, 'loc', 'hb', 'REAL NOT NULL DEFAULT 0');
+  await addCol(DB, 'loc', 'hat', 'INTEGER NOT NULL DEFAULT 0');
+  await addCol(DB, 'devices', 'wt', 'INTEGER NOT NULL DEFAULT 0');        // 부모가 키즈 화면(허브)을 마지막으로 보고 있던 시각 — 실시간(보는 중) 판단
+  await addCol(DB, 'devices', 'ws', 'INTEGER NOT NULL DEFAULT 0');        // 이번에 이어서 보기 시작한 시각
   ready = true;
 }
 
@@ -737,12 +778,14 @@ async function hubScreen(DB, pid, cid, now) {
   cid = cur.cid;
   const nm = nmOf(cur);
   await tripsSync(DB, cid, now);
-  const loc = await DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch FROM loc WHERE cid=?').bind(cid).first();
+  const loc = await DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch,hd,hdt,mt FROM loc WHERE cid=?').bind(cid).first();
+  const watching = !!(await watchOf(DB, cid, now));
   const cs = (await DB.prepare('SELECT sh FROM cst WHERE cid=?').bind(cid).first()) || { sh: 1 };
   const pls = (await DB.prepare('SELECT id,name,la,lo,hh,mm,days FROM places WHERE cid=? ORDER BY hh,mm LIMIT ?').bind(cid, MAX_PLACES).all()).results || [];
   const trips = await todayTrips(DB, cid, now);
   const pins = [];
-  if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm });
+  const heading = loc && watching && loc.hd >= 0 && now - loc.mt < MOVE_REC_MS && now - loc.hdt < 90000 ? loc.hd : -1;       // 움직이는 중일 때만 가는 방향(앱은 화살표만 돌린다)
+  if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, ...(heading >= 0 ? { h: heading } : {}) });
   pls.slice(0, 9).forEach((p, i) => pins.push({ la: p.la, lo: p.lo, k: 's', n: String(i + 1), l: p.name, v: 'kp.' + p.id }));
   const noLoc = !pins.length;
   if (noLoc) pins.push({ la: 37.5665, lo: 126.978, k: 's', n: '', l: '' });
@@ -762,9 +805,10 @@ async function hubScreen(DB, pid, cid, now) {
     pins.length = 0;
     pins.push({ la: rpts[0][0], lo: rpts[0][1], k: 's', n: '출', l: rview.sn || '출발' }, { la: rpts[rpts.length - 1][0], lo: rpts[rpts.length - 1][1], k: 's', n: '도', l: rview.en || '도착' });
   }
+  const follow = !viewing && !!loc && !noLoc && watching && now - loc.t < 60000;                  // 실시간 따라가기(s393): 보는 중이고 위치가 방금 온 것일 때만 — 앱은 점을 부드럽게 옮기고 지도가 따라간다
   const head = [
     viewing ? { t: 'lth', s: nm + ' 지난 경로', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '자녀 위치', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
-    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: 250, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : loc ? 0 : -1, hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '자녀 위치를 아직 받지 못했어요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
+    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: 250, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '자녀 위치를 아직 받지 못했어요' : follow ? '실시간으로 따라가는 중 · 지도를 밀면 잠시 멈춰요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
   const body = [];
   if (viewing) body.push(panel([
@@ -1098,11 +1142,18 @@ async function handle(req, env, url) {
       const la = +body.la, lo = +body.lo, acc = +body.acc || 0;
       if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180) || (la === 0 && lo === 0)) return bad('위치가 맞지 않아요');
       const n = await linkedCount(DB, cid);
-      const last = n > 0 ? await DB.prepare('SELECT la,lo,t,dn,hp,mva,mvo,mvt,bt FROM loc WHERE cid=?').bind(cid).first() : null;
+      const last = n > 0 ? await DB.prepare('SELECT la,lo,t,dn,hp,mva,mvo,mvt,bt,mt,ha,hb,hat FROM loc WHERE cid=?').bind(cid).first() : null;
+      let mtNow = last ? last.mt : 0;
+      const wch = n > 0 ? await watchOf(DB, cid, now) : null;                   // 실시간 보기(s393): 보는 중이면 보고를 촘촘히 받고 응답에 주기 종류를 실어 준다
       const bt = Number.isFinite(+body.bt) && +body.bt >= 0 && +body.bt <= 100 ? Math.round(+body.bt) : -1, ch = body.ch ? 1 : 0;
-      if (last && now - last.t < 12000 && hav(last.la, last.lo, la, lo) < 8) return J({ ok: true, linked: n, same: 1 });     // 거의 같은 자리 · 방금 보냈다 — 쓰지도 알리지도 않는다
+      if (last && now - last.t < (wch ? 1200 : 12000) && hav(last.la, last.lo, la, lo) < (wch ? 2 : 8)) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });     // 거의 같은 자리 · 방금 보냈다 — 쓰지도 알리지도 않는다
       if (n > 0) {
         await DB.prepare('INSERT INTO loc(cid,la,lo,acc,t,bt,ch) VALUES(?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET bt=excluded.bt,ch=excluded.ch,pla=CASE WHEN excluded.t-loc.t>=20000 THEN loc.la ELSE loc.pla END, plo=CASE WHEN excluded.t-loc.t>=20000 THEN loc.lo ELSE loc.plo END, plt=CASE WHEN excluded.t-loc.t>=20000 THEN loc.t ELSE loc.plt END, la=excluded.la,lo=excluded.lo,acc=excluded.acc,t=excluded.t').bind(cid, la, lo, acc, now, bt, ch).run();
+        if (acc <= 60) {                                                       // 움직임 · 가는 방향: 기준점에서 max(8m, 오차) 넘게 벗어나면 움직이는 중 + 방향 계산(걷는 속도로 2.5초마다 보고해도 잡힌다). 25초 넘게 제자리면 기준점을 새로 잡는다
+          if (!last || !last.hat) await DB.prepare('UPDATE loc SET ha=?,hb=?,hat=? WHERE cid=?').bind(la, lo, now, cid).run();
+          else if (hav(last.ha, last.hb, la, lo) >= Math.max(8, acc)) { mtNow = now; await DB.prepare('UPDATE loc SET hd=?,hdt=?,mt=?,ha=?,hb=?,hat=? WHERE cid=?').bind(bearing(last.ha, last.hb, la, lo), now, now, la, lo, now, cid).run(); }
+          else if (now - last.hat > 25000) await DB.prepare('UPDATE loc SET ha=?,hb=?,hat=? WHERE cid=?').bind(la, lo, now, cid).run();
+        }
         if (bt >= 0 && bt <= BATT_LOW && !ch && (!last || last.bt < 0 || last.bt > BATT_LOW || now - last.t > 30 * 60000)) later(battAlert(env, DB, cid, bt, now));
         await tripsSync(DB, cid, now);
         const tr = (await todayTrips(DB, cid, now)).filter((r) => !r.ta && hav(la, lo, r.la, r.lo) <= HERE_M);   // 장소 150m 안에 들어섰다 — 도착 시각 기록
@@ -1141,10 +1192,10 @@ async function handle(req, env, url) {
         if (rtSaved) { await bump(DB, cid); evd = true; }                 // 지난 경로가 하나 늘었다 — 부모 화면의 '지난 경로' 줄이 바로 바뀐다
         if (!evd) {                                  // 제자리(15m 안)에서 보낸 위치는 1분에 한 번만 부모 화면을 깨운다 — 가만히 있을 때 화면이 계속 다시 그려지지 않게
           const lb = locBumpAt.get(cid) || 0;
-          if ((last ? hav(last.la, last.lo, la, lo) : 1e9) >= 15 || now - lb >= 60000) { locBumpAt.set(cid, now); await bump(DB, cid); }
+          if ((last ? hav(last.la, last.lo, la, lo) : 1e9) >= 15 || now - lb >= 60000 || (wch && now - lb >= 1500)) { locBumpAt.set(cid, now); await bump(DB, cid); }      // 보는 중이면 1.5초마다(부모 화면의 점이 계속 움직이게)
         }
       }
-      return J({ ok: true, linked: n });
+      return J({ ok: true, linked: n, w: watchCode(wch, mtNow, now) });
     }
     if (p === '/c/ev' && m === 'POST') {          // 자녀 앱이 알리는 활동(밥 · 놀기 · 공부 · 잠 · 응가) — 연결된 부모가 있을 때만, 같은 일은 60초에 한 번만
       const k = String(body.k || ''), x = String(body.x || '').replace(/\s+/g, ' ').trim().slice(0, 12);
@@ -1273,7 +1324,7 @@ async function handle(req, env, url) {
       if (v === 'chat') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await chatSheet(DB, pid, cid, now) });
       if (v === 'fam') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await famScreen(DB, pid, cid, now) });
       if (v === 'quest') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await questSheet(DB, pid, cid, url.searchParams.get('qt')) });
-      if (v === 'hub') await askLoc(env, DB, cid, now);                                 // 위치가 없거나 오래됐으면 자녀 폰에 한 번 요청
+      if (v === 'hub') { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); }                // 보는 중 표시(+ 새로 보기 시작하면 자녀 폰에 watch 푸시) · 위치가 없거나 오래됐으면 자녀 폰에 한 번 요청
       return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await hubScreen(DB, pid, cid, now) });
     }
     if (p === '/p/wait' && m === 'GET') {         // 바뀔 때까지 붙들어 두었다가 그 화면을 새로 준다(부모 앱이 보는 화면마다 건다)
@@ -1282,6 +1333,7 @@ async function handle(req, env, url) {
       const cid = kids0.some((k) => k.cid === cid0) ? cid0 : kids0[0] ? kids0[0].cid : '';
       if (!cid) return J({ ok: true, linked: 0, rev: 0 });
       if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');         // 부모 앱이 키즈 화면을 보는 동안에만 긴 대기를 건다 — 그동안은 자녀 글을 읽는 중
+      if (v === 'hub') await watchTouch(env, DB, pid, cid, now);                          // 실시간 보기(s393): 대기가 이어져 있는 동안 '보는 중'
       const rev = await waitRev(DB, cid, since, now);
       const t2 = Date.now(), kids = await childrenOf(DB, pid);
       if (!kids.some((k) => k.cid === cid)) return J({ ok: true, linked: kids.length, rev, gone: true });

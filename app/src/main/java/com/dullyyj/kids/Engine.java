@@ -99,6 +99,8 @@ final class Engine {
     private boolean dirty = false;
     private String lastSig = "";
     private boolean loc = false;
+    private volatile int watchW = 0;                         // s393: 부모가 지금 보고 있어서 서버가 정해 준 보고 주기 종류(1 = 2.5초 · 2 = 10초 · 3 = 15초 · 0 = 원래대로)
+    private volatile long watchUntil = 0L;                  // 이 시각까지만 유효(서버 응답이 없으면 스스로 풀린다 — 배터리 보호)
     private volatile int battPct = -1;                      // s392: 폰 배터리 %(모르면 -1) · 충전 중 — 위치와 함께 서버에 보낸다(서버가 '배터리 낮음' 알림을 판단)
     private volatile boolean battChg = false;
     private long lastFixT = 0L;
@@ -305,6 +307,7 @@ final class Engine {
 
     /** 위치 보내는 주기 — 계산은 엔진이: 움직이는 중이면 3분, 가만히 있으면 5분. */
     synchronized long locIntervalMs() {
+        if (watchW > 0 && System.currentTimeMillis() < watchUntil) return watchW == 1 ? 2500L : (watchW == 2 ? 10000L : 15000L);      // 부모가 보는 동안(서버가 정한 대로)
         return moving ? LOC_MOVING_MS : LOC_INTERVAL_MS;
     }
 
@@ -335,6 +338,26 @@ final class Engine {
 
     synchronized boolean locOn() {
         return loc && consented();
+    }
+
+    /** 부모가 보기 시작했다는 푸시(watch)를 받았다 — 서버 응답이 올 때까지 90초 동안 빠른 주기. 이후엔 위치 보고 응답의 w 가 정한다. */
+    void watchOn() {
+        setWatch(1);
+    }
+
+    /** 서버가 정한 보고 주기 종류(w)를 받는다. 0 이면 보는 사람이 없는 것. */
+    private void setWatch(int w) {
+        watchW = w < 0 || w > 3 ? 0 : w;
+        watchUntil = watchW > 0 ? System.currentTimeMillis() + 90000L : 0L;
+    }
+
+    private void watchFrom(String r) {
+        if (r == null || r.isEmpty()) return;                      // 통신이 안 됐다 — 있던 상태는 시간이 지나면 저절로 풀린다
+        try {
+            setWatch(new JSONObject(r).optInt("w", 0));
+        } catch (Exception e) {
+            // 모양이 이상하면 건너뛴다
+        }
     }
 
     /** 위치 서비스가 읽은 배터리 값을 받아 둔다(판단은 서버). */
@@ -1095,7 +1118,8 @@ final class Engine {
         fixLa = la;
         fixLo = lo;
         fixAcc = acc;
-        if (!locOn() || (!locPending && t - locSentT < (tripId.isEmpty() ? 15000L : 7000L))) return;      // 출발한 뒤에는 거리가 더 자주 갱신되게
+        boolean fast = watchW > 0 && System.currentTimeMillis() < watchUntil;
+        if (!locOn() || (!locPending && t - locSentT < (fast ? 1200L : (tripId.isEmpty() ? 15000L : 7000L)))) return;      // 출발한 뒤에는 거리가 더 자주 갱신되게
         locPending = false;
         locSentT = t;
         final JSONObject o = new JSONObject();
@@ -1110,7 +1134,11 @@ final class Engine {
         Wire.EX.execute(new Runnable() {
             @Override
             public void run() {
-                if (ensureReg()) remGot(null, Kid.call("POST", "/c/loc", o.toString(), cid, csec));
+                if (ensureReg()) {
+                    String r = Kid.call("POST", "/c/loc", o.toString(), cid, csec);
+                    watchFrom(r);
+                    remGot(null, r);
+                }
             }
         });
     }

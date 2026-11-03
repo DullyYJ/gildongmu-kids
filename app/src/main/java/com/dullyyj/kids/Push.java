@@ -91,6 +91,10 @@ public class Push extends FirebaseMessagingService {
             if (!Core.engine.consented()) return;
             Map<String, String> d = m.getData();
             if (d == null) return;
+            if ("watch".equals(d.get("k"))) {                     // 부모가 키즈 화면을 보기 시작했다 — 위치를 빨리(서버가 정한 주기로) 올린다 · 알림은 띄우지 않는다
+                LocReq.watch(getApplicationContext());
+                return;
+            }
             if ("locreq".equals(d.get("k"))) {                    // 서버가 '위치 한 번 올려' 를 요청했다(부모가 처음 열었는데 위치가 없을 때) — 알림은 띄우지 않는다
                 LocReq.once(getApplicationContext());
                 return;

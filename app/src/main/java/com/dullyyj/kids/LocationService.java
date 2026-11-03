@@ -48,7 +48,8 @@ public class LocationService extends Service {
         } else {
             startForeground(11, n);
         }
-        begin();
+        if (cb != null) request();                                  // 이미 돌고 있으면 주기만 새로 건다(부모가 보기 시작했을 때 빠른 주기로)
+        else begin();
         return START_STICKY;
     }
 

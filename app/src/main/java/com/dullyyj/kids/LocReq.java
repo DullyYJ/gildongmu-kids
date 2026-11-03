@@ -21,6 +21,17 @@ import com.google.android.gms.tasks.OnSuccessListener;
 final class LocReq {
     private LocReq() {}
 
+    /** 부모가 키즈 화면을 보기 시작했다는 푸시(k=watch): 빠른 보고 주기로 바꾸고(서비스를 다시 걸어 주기를 새로 정하게 한다) 위치를 한 번 바로 올린다. 이후는 서버 응답이 정한다. */
+    static void watch(final Context c) {
+        try {
+            if (c == null || Core.engine == null || !Core.engine.locOn()) return;
+            Core.engine.watchOn();
+            once(c);
+        } catch (Throwable t) {
+            // 푸시 하나를 못 처리해도 앱은 계속 쓴다
+        }
+    }
+
     static void once(final Context c) {
         try {
             if (c == null || Core.engine == null || !Core.engine.locOn()) return;
