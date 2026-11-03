@@ -119,6 +119,8 @@ final class Engine {
     private String promptId = "", promptName = "", promptText = "";
     private boolean promptShut = false;
     private String tripId = "", tripText = "", tripHint = "";
+    private String callK = "", callText = "";          // 긴급 호출 · 데리러 와줘 의 지금 상태(서버가 정한 글) — 부모가 확인하면 바뀐다
+    private int callSt = -1;
     private boolean tripNear = false;
     private JSONArray cheers = new JSONArray();
     private String noticeTxt = "";
@@ -440,6 +442,68 @@ final class Engine {
         lng = lo;
         fixT = System.currentTimeMillis();
         dirty = true;
+    }
+
+    /** 긴급 호출 · 데리러 와줘 가 열려 있으면 서버가 정한 상태 글("부모님께 알렸어요" · "부모님이 확인했어요" · "부모님이 데리러 가고 있어요"), 없으면 "". */
+    synchronized String callText() {
+        return callText;
+    }
+
+    /** 열려 있는 호출 종류("sos" · "pick"), 없으면 "". */
+    synchronized String callKind() {
+        return callK;
+    }
+
+    /** maxAgeMs 안에 잡힌 지금 위치 [위도, 경도], 없으면 null(공유를 껐어도 긴급 호출에는 쓴다 — 아이가 직접 누른 일이다). */
+    synchronized double[] fixNow(long maxAgeMs) {
+        if (Double.isNaN(lat) || Double.isNaN(lng) || fixT <= 0L || System.currentTimeMillis() - fixT > maxAgeMs) return null;
+        return new double[] {lat, lng};
+    }
+
+    /** 긴급 호출 · 안전하게 도착 · 데리러 와줘 를 서버에 보낸 결과(뒤 스레드에서 불린다). */
+    interface CallCb {
+        void done(boolean ok, int linked, boolean dup);
+    }
+
+    /**
+     * 자녀가 누른 일을 서버(/c/call)에 알린다. kind: "sos"(긴급 호출) · "pick"(데리러 와줘) · "arr"(안전하게 도착). cancel 은 sos · pick 취소.
+     * 서버가 알림 · 기록 · 장소 이름을 정한다(앱은 누른 일과 지금 위치만 보낸다). 연결이 안 되면 ok=false.
+     */
+    void callSend(final String kind, final boolean cancel, final CallCb cb) {
+        if (!consented()) {
+            if (cb != null) cb.done(false, -1, false);
+            return;
+        }
+        final double[] fx = fixNow(10 * 60000L);
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                boolean ok = false;
+                int linked = -1;
+                boolean dup = false;
+                try {
+                    if (ensureReg()) {
+                        JSONObject o = new JSONObject();
+                        o.put("k", kind);
+                        if (cancel) o.put("op", "cancel");
+                        if (fx != null) {
+                            o.put("la", fx[0]);
+                            o.put("lo", fx[1]);
+                        }
+                        String r = Kid.call("POST", "/c/call", o.toString(), cid, csec);
+                        if (r != null) {
+                            JSONObject j = new JSONObject(r);
+                            ok = j.optBoolean("ok", false);
+                            linked = j.optInt("linked", -1);
+                            dup = j.optInt("dup", 0) == 1;
+                        }
+                    }
+                } catch (Exception e) {
+                    ok = false;
+                }
+                if (cb != null) cb.done(ok, linked, dup);
+            }
+        });
     }
 
     synchronized String childId() {
@@ -922,6 +986,10 @@ final class Engine {
             tripText = t == null ? "" : t.optString("text", "");
             tripHint = t == null ? "" : t.optString("hint", "");
             tripNear = t != null && t.optBoolean("near", false);
+            JSONObject cl = o.optJSONObject("call");
+            callK = cl == null ? "" : cl.optString("k", "");
+            callSt = cl == null ? -1 : cl.optInt("st", -1);
+            callText = cl == null ? "" : cl.optString("text", "");
             JSONArray ch = o.optJSONArray("cheers");
             cheers = ch == null ? new JSONArray() : ch;
         }

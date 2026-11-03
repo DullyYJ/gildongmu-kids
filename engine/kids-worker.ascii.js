@@ -281,13 +281,64 @@ function gdScreen(nm) {
   ]);
 }
 /** \uc5f0\uacb0\ub41c \ubd80\ubaa8\ub9c8\ub2e4(\uc790\ub140 \uc774\ub984\uc740 \ubd80\ubaa8\uac00 \uc815\ud55c \uc774\ub984) \uae00\uc744 \ub530\ub85c \ub9cc\ub4e4\uc5b4 \ubcf4\ub0b8\ub2e4. mk(nm) => data */
-async function notifyParents(env, DB, cid, mk) {
-  const rs = (await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>''").bind(GD_VER, cid).all()).results || [];
+async function notifyParents(env, DB, cid, mk, all) {      // all: \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc778 \ubd80\ubaa8\uc5d0\uac8c\ub3c4 \ubcf4\ub0b8\ub2e4(\uae34\uae09 \ud638\ucd9c \u2014 \uc54c\ub9bc\uc5d0\ub294 \uc704\uce58\uac00 \uc5c6\uace0, \uc704\uce58\ub294 \ud655\uc778\uc744 \ub9c8\uccd0\uc57c \ubcf4\uc778\ub2e4)
+  const rs = (all
+    ? await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.ft<>''").bind(cid).all()
+    : await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>''").bind(GD_VER, cid).all()).results || [];
   const now = Date.now();
   if (rs.length) await DB.batch(rs.map((r) => DB.prepare("INSERT INTO lbs(t,cid,pid,k) VALUES(?,?,?,'n')").bind(now, cid, r.id)));
   await pushRows(env, DB, rs.map((r) => ({ id: r.id, ft: r.ft, data: Object.assign({ cid }, mk(r.nm || '')) })));
 }
 const who = (nm) => (nm ? ga(nm) : '\uc790\ub140\uac00');
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \uae34\uae09 \ud638\ucd9c \u00b7 \uc548\uc804\ud558\uac8c \ub3c4\ucc29 \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918(s399) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// \uc790\ub140\uac00 \ub204\ub974\uba74(\uc790\ub140 \uc571 /c/call) \uc11c\ubc84\uac00 \uae30\ub85d\ud558\uace0 \ubd80\ubaa8\uc5d0\uac8c \uc54c\ub9b0\ub2e4. \uc54c\ub9bc \uae00\uc5d0\ub294 \uc88c\ud45c\uac00 \uc5c6\uace0(\uc7a5\uc18c \uc774\ub984\ub9cc), \uc88c\ud45c\ub294 \ubd80\ubaa8\uac00 \ud655\uc778\uc744 \ub9c8\uce5c \ud654\uba74\uc5d0\uc11c\ub9cc \ubcf4\uc778\ub2e4.
+const CALL_GAP = { sos: 60000, pick: 5 * 60000, arr: 2 * 60000 };          // \uac19\uc740 \uac83\uc744 \uc774 \uc2dc\uac04 \uc548\uc5d0 \ub610 \ub204\ub974\uba74 \uc0c8\ub85c \ub9cc\ub4e4\uc9c0 \uc54a\ub294\ub2e4(\uc2e4\uc218\ub85c \uc5ec\ub7ec \ubc88 \ub20c\ub7ec\ub3c4 \uc54c\ub9bc \ud3ed\ud0c4 \uc5c6\uc74c)
+const CALL_OPEN_MS = 3 * 3600000, CALL_KEEP = 7 * 86400000, CALL_NEAR_M = 150;
+async function nearPlaceName(DB, cid, la, lo) {
+  const ps = (await DB.prepare('SELECT name,la,lo FROM places WHERE cid=?').bind(cid).all()).results || [];
+  let best = null, bd = CALL_NEAR_M + 1;
+  for (const p of ps) { const d = hav(la, lo, p.la, p.lo); if (d < bd) { bd = d; best = p.name; } }
+  return best || '';
+}
+const callAck = (k) => (k === 'sos' ? '\ubd80\ubaa8\ub2d8\uc774 \ud655\uc778\ud588\uc5b4\uc694' : '\ubd80\ubaa8\ub2d8\uc774 \ub370\ub9ac\ub7ec \uac00\uace0 \uc788\uc5b4\uc694');
+async function callRequest(env, DB, cid, body, now) {
+  const k = String(body.k || '');
+  if (!CALL_GAP[k]) return { err: '\ud615\uc2dd\uc774 \ub9de\uc9c0 \uc54a\uc544\uc694' };
+  const linked = await linkedCount(DB, cid);
+  if (linked === 0) return { ok: true, linked: 0 };
+  let la = Number(body.la), lo = Number(body.lo);
+  let has = body.la != null && body.lo != null && Number.isFinite(la) && Number.isFinite(lo) && Math.abs(la) <= 85 && Math.abs(lo) <= 180 && (la || lo);
+  if (!has) { const l = await DB.prepare('SELECT la,lo,t FROM loc WHERE cid=?').bind(cid).first(); if (l && now - l.t < 30 * 60000) { la = l.la; lo = l.lo; has = true; } }
+  if (body.op === 'cancel') {
+    if (k === 'arr') return { err: '\ud615\uc2dd\uc774 \ub9de\uc9c0 \uc54a\uc544\uc694' };
+    const r = await DB.prepare('UPDATE calls SET st=2,at=? WHERE cid=? AND k=? AND st IN (0,1) AND t>?').bind(now, cid, k, now - CALL_OPEN_MS).run();
+    if (r && r.meta && r.meta.changes > 0) {
+      await bump(DB, cid);
+      later(notifyParents(env, DB, cid, (nm) => ({ k: 'callx', title: k === 'sos' ? '\uae34\uae09 \ud638\ucd9c \ucde8\uc18c' : '\uae38\ub3d9\ubb34', body: who(nm) + (k === 'sos' ? ' \uae34\uae09 \ud638\ucd9c\uc744 \ucde8\uc18c\ud588\uc5b4\uc694. \uad1c\ucc2e\ub2e4\uace0 \ud574\uc694' : ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\ub294 \uc694\uccad\uc744 \ucde8\uc18c\ud588\uc5b4\uc694'), tag: k }), k === 'sos'));
+    }
+    return { ok: true, linked };
+  }
+  const last = await DB.prepare('SELECT id,t,st FROM calls WHERE cid=? AND k=? ORDER BY t DESC LIMIT 1').bind(cid, k).first();
+  if (last && last.st !== 2 && now - last.t < CALL_GAP[k]) return { ok: true, id: last.id, dup: 1, linked };
+  const place = has ? await nearPlaceName(DB, cid, la, lo) : '';
+  const keep = has && k !== 'arr';                                      // \ub3c4\ucc29 \uc54c\ub9bc\uc740 \uc88c\ud45c\ub97c \ub0a8\uae30\uc9c0 \uc54a\ub294\ub2e4(\uc7a5\uc18c \uc774\ub984\ub9cc)
+  const opened = k === 'arr' ? null : await DB.prepare('SELECT id FROM calls WHERE cid=? AND k=? AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 1').bind(cid, k, now - CALL_OPEN_MS).first();
+  let id;
+  if (opened) {                                                         // \uc544\uc9c1 \uc548 \ub05d\ub09c \ud638\ucd9c\uc744 \ub610 \ub204\ub974\uba74 \uce74\ub4dc\ub97c \ub298\ub9ac\uc9c0 \uc54a\uace0 \uadf8 \uce74\ub4dc\ub97c \uc0c8\ub85c(\ubbf8\ud655\uc778\uc73c\ub85c) \uc62c\ub9ac\uace0 \ub2e4\uc2dc \uc54c\ub9b0\ub2e4
+    id = opened.id;
+    await DB.prepare('UPDATE calls SET t=?,la=?,lo=?,pl=?,st=0,at=0 WHERE id=?').bind(now, keep ? la : 0, keep ? lo : 0, place, id).run();
+  } else {
+    id = rid();
+    await DB.prepare('INSERT INTO calls(id,cid,k,t,la,lo,pl,st,at) VALUES(?,?,?,?,?,?,?,0,0)').bind(id, cid, k, now, keep ? la : 0, keep ? lo : 0, place).run();
+  }
+  await ev(DB, cid, k, place, now);
+  const near = place ? ' \u00b7 ' + place + ' \uadfc\ucc98' : '';
+  later(notifyParents(env, DB, cid, (nm) => (k === 'sos'
+    ? { k: 'sos', title: '\ud83d\udea8 \uae34\uae09 \ud638\ucd9c', body: who(nm) + ' \uae34\uae09 \ud638\ucd9c\uc744 \ud588\uc5b4\uc694. \uc9c0\uae08 \uae38\ub3d9\ubb34\ub97c \uc5f4\uc5b4 \ud655\uc778\ud574 \uc8fc\uc138\uc694', tag: 'sos' }
+    : k === 'pick' ? { k: 'pick', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694' + near, tag: 'pick' }
+      : { k: 'arr', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' \uc548\uc804\ud558\uac8c \ub3c4\ucc29\ud588\ub2e4\uace0 \uc54c\ub838\uc5b4\uc694' + near + ' \u00b7 ' + clock(now), tag: 'arr' }), k === 'sos'));
+  return { ok: true, id, linked };
+}
 /** \uac19\uc740 \uc77c\uc744 \ub450 \ubc88 \ubcf4\ub0b4\uc9c0 \uc54a\ub294\ub2e4(\ube44\ud2b8\uac00 \ucc98\uc74c \ucf1c\uc9c8 \ub54c\ub9cc true) */
 async function once(DB, id, bit) {
   const r = await DB.prepare('UPDATE trips SET pn=pn|? WHERE id=? AND (pn&?)=0').bind(bit, id, bit).run();
@@ -351,7 +402,7 @@ let prunedOldAt = 0;
 async function pruneOld(DB, now) {
   if (now - prunedOldAt < 10 * 60000) return;
   prunedOldAt = now;
-  await DB.batch([DB.prepare('DELETE FROM routes WHERE t1<?').bind(now - RT_MAX_AGE), DB.prepare('DELETE FROM stops WHERE t<?').bind(now - STRANGE_KEEP), DB.prepare('DELETE FROM zt WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM drafts WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM lbs WHERE t<?').bind(now - LBS_KEEP), DB.prepare('DELETE FROM cons WHERE t<?').bind(now - 2 * LBS_KEEP)]);          // \uc4f0\ub2e4 \ub9cc \uc7a5\uc18c \ub4f1\ub85d \u00b7 \uace0\uce58\uae30 \uc784\uc2dc\ubcf8(\uc8fc\uc18c \uac80\uc0c9\uc5b4 \ud3ec\ud568)\uc740 \ud558\ub8e8 \ub4a4 \uc9c0\uc6b4\ub2e4
+  await DB.batch([DB.prepare('DELETE FROM calls WHERE t<?').bind(now - CALL_KEEP), DB.prepare('DELETE FROM routes WHERE t1<?').bind(now - RT_MAX_AGE), DB.prepare('DELETE FROM stops WHERE t<?').bind(now - STRANGE_KEEP), DB.prepare('DELETE FROM zt WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM drafts WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM lbs WHERE t<?').bind(now - LBS_KEEP), DB.prepare('DELETE FROM cons WHERE t<?').bind(now - 2 * LBS_KEEP)]);          // \uc4f0\ub2e4 \ub9cc \uc7a5\uc18c \ub4f1\ub85d \u00b7 \uace0\uce58\uae30 \uc784\uc2dc\ubcf8(\uc8fc\uc18c \uac80\uc0c9\uc5b4 \ud3ec\ud568)\uc740 \ud558\ub8e8 \ub4a4 \uc9c0\uc6b4\ub2e4
 }
 async function cron(env) {
   const DB = env.DB, now = Date.now();
@@ -414,6 +465,8 @@ async function init(DB) {
     DB.prepare('CREATE TABLE IF NOT EXISTS gd(pid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \ub3d9\uc758(\ubd80\ubaa8 \uae30\uae30\ubcc4 \u00b7 \ubc84\uc804 \u00b7 \uc2dc\uac01) \u2014 \uc774 \ub3d9\uc758\uac00 \uc788\uc5b4\uc57c \uc790\ub140 \uc704\uce58\uac00 \ubcf4\uc778\ub2e4
     DB.prepare('CREATE TABLE IF NOT EXISTS lbs(id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, cid TEXT NOT NULL, pid TEXT NOT NULL, k TEXT NOT NULL)'),      // \uc704\uce58\uc815\ubcf4\ubc95 \uc81c16\uc870 \uc774\uc6a9\u00b7\uc81c\uacf5\uc0ac\uc2e4 \ud655\uc778\uc790\ub8cc: \uc5b8\uc81c \u00b7 \ub204\uac00 \u00b7 \ub204\uad6c\uc758 \uc704\uce58\ub97c \ubc1b\uc558\ub098(\uc88c\ud45c\ub294 \uc5c6\ub2e4) \u00b7 6\uac1c\uc6d4 \ub118\uac8c \ubcf4\uad00
     DB.prepare('CREATE INDEX IF NOT EXISTS lbs_c ON lbs(cid, pid, k, t)'),
+    DB.prepare('CREATE TABLE IF NOT EXISTS calls(id TEXT PRIMARY KEY, cid TEXT NOT NULL, k TEXT NOT NULL, t INTEGER NOT NULL, la REAL NOT NULL DEFAULT 0, lo REAL NOT NULL DEFAULT 0, pl TEXT NOT NULL DEFAULT \'\', st INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL DEFAULT 0)'),      // \uae34\uae09 \ud638\ucd9c(sos) \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918(pick) \u00b7 \uc548\uc804\ud558\uac8c \ub3c4\ucc29(arr): st 0 \uc0c8\uac83 \u00b7 1 \ubd80\ubaa8\uac00 \ud655\uc778 \u00b7 2 \uc790\ub140\uac00 \ucde8\uc18c \u00b7 3 \ub05d\ub0a8
+    DB.prepare('CREATE INDEX IF NOT EXISTS calls_c ON calls(cid, k, t)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS cons(cid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // \uc790\ub140 \uc571\uc5d0\uc11c \ubcf4\ud638\uc790 \u00b7 \ubcf8\uc778 \ub3d9\uc758\ub97c \ub9c8\uce5c \uae30\ub85d(\ub3d9\uc758 \uc99d\ube59)
     DB.prepare('CREATE TABLE IF NOT EXISTS stops(id INTEGER PRIMARY KEY AUTOINCREMENT, cid TEXT NOT NULL, la REAL NOT NULL, lo REAL NOT NULL, t INTEGER NOT NULL, d INTEGER NOT NULL)'),      // 30\ubd84 \ub118\uac8c \uba38\ubb38 \uacf3 \uae30\ub85d(\ub0af\uc120 \uacf3 \ud310\uc815\uc6a9 \u00b7 30\uc77c)
     DB.prepare('CREATE INDEX IF NOT EXISTS stops_c ON stops(cid, id)'),
@@ -657,6 +710,8 @@ async function childState(DB, cid, now) {
     if (loc) { m = hav(loc.la, loc.lo, r.la, r.lo); fresh = now - loc.t <= LOC_FRESH; }
     out.trip = { id: r.id, name: r.name, near: m != null && m <= ARR_M && fresh, dist: m == null ? '' : fmtDist(m), text: m == null ? r.name + '\uae4c\uc9c0 \uc704\uce58\ub97c \ud655\uc778\ud558\ub294 \uc911\uc774\uc5d0\uc694' : r.name + '\uae4c\uc9c0 ' + fmtDist(m), hint: m != null && m <= ARR_M && fresh ? '\ub3c4\ucc29\ud588\uc5b4\uc694! \ud655\uc778\uc744 \ub20c\ub7ec\uc694' : '\ub3c4\ucc29\ud558\uba74 \ud655\uc778\uc744 \ub20c\ub7ec\uc694' };
   }
+  const cl = await DB.prepare("SELECT k,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 1").bind(cid, now - CALL_OPEN_MS).first();
+  if (cl) out.call = { k: cl.k, st: cl.st, text: cl.st === 1 ? callAck(cl.k) : '\ubd80\ubaa8\ub2d8\uaed8 \uc54c\ub838\uc5b4\uc694' };
   out.cheers = ((await DB.prepare('SELECT x FROM cheers WHERE cid=? ORDER BY id LIMIT ?').bind(cid, MAX_CHEER).all()).results || []).map((r) => r.x);
   if (due) out.prompt = { id: due.r.id, name: due.r.name, text: hmTxt(due.r.hh, due.r.mm) + '\uae4c\uc9c0 ' + due.r.name + '\uc5d0 \uac00\uc57c\ud574\uc694!' };
   return out;
@@ -804,6 +859,9 @@ function evText(e, nm) {
     case 'psleep': return ga(nm) + ' ' + eul(x) + ' \uc7ac\uc6e0\uc5b4\uc694';
     case 'pstudy': return ga(nm) + ' ' + x + '\uc5d0\uac8c \uacf5\ubd80\ub97c \uc2dc\ucf30\uc5b4\uc694';
     case 'pplay': return ga(nm) + ' ' + eul(x) + ' \ub180\uac8c \ud588\uc5b4\uc694';
+    case 'sos': return ga(nm) + ' \uae34\uae09 \ud638\ucd9c\uc744 \ud588\uc5b4\uc694' + (x ? ' \u00b7 ' + x + ' \uadfc\ucc98' : '');
+    case 'pick': return ga(nm) + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud588\uc5b4\uc694' + (x ? ' \u00b7 ' + x + ' \uadfc\ucc98' : '');
+    case 'arr': return ga(nm) + ' \uc548\uc804\ud558\uac8c \ub3c4\ucc29\ud588\ub2e4\uace0 \uc54c\ub838\uc5b4\uc694' + (x ? ' \u00b7 ' + x : '');
     default: return x;
   }
 }
@@ -825,6 +883,9 @@ async function hubScreen(DB, pid, cid, now) {
   const heading = loc && watching && loc.hd >= 0 && now - loc.mt < MOVE_REC_MS && now - loc.hdt < 90000 ? loc.hd : -1;       // \uc6c0\uc9c1\uc774\ub294 \uc911\uc77c \ub54c\ub9cc \uac00\ub294 \ubc29\ud5a5(\uc571\uc740 \ud654\uc0b4\ud45c\ub9cc \ub3cc\ub9b0\ub2e4)
   if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, ...(heading >= 0 ? { h: heading } : {}) });
   pls.slice(0, 9).forEach((p, i) => pins.push({ la: p.la, lo: p.lo, k: 's', n: String(i + 1), l: p.name, v: 'kp.' + p.id }));
+  const calls = (await DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS).all()).results || [];
+  let cpin = -1;                                                                  // \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \uac00 \uc788\uc73c\uba74 \uadf8 \uc790\ub9ac\ub97c \uc9c0\ub3c4\uc5d0 \ucc0d\uace0 \uac70\uae30\ub85c \ub9de\ucd98\ub2e4
+  for (const c of calls) if ((c.la || c.lo) && cpin < 0) { cpin = pins.length; pins.push({ la: c.la, lo: c.lo, k: 's', n: '!', l: c.k === 'sos' ? '\uae34\uae09' : '\ub370\ub9ac\ub7ec' }); }
   const noLoc = !pins.length;
   if (noLoc) pins.push({ la: 37.5665, lo: 126.978, k: 's', n: '', l: '' });
   // \uc774\ub3d9 \uacbd\ub85c: \uc9c0\ub09c TRAIL_MS \ub3d9\uc548 \uc313\uc778 \uc810(\ucd5c\ub300 TRAIL_PTS \uac1c\ub85c \uc18e\uc74c) + \uc9c0\uae08 \uc704\uce58
@@ -843,11 +904,16 @@ async function hubScreen(DB, pid, cid, now) {
     pins.length = 0;
     pins.push({ la: rpts[0][0], lo: rpts[0][1], k: 's', n: '\ucd9c', l: rview.sn || '\ucd9c\ubc1c' }, { la: rpts[rpts.length - 1][0], lo: rpts[rpts.length - 1][1], k: 's', n: '\ub3c4', l: rview.en || '\ub3c4\ucc29' });
   }
-  const follow = !viewing && !!loc && !noLoc && watching && now - loc.t < 60000;                  // \uc2e4\uc2dc\uac04 \ub530\ub77c\uac00\uae30(s393): \ubcf4\ub294 \uc911\uc774\uace0 \uc704\uce58\uac00 \ubc29\uae08 \uc628 \uac83\uc77c \ub54c\ub9cc \u2014 \uc571\uc740 \uc810\uc744 \ubd80\ub4dc\ub7fd\uac8c \uc62e\uae30\uace0 \uc9c0\ub3c4\uac00 \ub530\ub77c\uac04\ub2e4
+  const follow = !viewing && cpin < 0 && !!loc && !noLoc && watching && now - loc.t < 60000;                  // \uc2e4\uc2dc\uac04 \ub530\ub77c\uac00\uae30(s393): \ubcf4\ub294 \uc911\uc774\uace0 \uc704\uce58\uac00 \ubc29\uae08 \uc628 \uac83\uc77c \ub54c\ub9cc \u2014 \uc571\uc740 \uc810\uc744 \ubd80\ub4dc\ub7fd\uac8c \uc62e\uae30\uace0 \uc9c0\ub3c4\uac00 \ub530\ub77c\uac04\ub2e4
   const head = [
     viewing ? { t: 'lth', s: nm + ' \uc9c0\ub09c \uacbd\ub85c', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '\uc790\ub140 \uc704\uce58', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
-    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: 250, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '\uc9c0\ub09c \uacbd\ub85c \u00b7 \uc544\ub798 \ub2e8\ucd94\ub85c \uc2e4\uc2dc\uac04\uc73c\ub85c \ub3cc\uc544\uac00\uc694' : noLoc ? '\uc790\ub140 \uc704\uce58\ub97c \uc544\uc9c1 \ubc1b\uc9c0 \ubabb\ud588\uc5b4\uc694' : follow ? '\uc2e4\uc2dc\uac04\uc73c\ub85c \ub530\ub77c\uac00\ub294 \uc911 \u00b7 \uc9c0\ub3c4\ub97c \ubc00\uba74 \uc7a0\uc2dc \uba48\ucdb0\uc694' : '\uc9c0\ub3c4\ub97c 3\ucd08 \ub204\ub974\uba74 \uc7a5\uc18c\ub97c \ub4f1\ub85d\ud574\uc694', lp: 'kpl.new', fp: 40, fz: 16 },
+    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: 250, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '\uc9c0\ub09c \uacbd\ub85c \u00b7 \uc544\ub798 \ub2e8\ucd94\ub85c \uc2e4\uc2dc\uac04\uc73c\ub85c \ub3cc\uc544\uac00\uc694' : noLoc ? '\uc790\ub140 \uc704\uce58\ub97c \uc544\uc9c1 \ubc1b\uc9c0 \ubabb\ud588\uc5b4\uc694' : follow ? '\uc2e4\uc2dc\uac04\uc73c\ub85c \ub530\ub77c\uac00\ub294 \uc911 \u00b7 \uc9c0\ub3c4\ub97c \ubc00\uba74 \uc7a0\uc2dc \uba48\ucdb0\uc694' : '\uc9c0\ub3c4\ub97c 3\ucd08 \ub204\ub974\uba74 \uc7a5\uc18c\ub97c \ub4f1\ub85d\ud574\uc694', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
+  for (const c of calls.slice().reverse()) head.unshift(panel([
+    tx((c.k === 'sos' ? '\ud83d\udea8 ' + nm + ' \uae34\uae09 \ud638\ucd9c' : '\ud83d\ude97 ' + nm + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694'), { size: 15, bold: true, color: 'orange', lines: 1 }),
+    tx(clock(c.t) + (c.pl ? ' \u00b7 ' + c.pl + ' \uadfc\ucc98' : '') + (c.st === 1 ? ' \u00b7 \ubd80\ubaa8\ub2d8 \uc911 \ud55c \ubd84\uc774 \ud655\uc778\ud588\uc5b4\uc694' : '') + ((c.la || c.lo) ? ' \u00b7 \uc9c0\ub3c4\uc5d0 \ud45c\uc2dc\ud588\uc5b4\uc694' : ' \u00b7 \uc704\uce58\ub97c \uc544\uc9c1 \ubabb \ubc1b\uc558\uc5b4\uc694'), { size: 11.5, color: 'sub', lines: 2, pad: [0, 3, 0, 8] }),
+    { t: 'row', gap: 8, kids: [c.st === 0 ? btn(c.k === 'sos' ? '\ud655\uc778\ud588\uc5b4\uc694' : '\uc9c0\uae08 \uac00\uc694', call('kx.ack', '', c.id), gold) : btn(c.k === 'sos' ? '\uc0c1\ud669\uc774 \ub05d\ub0ac\uc5b4\uc694' : '\ub9cc\ub0ac\uc5b4\uc694', call('kx.done', '', c.id), gold)] },
+  ], { pad: [12, 8, 12, 0], ip: [14, 12, 14, 12] }));
   const body = [];
   if (viewing) body.push(panel([
     tx(rtTitle(rview, now), { size: 13, bold: true, lines: 1 }),
@@ -1282,6 +1348,10 @@ async function handle(req, env, url) {
       if (n > 0 && !(await DB.prepare('SELECT 1 a FROM evs WHERE cid=? AND k=? AND x=? AND t>? LIMIT 1').bind(cid, k, x, now - 60000).first())) await ev(DB, cid, k, x, now);
       return J({ ok: true, linked: n });
     }
+    if (p === '/c/call' && m === 'POST') {        // \uc790\ub140\uac00 \uae34\uae09 \ud638\ucd9c \u00b7 \uc548\uc804\ud558\uac8c \ub3c4\ucc29 \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \ub97c \ub204\ub978\ub2e4(op:'cancel' \uc740 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \ucde8\uc18c)
+      const r = await callRequest(env, DB, cid, body, now);
+      return r.err ? bad(r.err) : J(r);
+    }
     if (p === '/c/share' && m === 'POST') {       // \uc790\ub140\uac00 \uc704\uce58 \uacf5\uc720\ub97c \ucf1c\uace0 \ub048\ub2e4\uace0 \uc54c\ub9b0\ub2e4 \u2014 \ub044\uba74 \ubd80\ubaa8\uc5d0\uac8c \uc54c\ub9ac\uace0, \ub048 \ub3d9\uc548\uc740 '\uc704\uce58 \ub04a\uae40' \uc54c\ub9bc\uc744 \ubcf4\ub0b4\uc9c0 \uc54a\ub294\ub2e4
       const on = body.on ? 1 : 0;
       await DB.prepare('INSERT OR IGNORE INTO cst(cid) VALUES(?)').bind(cid).run();
@@ -1294,7 +1364,7 @@ async function handle(req, env, url) {
       return J({ ok: true });
     }
     if (p === '/c/unlink' && m === 'POST') {      // \uc790\ub140\uac00 \ubaa8\ub4e0 \uc5f0\uacb0\uc744 \ub04a\ub294\ub2e4(\uc704\uce58\ub3c4 \ud568\uaed8 \uc9c0\uc6b4\ub2e4)
-      await DB.batch([DB.prepare('DELETE FROM links WHERE cid=?').bind(cid), DB.prepare('DELETE FROM loc WHERE cid=?').bind(cid), DB.prepare('DELETE FROM locs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM routes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM stops WHERE cid=?').bind(cid), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(cid + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(cid), DB.prepare('DELETE FROM codes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM places WHERE cid=?').bind(cid), DB.prepare('DELETE FROM trips WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(cid), DB.prepare('DELETE FROM evs WHERE cid=?').bind(cid)]);
+      await DB.batch([DB.prepare('DELETE FROM links WHERE cid=?').bind(cid), DB.prepare('DELETE FROM loc WHERE cid=?').bind(cid), DB.prepare('DELETE FROM locs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM routes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM stops WHERE cid=?').bind(cid), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(cid + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(cid), DB.prepare('DELETE FROM codes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM places WHERE cid=?').bind(cid), DB.prepare('DELETE FROM trips WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(cid), DB.prepare('DELETE FROM evs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM calls WHERE cid=?').bind(cid)]);
       await bump(DB, cid);
       return J({ ok: true });
     }
@@ -1432,7 +1502,18 @@ async function handle(req, env, url) {
         await bump(DB, cid);
         return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
       }
-      if (/^k(r|pg|p|pl|d)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
+      if (/^k(r|pg|p|pl|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
+      if (v === 'kx.ack' || v === 'kx.done') {          // \ubd80\ubaa8\uac00 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \ub97c \ud655\uc778\ud588\ub2e4 / \ub05d\ub0ac\ub2e4
+        if (!cid || !t) return R({ hub: 1 });
+        const ack = v === 'kx.ack';
+        const r = await DB.prepare('UPDATE calls SET st=?,at=? WHERE id=? AND cid=? AND st=?').bind(ack ? 1 : 3, now, String(t), cid, ack ? 0 : 1).run();
+        if (r && r.meta && r.meta.changes > 0) {
+          const c = await DB.prepare('SELECT k FROM calls WHERE id=?').bind(String(t)).first();
+          await bump(DB, cid);
+          if (ack && c) later(notifyChild(env, DB, cid, { k: 'callack', title: '\uae38\ub3d9\ubb34 \ud0a4\uc988', body: callAck(c.k), tag: 'callack' }));
+        }
+        return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
+      }
       // \uc5f0\uacb0 \uad00\ub9ac
       if (v === 'kl.open') return R({ screen: await linkSheet(DB, pid, '') });
       if (v === 'kl.close') return R({ close: true });
@@ -1472,7 +1553,7 @@ async function handle(req, env, url) {
       }
       if (v === 'kl.unlink' && kids.some((k) => k.cid === id)) {
         await DB.prepare('DELETE FROM links WHERE cid=? AND pid=?').bind(id, pid).run();
-        if ((await linkedCount(DB, id)) === 0) await DB.batch([DB.prepare('DELETE FROM loc WHERE cid=?').bind(id), DB.prepare('DELETE FROM locs WHERE cid=?').bind(id), DB.prepare('DELETE FROM routes WHERE cid=?').bind(id), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(id), DB.prepare('DELETE FROM cst WHERE cid=?').bind(id), DB.prepare('DELETE FROM stops WHERE cid=?').bind(id), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(id + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(id), DB.prepare('DELETE FROM places WHERE cid=?').bind(id), DB.prepare('DELETE FROM trips WHERE cid=?').bind(id), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(id), DB.prepare('DELETE FROM evs WHERE cid=?').bind(id)]);
+        if ((await linkedCount(DB, id)) === 0) await DB.batch([DB.prepare('DELETE FROM loc WHERE cid=?').bind(id), DB.prepare('DELETE FROM locs WHERE cid=?').bind(id), DB.prepare('DELETE FROM routes WHERE cid=?').bind(id), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(id), DB.prepare('DELETE FROM cst WHERE cid=?').bind(id), DB.prepare('DELETE FROM stops WHERE cid=?').bind(id), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(id + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(id), DB.prepare('DELETE FROM places WHERE cid=?').bind(id), DB.prepare('DELETE FROM trips WHERE cid=?').bind(id), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(id), DB.prepare('DELETE FROM evs WHERE cid=?').bind(id), DB.prepare('DELETE FROM calls WHERE cid=?').bind(id)]);
         await bump(DB, id);
         const left = await childrenOf(DB, pid);
         return R({ screen: await linkSheet(DB, pid, '\uc5f0\uacb0\uc744 \ub04a\uc5c8\uc5b4\uc694'), linked: left.length, notice: '\uc5f0\uacb0\uc744 \ub04a\uc5c8\uc5b4\uc694' });
@@ -1683,7 +1764,7 @@ async function handle(req, env, url) {
     }
     if (p === '/p/unlink' && m === 'POST') {
       await DB.batch([DB.prepare('DELETE FROM links WHERE cid=? AND pid=?').bind(cid, pid)]);
-      if ((await linkedCount(DB, cid)) === 0) await DB.batch([DB.prepare('DELETE FROM loc WHERE cid=?').bind(cid), DB.prepare('DELETE FROM locs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM routes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM stops WHERE cid=?').bind(cid), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(cid + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(cid), DB.prepare('DELETE FROM places WHERE cid=?').bind(cid), DB.prepare('DELETE FROM trips WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(cid), DB.prepare('DELETE FROM evs WHERE cid=?').bind(cid)]);
+      if ((await linkedCount(DB, cid)) === 0) await DB.batch([DB.prepare('DELETE FROM loc WHERE cid=?').bind(cid), DB.prepare('DELETE FROM locs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM routes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM stops WHERE cid=?').bind(cid), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(cid + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(cid), DB.prepare('DELETE FROM places WHERE cid=?').bind(cid), DB.prepare('DELETE FROM trips WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(cid), DB.prepare('DELETE FROM evs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM calls WHERE cid=?').bind(cid)]);
       await bump(DB, cid);
       return J({ ok: true });
     }

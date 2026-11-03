@@ -281,13 +281,64 @@ function gdScreen(nm) {
   ]);
 }
 /** 연결된 부모마다(자녀 이름은 부모가 정한 이름) 글을 따로 만들어 보낸다. mk(nm) => data */
-async function notifyParents(env, DB, cid, mk) {
-  const rs = (await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>''").bind(GD_VER, cid).all()).results || [];
+async function notifyParents(env, DB, cid, mk, all) {      // all: 법정대리인 확인 전인 부모에게도 보낸다(긴급 호출 — 알림에는 위치가 없고, 위치는 확인을 마쳐야 보인다)
+  const rs = (all
+    ? await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.ft<>''").bind(cid).all()
+    : await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>''").bind(GD_VER, cid).all()).results || [];
   const now = Date.now();
   if (rs.length) await DB.batch(rs.map((r) => DB.prepare("INSERT INTO lbs(t,cid,pid,k) VALUES(?,?,?,'n')").bind(now, cid, r.id)));
   await pushRows(env, DB, rs.map((r) => ({ id: r.id, ft: r.ft, data: Object.assign({ cid }, mk(r.nm || '')) })));
 }
 const who = (nm) => (nm ? ga(nm) : '자녀가');
+// ───────── 긴급 호출 · 안전하게 도착 · 데리러 와줘(s399) ─────────
+// 자녀가 누르면(자녀 앱 /c/call) 서버가 기록하고 부모에게 알린다. 알림 글에는 좌표가 없고(장소 이름만), 좌표는 부모가 확인을 마친 화면에서만 보인다.
+const CALL_GAP = { sos: 60000, pick: 5 * 60000, arr: 2 * 60000 };          // 같은 것을 이 시간 안에 또 누르면 새로 만들지 않는다(실수로 여러 번 눌러도 알림 폭탄 없음)
+const CALL_OPEN_MS = 3 * 3600000, CALL_KEEP = 7 * 86400000, CALL_NEAR_M = 150;
+async function nearPlaceName(DB, cid, la, lo) {
+  const ps = (await DB.prepare('SELECT name,la,lo FROM places WHERE cid=?').bind(cid).all()).results || [];
+  let best = null, bd = CALL_NEAR_M + 1;
+  for (const p of ps) { const d = hav(la, lo, p.la, p.lo); if (d < bd) { bd = d; best = p.name; } }
+  return best || '';
+}
+const callAck = (k) => (k === 'sos' ? '부모님이 확인했어요' : '부모님이 데리러 가고 있어요');
+async function callRequest(env, DB, cid, body, now) {
+  const k = String(body.k || '');
+  if (!CALL_GAP[k]) return { err: '형식이 맞지 않아요' };
+  const linked = await linkedCount(DB, cid);
+  if (linked === 0) return { ok: true, linked: 0 };
+  let la = Number(body.la), lo = Number(body.lo);
+  let has = body.la != null && body.lo != null && Number.isFinite(la) && Number.isFinite(lo) && Math.abs(la) <= 85 && Math.abs(lo) <= 180 && (la || lo);
+  if (!has) { const l = await DB.prepare('SELECT la,lo,t FROM loc WHERE cid=?').bind(cid).first(); if (l && now - l.t < 30 * 60000) { la = l.la; lo = l.lo; has = true; } }
+  if (body.op === 'cancel') {
+    if (k === 'arr') return { err: '형식이 맞지 않아요' };
+    const r = await DB.prepare('UPDATE calls SET st=2,at=? WHERE cid=? AND k=? AND st IN (0,1) AND t>?').bind(now, cid, k, now - CALL_OPEN_MS).run();
+    if (r && r.meta && r.meta.changes > 0) {
+      await bump(DB, cid);
+      later(notifyParents(env, DB, cid, (nm) => ({ k: 'callx', title: k === 'sos' ? '긴급 호출 취소' : '길동무', body: who(nm) + (k === 'sos' ? ' 긴급 호출을 취소했어요. 괜찮다고 해요' : ' 데리러 와 달라는 요청을 취소했어요'), tag: k }), k === 'sos'));
+    }
+    return { ok: true, linked };
+  }
+  const last = await DB.prepare('SELECT id,t,st FROM calls WHERE cid=? AND k=? ORDER BY t DESC LIMIT 1').bind(cid, k).first();
+  if (last && last.st !== 2 && now - last.t < CALL_GAP[k]) return { ok: true, id: last.id, dup: 1, linked };
+  const place = has ? await nearPlaceName(DB, cid, la, lo) : '';
+  const keep = has && k !== 'arr';                                      // 도착 알림은 좌표를 남기지 않는다(장소 이름만)
+  const opened = k === 'arr' ? null : await DB.prepare('SELECT id FROM calls WHERE cid=? AND k=? AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 1').bind(cid, k, now - CALL_OPEN_MS).first();
+  let id;
+  if (opened) {                                                         // 아직 안 끝난 호출을 또 누르면 카드를 늘리지 않고 그 카드를 새로(미확인으로) 올리고 다시 알린다
+    id = opened.id;
+    await DB.prepare('UPDATE calls SET t=?,la=?,lo=?,pl=?,st=0,at=0 WHERE id=?').bind(now, keep ? la : 0, keep ? lo : 0, place, id).run();
+  } else {
+    id = rid();
+    await DB.prepare('INSERT INTO calls(id,cid,k,t,la,lo,pl,st,at) VALUES(?,?,?,?,?,?,?,0,0)').bind(id, cid, k, now, keep ? la : 0, keep ? lo : 0, place).run();
+  }
+  await ev(DB, cid, k, place, now);
+  const near = place ? ' · ' + place + ' 근처' : '';
+  later(notifyParents(env, DB, cid, (nm) => (k === 'sos'
+    ? { k: 'sos', title: '🚨 긴급 호출', body: who(nm) + ' 긴급 호출을 했어요. 지금 길동무를 열어 확인해 주세요', tag: 'sos' }
+    : k === 'pick' ? { k: 'pick', title: '길동무', body: who(nm) + ' 데리러 와 달라고 해요' + near, tag: 'pick' }
+      : { k: 'arr', title: '길동무', body: who(nm) + ' 안전하게 도착했다고 알렸어요' + near + ' · ' + clock(now), tag: 'arr' }), k === 'sos'));
+  return { ok: true, id, linked };
+}
 /** 같은 일을 두 번 보내지 않는다(비트가 처음 켜질 때만 true) */
 async function once(DB, id, bit) {
   const r = await DB.prepare('UPDATE trips SET pn=pn|? WHERE id=? AND (pn&?)=0').bind(bit, id, bit).run();
@@ -351,7 +402,7 @@ let prunedOldAt = 0;
 async function pruneOld(DB, now) {
   if (now - prunedOldAt < 10 * 60000) return;
   prunedOldAt = now;
-  await DB.batch([DB.prepare('DELETE FROM routes WHERE t1<?').bind(now - RT_MAX_AGE), DB.prepare('DELETE FROM stops WHERE t<?').bind(now - STRANGE_KEEP), DB.prepare('DELETE FROM zt WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM drafts WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM lbs WHERE t<?').bind(now - LBS_KEEP), DB.prepare('DELETE FROM cons WHERE t<?').bind(now - 2 * LBS_KEEP)]);          // 쓰다 만 장소 등록 · 고치기 임시본(주소 검색어 포함)은 하루 뒤 지운다
+  await DB.batch([DB.prepare('DELETE FROM calls WHERE t<?').bind(now - CALL_KEEP), DB.prepare('DELETE FROM routes WHERE t1<?').bind(now - RT_MAX_AGE), DB.prepare('DELETE FROM stops WHERE t<?').bind(now - STRANGE_KEEP), DB.prepare('DELETE FROM zt WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM drafts WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM lbs WHERE t<?').bind(now - LBS_KEEP), DB.prepare('DELETE FROM cons WHERE t<?').bind(now - 2 * LBS_KEEP)]);          // 쓰다 만 장소 등록 · 고치기 임시본(주소 검색어 포함)은 하루 뒤 지운다
 }
 async function cron(env) {
   const DB = env.DB, now = Date.now();
@@ -414,6 +465,8 @@ async function init(DB) {
     DB.prepare('CREATE TABLE IF NOT EXISTS gd(pid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 법정대리인 확인 동의(부모 기기별 · 버전 · 시각) — 이 동의가 있어야 자녀 위치가 보인다
     DB.prepare('CREATE TABLE IF NOT EXISTS lbs(id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, cid TEXT NOT NULL, pid TEXT NOT NULL, k TEXT NOT NULL)'),      // 위치정보법 제16조 이용·제공사실 확인자료: 언제 · 누가 · 누구의 위치를 받았나(좌표는 없다) · 6개월 넘게 보관
     DB.prepare('CREATE INDEX IF NOT EXISTS lbs_c ON lbs(cid, pid, k, t)'),
+    DB.prepare('CREATE TABLE IF NOT EXISTS calls(id TEXT PRIMARY KEY, cid TEXT NOT NULL, k TEXT NOT NULL, t INTEGER NOT NULL, la REAL NOT NULL DEFAULT 0, lo REAL NOT NULL DEFAULT 0, pl TEXT NOT NULL DEFAULT \'\', st INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL DEFAULT 0)'),      // 긴급 호출(sos) · 데리러 와줘(pick) · 안전하게 도착(arr): st 0 새것 · 1 부모가 확인 · 2 자녀가 취소 · 3 끝남
+    DB.prepare('CREATE INDEX IF NOT EXISTS calls_c ON calls(cid, k, t)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS cons(cid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 자녀 앱에서 보호자 · 본인 동의를 마친 기록(동의 증빙)
     DB.prepare('CREATE TABLE IF NOT EXISTS stops(id INTEGER PRIMARY KEY AUTOINCREMENT, cid TEXT NOT NULL, la REAL NOT NULL, lo REAL NOT NULL, t INTEGER NOT NULL, d INTEGER NOT NULL)'),      // 30분 넘게 머문 곳 기록(낯선 곳 판정용 · 30일)
     DB.prepare('CREATE INDEX IF NOT EXISTS stops_c ON stops(cid, id)'),
@@ -657,6 +710,8 @@ async function childState(DB, cid, now) {
     if (loc) { m = hav(loc.la, loc.lo, r.la, r.lo); fresh = now - loc.t <= LOC_FRESH; }
     out.trip = { id: r.id, name: r.name, near: m != null && m <= ARR_M && fresh, dist: m == null ? '' : fmtDist(m), text: m == null ? r.name + '까지 위치를 확인하는 중이에요' : r.name + '까지 ' + fmtDist(m), hint: m != null && m <= ARR_M && fresh ? '도착했어요! 확인을 눌러요' : '도착하면 확인을 눌러요' };
   }
+  const cl = await DB.prepare("SELECT k,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 1").bind(cid, now - CALL_OPEN_MS).first();
+  if (cl) out.call = { k: cl.k, st: cl.st, text: cl.st === 1 ? callAck(cl.k) : '부모님께 알렸어요' };
   out.cheers = ((await DB.prepare('SELECT x FROM cheers WHERE cid=? ORDER BY id LIMIT ?').bind(cid, MAX_CHEER).all()).results || []).map((r) => r.x);
   if (due) out.prompt = { id: due.r.id, name: due.r.name, text: hmTxt(due.r.hh, due.r.mm) + '까지 ' + due.r.name + '에 가야해요!' };
   return out;
@@ -804,6 +859,9 @@ function evText(e, nm) {
     case 'psleep': return ga(nm) + ' ' + eul(x) + ' 재웠어요';
     case 'pstudy': return ga(nm) + ' ' + x + '에게 공부를 시켰어요';
     case 'pplay': return ga(nm) + ' ' + eul(x) + ' 놀게 했어요';
+    case 'sos': return ga(nm) + ' 긴급 호출을 했어요' + (x ? ' · ' + x + ' 근처' : '');
+    case 'pick': return ga(nm) + ' 데리러 와 달라고 했어요' + (x ? ' · ' + x + ' 근처' : '');
+    case 'arr': return ga(nm) + ' 안전하게 도착했다고 알렸어요' + (x ? ' · ' + x : '');
     default: return x;
   }
 }
@@ -825,6 +883,9 @@ async function hubScreen(DB, pid, cid, now) {
   const heading = loc && watching && loc.hd >= 0 && now - loc.mt < MOVE_REC_MS && now - loc.hdt < 90000 ? loc.hd : -1;       // 움직이는 중일 때만 가는 방향(앱은 화살표만 돌린다)
   if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, ...(heading >= 0 ? { h: heading } : {}) });
   pls.slice(0, 9).forEach((p, i) => pins.push({ la: p.la, lo: p.lo, k: 's', n: String(i + 1), l: p.name, v: 'kp.' + p.id }));
+  const calls = (await DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS).all()).results || [];
+  let cpin = -1;                                                                  // 긴급 호출 · 데리러 와줘 가 있으면 그 자리를 지도에 찍고 거기로 맞춘다
+  for (const c of calls) if ((c.la || c.lo) && cpin < 0) { cpin = pins.length; pins.push({ la: c.la, lo: c.lo, k: 's', n: '!', l: c.k === 'sos' ? '긴급' : '데리러' }); }
   const noLoc = !pins.length;
   if (noLoc) pins.push({ la: 37.5665, lo: 126.978, k: 's', n: '', l: '' });
   // 이동 경로: 지난 TRAIL_MS 동안 쌓인 점(최대 TRAIL_PTS 개로 솎음) + 지금 위치
@@ -843,11 +904,16 @@ async function hubScreen(DB, pid, cid, now) {
     pins.length = 0;
     pins.push({ la: rpts[0][0], lo: rpts[0][1], k: 's', n: '출', l: rview.sn || '출발' }, { la: rpts[rpts.length - 1][0], lo: rpts[rpts.length - 1][1], k: 's', n: '도', l: rview.en || '도착' });
   }
-  const follow = !viewing && !!loc && !noLoc && watching && now - loc.t < 60000;                  // 실시간 따라가기(s393): 보는 중이고 위치가 방금 온 것일 때만 — 앱은 점을 부드럽게 옮기고 지도가 따라간다
+  const follow = !viewing && cpin < 0 && !!loc && !noLoc && watching && now - loc.t < 60000;                  // 실시간 따라가기(s393): 보는 중이고 위치가 방금 온 것일 때만 — 앱은 점을 부드럽게 옮기고 지도가 따라간다
   const head = [
     viewing ? { t: 'lth', s: nm + ' 지난 경로', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '자녀 위치', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
-    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: 250, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '자녀 위치를 아직 받지 못했어요' : follow ? '실시간으로 따라가는 중 · 지도를 밀면 잠시 멈춰요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
+    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: 250, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '자녀 위치를 아직 받지 못했어요' : follow ? '실시간으로 따라가는 중 · 지도를 밀면 잠시 멈춰요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
+  for (const c of calls.slice().reverse()) head.unshift(panel([
+    tx((c.k === 'sos' ? '🚨 ' + nm + ' 긴급 호출' : '🚗 ' + nm + ' 데리러 와 달라고 해요'), { size: 15, bold: true, color: 'orange', lines: 1 }),
+    tx(clock(c.t) + (c.pl ? ' · ' + c.pl + ' 근처' : '') + (c.st === 1 ? ' · 부모님 중 한 분이 확인했어요' : '') + ((c.la || c.lo) ? ' · 지도에 표시했어요' : ' · 위치를 아직 못 받았어요'), { size: 11.5, color: 'sub', lines: 2, pad: [0, 3, 0, 8] }),
+    { t: 'row', gap: 8, kids: [c.st === 0 ? btn(c.k === 'sos' ? '확인했어요' : '지금 가요', call('kx.ack', '', c.id), gold) : btn(c.k === 'sos' ? '상황이 끝났어요' : '만났어요', call('kx.done', '', c.id), gold)] },
+  ], { pad: [12, 8, 12, 0], ip: [14, 12, 14, 12] }));
   const body = [];
   if (viewing) body.push(panel([
     tx(rtTitle(rview, now), { size: 13, bold: true, lines: 1 }),
@@ -1282,6 +1348,10 @@ async function handle(req, env, url) {
       if (n > 0 && !(await DB.prepare('SELECT 1 a FROM evs WHERE cid=? AND k=? AND x=? AND t>? LIMIT 1').bind(cid, k, x, now - 60000).first())) await ev(DB, cid, k, x, now);
       return J({ ok: true, linked: n });
     }
+    if (p === '/c/call' && m === 'POST') {        // 자녀가 긴급 호출 · 안전하게 도착 · 데리러 와줘 를 누른다(op:'cancel' 은 긴급 호출 · 데리러 와줘 취소)
+      const r = await callRequest(env, DB, cid, body, now);
+      return r.err ? bad(r.err) : J(r);
+    }
     if (p === '/c/share' && m === 'POST') {       // 자녀가 위치 공유를 켜고 끈다고 알린다 — 끄면 부모에게 알리고, 끈 동안은 '위치 끊김' 알림을 보내지 않는다
       const on = body.on ? 1 : 0;
       await DB.prepare('INSERT OR IGNORE INTO cst(cid) VALUES(?)').bind(cid).run();
@@ -1294,7 +1364,7 @@ async function handle(req, env, url) {
       return J({ ok: true });
     }
     if (p === '/c/unlink' && m === 'POST') {      // 자녀가 모든 연결을 끊는다(위치도 함께 지운다)
-      await DB.batch([DB.prepare('DELETE FROM links WHERE cid=?').bind(cid), DB.prepare('DELETE FROM loc WHERE cid=?').bind(cid), DB.prepare('DELETE FROM locs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM routes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM stops WHERE cid=?').bind(cid), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(cid + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(cid), DB.prepare('DELETE FROM codes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM places WHERE cid=?').bind(cid), DB.prepare('DELETE FROM trips WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(cid), DB.prepare('DELETE FROM evs WHERE cid=?').bind(cid)]);
+      await DB.batch([DB.prepare('DELETE FROM links WHERE cid=?').bind(cid), DB.prepare('DELETE FROM loc WHERE cid=?').bind(cid), DB.prepare('DELETE FROM locs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM routes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM stops WHERE cid=?').bind(cid), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(cid + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(cid), DB.prepare('DELETE FROM codes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM places WHERE cid=?').bind(cid), DB.prepare('DELETE FROM trips WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(cid), DB.prepare('DELETE FROM evs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM calls WHERE cid=?').bind(cid)]);
       await bump(DB, cid);
       return J({ ok: true });
     }
@@ -1432,7 +1502,18 @@ async function handle(req, env, url) {
         await bump(DB, cid);
         return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
       }
-      if (/^k(r|pg|p|pl|d)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
+      if (/^k(r|pg|p|pl|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
+      if (v === 'kx.ack' || v === 'kx.done') {          // 부모가 긴급 호출 · 데리러 와줘 를 확인했다 / 끝났다
+        if (!cid || !t) return R({ hub: 1 });
+        const ack = v === 'kx.ack';
+        const r = await DB.prepare('UPDATE calls SET st=?,at=? WHERE id=? AND cid=? AND st=?').bind(ack ? 1 : 3, now, String(t), cid, ack ? 0 : 1).run();
+        if (r && r.meta && r.meta.changes > 0) {
+          const c = await DB.prepare('SELECT k FROM calls WHERE id=?').bind(String(t)).first();
+          await bump(DB, cid);
+          if (ack && c) later(notifyChild(env, DB, cid, { k: 'callack', title: '길동무 키즈', body: callAck(c.k), tag: 'callack' }));
+        }
+        return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
+      }
       // 연결 관리
       if (v === 'kl.open') return R({ screen: await linkSheet(DB, pid, '') });
       if (v === 'kl.close') return R({ close: true });
@@ -1472,7 +1553,7 @@ async function handle(req, env, url) {
       }
       if (v === 'kl.unlink' && kids.some((k) => k.cid === id)) {
         await DB.prepare('DELETE FROM links WHERE cid=? AND pid=?').bind(id, pid).run();
-        if ((await linkedCount(DB, id)) === 0) await DB.batch([DB.prepare('DELETE FROM loc WHERE cid=?').bind(id), DB.prepare('DELETE FROM locs WHERE cid=?').bind(id), DB.prepare('DELETE FROM routes WHERE cid=?').bind(id), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(id), DB.prepare('DELETE FROM cst WHERE cid=?').bind(id), DB.prepare('DELETE FROM stops WHERE cid=?').bind(id), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(id + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(id), DB.prepare('DELETE FROM places WHERE cid=?').bind(id), DB.prepare('DELETE FROM trips WHERE cid=?').bind(id), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(id), DB.prepare('DELETE FROM evs WHERE cid=?').bind(id)]);
+        if ((await linkedCount(DB, id)) === 0) await DB.batch([DB.prepare('DELETE FROM loc WHERE cid=?').bind(id), DB.prepare('DELETE FROM locs WHERE cid=?').bind(id), DB.prepare('DELETE FROM routes WHERE cid=?').bind(id), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(id), DB.prepare('DELETE FROM cst WHERE cid=?').bind(id), DB.prepare('DELETE FROM stops WHERE cid=?').bind(id), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(id + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(id), DB.prepare('DELETE FROM places WHERE cid=?').bind(id), DB.prepare('DELETE FROM trips WHERE cid=?').bind(id), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(id), DB.prepare('DELETE FROM evs WHERE cid=?').bind(id), DB.prepare('DELETE FROM calls WHERE cid=?').bind(id)]);
         await bump(DB, id);
         const left = await childrenOf(DB, pid);
         return R({ screen: await linkSheet(DB, pid, '연결을 끊었어요'), linked: left.length, notice: '연결을 끊었어요' });
@@ -1683,7 +1764,7 @@ async function handle(req, env, url) {
     }
     if (p === '/p/unlink' && m === 'POST') {
       await DB.batch([DB.prepare('DELETE FROM links WHERE cid=? AND pid=?').bind(cid, pid)]);
-      if ((await linkedCount(DB, cid)) === 0) await DB.batch([DB.prepare('DELETE FROM loc WHERE cid=?').bind(cid), DB.prepare('DELETE FROM locs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM routes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM stops WHERE cid=?').bind(cid), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(cid + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(cid), DB.prepare('DELETE FROM places WHERE cid=?').bind(cid), DB.prepare('DELETE FROM trips WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(cid), DB.prepare('DELETE FROM evs WHERE cid=?').bind(cid)]);
+      if ((await linkedCount(DB, cid)) === 0) await DB.batch([DB.prepare('DELETE FROM loc WHERE cid=?').bind(cid), DB.prepare('DELETE FROM locs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM routes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM stops WHERE cid=?').bind(cid), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(cid + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(cid), DB.prepare('DELETE FROM places WHERE cid=?').bind(cid), DB.prepare('DELETE FROM trips WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(cid), DB.prepare('DELETE FROM evs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM calls WHERE cid=?').bind(cid)]);
       await bump(DB, cid);
       return J({ ok: true });
     }
