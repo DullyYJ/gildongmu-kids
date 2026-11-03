@@ -12,7 +12,7 @@ import android.widget.TextView;
 
 import org.json.JSONObject;
 
-/** 퀘스트 맨 위 스타포인트 줄 — 별 그림(직접 그린다)과 숫자. 서버가 준 값을 그리기만 하고, 값이 늘어난 순간에는 별이 한 번 톡 커진다. */
+/** 퀘스트 맨 위 길동무포인트 줄 — 별 그림(직접 그린다)과 숫자. 서버가 준 값을 그리기만 하고, 값이 늘어난 순간에는 별이 한 번 톡 커진다. */
 final class QuestStars {
     private static int last = -1;
 
@@ -60,7 +60,7 @@ final class QuestStars {
         r.addView(icon, new LinearLayout.LayoutParams(Ui.dpi(c, 30), Ui.dpi(c, 30)));
         LinearLayout mid = new LinearLayout(c);
         mid.setOrientation(LinearLayout.VERTICAL);
-        mid.addView(Ui.text(c, b.optString("label", "스타포인트"), 13f, Pal.c(Pal.TEXT), true));
+        mid.addView(Ui.text(c, b.optString("label", "길동무포인트"), 13f, Pal.c(Pal.TEXT), true));
         String sub = b.optString("sub", "");
         if (!sub.isEmpty()) {
             TextView st = Ui.text(c, sub, 11f, Pal.c(Pal.ORANGE), false);

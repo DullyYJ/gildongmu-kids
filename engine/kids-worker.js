@@ -3,13 +3,13 @@
 // 인증: 요청 머리글 x-id / x-sec (기기가 처음 정한 아이디와 비밀. 서버에는 SHA-256 만 저장).
 // 자녀 앱 = 역할 c, 부모(길동무 앱) = 역할 p.
 // 미션: k='c' 는 부모가 자녀에게 주는 미션(자녀 미션), k='p' 는 자녀가 부모에게 주는 미션(부모님 미션).
-//   자녀 미션 s: 0 대기 -> 1 자녀가 해냈다고 알림(부모 확인 대기) -> 2 부모가 확인(스타포인트 지급)
-//   부모님 미션 s: 0 대기 -> 1 부모가 해냈다고 표시 (스타포인트 없음)
+//   자녀 미션 s: 0 대기 -> 1 자녀가 해냈다고 알림(부모 확인 대기) -> 2 부모가 확인(길동무포인트 지급)
+//   부모님 미션 s: 0 대기 -> 1 부모가 해냈다고 표시 (길동무포인트 없음)
 // 장소(places): 부모가 정한 '그 요일 · 그 시각까지 가 있어야 하는 곳'. 시각 30분 전에 자녀에게 알림(trip 'due') ->
-//   자녀 [확인](그냥 끔 'seen') / [출발]('go') -> 남은 거리 알약 -> 도착점 100m 안에서 [도착 확인] -> 'done' + 50 스타포인트.
+//   자녀 [확인](그냥 끔 'seen') / [출발]('go') -> 남은 거리 알약 -> 도착점 100m 안에서 [도착 확인] -> 'done' + 10 길동무포인트.
 // 실시간: 모든 바뀜은 rev(cid) 를 올리고, 앱은 /c/wait · /p/wait 로 '바뀔 때까지' 붙들어 두었다가 곧바로 새 화면을 받는다(0.6초 안).
 const DAY = 86400000, KST = 9 * 3600000, CHAT_KEEP = 7 * DAY, PAIR_TTL = 10 * 60000, MAX_PARENTS = 4, MAX_TXT = 300, MAX_CHAT = 300, MAX_QUEST = 100, MAX_PT = 5, MAX_PLACES = 12, MAX_CHEER = 20, CHEER_LEN = 40;
-const LEAD = 30 * 60000, STAY = 120 * 60000, PROMPT_AFTER = 60 * 60000, ARR_M = 100, ARR_AUTO_M = 50, HERE_M = 150, LOC_FRESH = 90000, ARRIVE_PT = 50, WAIT_MS = 15000, WAIT_STEP = 600;
+const LEAD = 30 * 60000, STAY = 120 * 60000, PROMPT_AFTER = 60 * 60000, ARR_M = 100, ARR_AUTO_M = 50, HERE_M = 150, LOC_FRESH = 90000, ARRIVE_PT = 10, WAIT_MS = 15000, WAIT_STEP = 600;
 const KEYS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const WD = ['월', '화', '수', '목', '금', '토', '일'];
 
@@ -357,7 +357,7 @@ async function zoneAlert(env, DB, cid, kind, plId, name, now) {
   await notifyParents(env, DB, cid, (nm) => ({ k: 'zone', title: '길동무', body: who(nm) + ' ' + name + (kind === 'at' ? ' 근처에 왔어요' : kind === 'in' ? '에 도착했어요' : '에서 멀어졌어요') + ' · ' + clock(now), tag: 'zone' + plId }));
   return true;
 }
-/** 도착(50m 안): 그날 '출발'한 길이 있으면 도착을 확인해 스타포인트를 주고(자녀가 단추를 안 눌러도), 없으면 '도착했어요' 알림만 보낸다. */
+/** 도착(50m 안): 그날 '출발'한 길이 있으면 도착을 확인해 길동무포인트를 주고(자녀가 단추를 안 눌러도), 없으면 '도착했어요' 알림만 보낸다. */
 async function arriveAuto(env, DB, cid, plId, name, now) {
   const tr = await DB.prepare("SELECT id FROM trips WHERE cid=? AND pl=? AND day=? AND st='go'").bind(cid, plId, kstParts(now).ds).first();
   if (tr) {
@@ -365,7 +365,7 @@ async function arriveAuto(env, DB, cid, plId, name, now) {
     if (r && r.meta && r.meta.changes > 0) {
       await addStars(DB, cid, ARRIVE_PT);
       await ev(DB, cid, 'done', name, now);
-      if (await once(DB, tr.id, 4)) await notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '길동무', body: who(nm) + ' ' + name + '에 도착했어요 (스타 +' + ARRIVE_PT + ')', tag: 'trip' + tr.id }));
+      if (await once(DB, tr.id, 4)) await notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '길동무', body: who(nm) + ' ' + name + '에 도착했어요 (포인트 +' + ARRIVE_PT + ')', tag: 'trip' + tr.id }));
     }
     return;
   }
@@ -535,8 +535,8 @@ const okSec = (s) => typeof s === 'string' && s.length >= 16 && s.length <= 128;
 const txt = (s) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, MAX_TXT) : '');
 const rid = () => [...crypto.getRandomValues(new Uint8Array(9))].map((x) => x.toString(36).padStart(2, '0')).join('').slice(0, 12);
 // 미션 상태(s): 0 대기(받는 쪽이 승낙하길 기다림) · 1 승낙(진행 중) · 2 완료 보고(한 쪽이 했다고 눌렀고 보낸 쪽의 확인을 기다림) · 3 종료(완료) · 4 거절
-//   자녀 미션(k='c', 부모 → 자녀): 부모가 보냄 → 자녀 승낙/거절 → 자녀가 완료 → 부모가 확인(이때 자녀에게 스타 pt 지급)
-//   부모님 미션(k='p', 자녀 → 부모): 자녀가 보냄(스타 SEND_COST 필요) → 부모 승낙(이때 자녀 스타 SEND_COST 차감)/거절 → 부모가 완료 → 자녀가 확인
+//   자녀 미션(k='c', 부모 → 자녀): 부모가 보냄 → 자녀 승낙/거절 → 자녀가 완료 → 부모가 확인(이때 자녀에게 포인트 pt 지급)
+//   부모님 미션(k='p', 자녀 → 부모): 자녀가 보냄(포인트 SEND_COST 필요) → 부모 승낙(이때 자녀 포인트 SEND_COST 차감)/거절 → 부모가 완료 → 자녀가 확인
 const SEND_COST = 50;
 const QS_WAIT = 0, QS_ON = 1, QS_REP = 2, QS_DONE = 3, QS_NO = 4;
 const pts = (v) => { const n = Math.round(Number(v)); return n >= 1 && n <= MAX_PT ? n : 1; };
@@ -615,7 +615,7 @@ async function starsOf(DB, cid) {
   const r = await DB.prepare('SELECT n FROM stars WHERE cid=?').bind(cid).first();
   return r ? r.n : 0;
 }
-/** 스타포인트를 n 만큼 덜어 낸다(모자라면 false · 0 아래로 내려가지 않는다) */
+/** 길동무포인트를 n 만큼 덜어 낸다(모자라면 false · 0 아래로 내려가지 않는다) */
 async function takeStars(DB, cid, n) {
   const r = await DB.prepare('UPDATE stars SET n=n-? WHERE cid=? AND n>=?').bind(n, cid, n).run();
   return !!(r && r.meta && r.meta.changes > 0);
@@ -710,7 +710,7 @@ async function todayTrips(DB, cid, now) {
   return (await DB.prepare('SELECT t.id id,t.pl pl,t.st st,t.tn tn,t.tk tk,t.td td,t.ta ta,t.tc tc,p.name name,p.la la,p.lo lo,p.hh hh,p.mm mm FROM trips t JOIN places p ON p.id=t.pl WHERE t.cid=? AND t.day=?').bind(cid, kp.ds).all()).results || [];
 }
 
-/** 자녀 앱이 그리는 모든 것: 연결 수 · 스타포인트 · 알림(prompt) · 남은 거리 알약(trip). 계산은 모두 여기서. */
+/** 자녀 앱이 그리는 모든 것: 연결 수 · 길동무포인트 · 알림(prompt) · 남은 거리 알약(trip). 계산은 모두 여기서. */
 async function childState(DB, cid, now) {
   await tripsSync(DB, cid, now);
   const rows = await todayTrips(DB, cid, now);
@@ -755,7 +755,7 @@ async function chatScreen(DB, cid, now) {
   return { mode: 'scroll', bottom: '1', blocks: a };
 }
 
-// 퀘스트 화면: 위(제목 · 스타포인트 · 칸 두 개)는 그대로 있고, 칸 아래 목록만 좌우로 밀려 돈다(앱이 칸 아래를 한 덩어리로 민다).
+// 퀘스트 화면: 위(제목 · 길동무포인트 · 칸 두 개)는 그대로 있고, 칸 아래 목록만 좌우로 밀려 돈다(앱이 칸 아래를 한 덩어리로 민다).
 async function questScreen(DB, cid, tab) {
   const rows = (await DB.prepare('SELECT id,k,x,s,pt FROM quests WHERE cid=? ORDER BY t DESC LIMIT ?').bind(cid, MAX_QUEST).all()).results || [];
   const star = await starsOf(DB, cid);
@@ -764,24 +764,24 @@ async function questScreen(DB, cid, tab) {
   const act = rows.filter((q) => (q.k !== 'p' ? q.s === QS_WAIT || q.s === QS_ON : q.s === QS_REP)).length;          // 내가 눌러야 하는 것
   const pend = rows.filter((q) => q.k === 'p' && q.s === QS_WAIT).length;
   const a = [b('head', { text: '퀘스트' })];
-  a.push(b('stars', { n: star, label: '스타포인트', sub: act > 0 ? '내가 할 일 ' + act + '개' : '' }));
+  a.push(b('stars', { n: star, label: '길동무포인트', sub: act > 0 ? '내가 할 일 ' + act + '개' : '' }));
   a.push(b('chips', { eq: '1', loop: '1', items: [item('자녀 미션 ' + nc, 'quest.tab:c', kid ? '1' : '0'), item('부모님 미션 ' + np, 'quest.tab:p', kid ? '0' : '1')] }));
-  a.push(b('text', { text: kid ? '부모님이 보내 주신 미션이에요. 승낙하고 해낸 뒤 완료를 누르면 부모님이 확인하고, 그러면 스타포인트가 올라가요.' : '내가 부모님께 보내는 미션이에요(한 번에 스타포인트 ' + SEND_COST + '). 부모님이 승낙하면 ' + SEND_COST + '이 차감되고, 부모님이 완료하면 내가 확인해요.', sub: '1' }));
-  if (!kid) a.push(b('input', { hint: '부모님께 보낼 미션을 적어요 (스타 ' + SEND_COST + ')', act: 'quest.send' }));
+  a.push(b('text', { text: kid ? '부모님이 보내 주신 미션이에요. 승낙하고 해낸 뒤 완료를 누르면 부모님이 확인하고, 그러면 길동무포인트가 올라가요.' : '내가 부모님께 보내는 미션이에요(한 번에 길동무포인트 ' + SEND_COST + '). 부모님이 승낙하면 ' + SEND_COST + '이 차감되고, 부모님이 완료하면 내가 확인해요.', sub: '1' }));
+  if (!kid) a.push(b('input', { hint: '부모님께 보낼 미션을 적어요 (포인트 ' + SEND_COST + ')', act: 'quest.send' }));
   let shown = 0;
   for (const q of rows) {
     if ((q.k === 'p') === kid) continue;
     const p = q.pt || 1;
     let st, tone = '0', btns = null;
     if (kid) {
-      if (q.s === QS_WAIT) { st = '새 미션이에요 · 해내면 스타 +' + p; tone = '1'; btns = [item('승낙', 'quest.accept:' + q.id, '1'), item('거절', 'quest.reject:' + q.id, '0')]; }
-      else if (q.s === QS_ON) { st = '진행 중 · 다 했으면 완료를 눌러요 (스타 +' + p + ')'; tone = '1'; btns = [item('완료', 'quest.fin:' + q.id, '1')]; }
+      if (q.s === QS_WAIT) { st = '새 미션이에요 · 해내면 포인트 +' + p; tone = '1'; btns = [item('승낙', 'quest.accept:' + q.id, '1'), item('거절', 'quest.reject:' + q.id, '0')]; }
+      else if (q.s === QS_ON) { st = '진행 중 · 다 했으면 완료를 눌러요 (포인트 +' + p + ')'; tone = '1'; btns = [item('완료', 'quest.fin:' + q.id, '1')]; }
       else if (q.s === QS_REP) { st = '완료했어요 · 부모님 확인을 기다려요'; tone = '1'; }
-      else if (q.s === QS_DONE) st = '완료! 스타 +' + p + ' 받았어요';
+      else if (q.s === QS_DONE) st = '완료! 포인트 +' + p + ' 받았어요';
       else st = '거절한 미션이에요';
     } else {
-      if (q.s === QS_WAIT) { st = '대기 중 · 부모님이 승낙하면 스타 -' + (q.pt || SEND_COST) + ' 차감돼요'; tone = '1'; }
-      else if (q.s === QS_ON) { st = '승낙! 스타 -' + (q.pt || SEND_COST) + ' · 부모님이 하는 중이에요'; tone = '1'; }
+      if (q.s === QS_WAIT) { st = '대기 중 · 부모님이 승낙하면 포인트 -' + (q.pt || SEND_COST) + ' 차감돼요'; tone = '1'; }
+      else if (q.s === QS_ON) { st = '승낙! 포인트 -' + (q.pt || SEND_COST) + ' · 부모님이 하는 중이에요'; tone = '1'; }
       else if (q.s === QS_REP) { st = '부모님이 완료했어요 · 확인해 주세요'; tone = '1'; btns = [item('확인', 'quest.confirm:' + q.id, '1')]; }
       else if (q.s === QS_DONE) st = '완료했어요';
       else st = '부모님이 거절했어요';
@@ -842,7 +842,7 @@ function alertLines(nm, pls, trips, loc, now) {
     const { pl, eta, tr } = a, hmS = clock(eta);
     const d = loc ? hav(loc.la, loc.lo, pl.la, pl.lo) : null;
     const dp = loc && loc.pla != null && loc.plt ? hav(loc.pla, loc.plo, pl.la, pl.lo) : null;
-    if (tr && tr.tc) out.push({ tone: 'ok', s: who + ' ' + pl.name + '에 도착했어요 · ' + clock(tr.tc) + ' (스타 +' + ARRIVE_PT + ')' });
+    if (tr && tr.tc) out.push({ tone: 'ok', s: who + ' ' + pl.name + '에 도착했어요 · ' + clock(tr.tc) + ' (포인트 +' + ARRIVE_PT + ')' });
     else if (d != null && d <= HERE_M) out.push({ tone: 'ok', s: who + ' ' + pl.name + '에 와 있어요 · ' + (tr && tr.ta ? clock(tr.ta) + ' 도착' : '지금') });
     else if (now >= eta) {
       const closer = d != null && dp != null && d < dp - 15;
@@ -854,7 +854,7 @@ function alertLines(nm, pls, trips, loc, now) {
   return out;
 }
 
-const EV_SHOW = 50, EV_VIS = 4, HUB_CHAT = 40, CHAT_BOX = 230;     // 허브 아래 3칸은 글 수와 상관없이 크기 고정: 활동 칸 = 상태 2줄 + 활동 EV_VIS 줄 · 퀘스트 칸 = 단추·스타포인트·바로가기 · 대화 칸 = 글 영역 CHAT_BOX(dp). 넘치는 글은 칸 안에서만 위아래로 민다                    
+const EV_SHOW = 50, EV_VIS = 4, HUB_CHAT = 40, CHAT_BOX = 230;     // 허브 아래 3칸은 글 수와 상관없이 크기 고정: 활동 칸 = 상태 2줄 + 활동 EV_VIS 줄 · 퀘스트 칸 = 단추·길동무포인트·바로가기 · 대화 칸 = 글 영역 CHAT_BOX(dp). 넘치는 글은 칸 안에서만 위아래로 민다                    
 const KIDS_TAB = { label: '키즈', icon: 'M12 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM6.8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17.2 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM12 12.5c-3.9 0-7 2-7 4.5V22h14v-5c0-2.5-3.1-4.5-7-4.5z' };      // 키즈 모드의 아래 탭(홈 칸을 바꿔 그린다): 어린이 모양 + 글자 — 앱은 이대로 그린다
 const evWhen = (t, now) => { if (kstParts(t).ds === kstParts(now).ds) return clock(t); const d = new Date(t + KST); return d.getUTCMonth() + 1 + '/' + d.getUTCDate() + ' ' + clock(t); };
 /** 활동 한 줄의 글(종류 k · x 는 장소 · 동네 · 친구 이름). 자녀 이름 nm 은 부모가 정한 이름 */
@@ -869,7 +869,7 @@ function evText(e, nm) {
     case 'in': return x + '에 도착했어요';
     case 'odd': return '평소와 다른 곳에 머물러요 · ' + x;
     case 'go': return x + '로 출발했어요';
-    case 'done': return x + '에 도착했어요 (스타 +' + ARRIVE_PT + ')';
+    case 'done': return x + '에 도착했어요 (포인트 +' + ARRIVE_PT + ')';
     case 'feed': return ga(nm) + ' ' + x + '에게 밥을 줬어요';
     case 'clean': return ga(nm) + ' ' + x + '의 응가를 치워 줬어요';
     case 'drop': return ga(nm) + ' ' + eul(x) + ' 공중에서 떨어뜨렸어요';
@@ -969,7 +969,7 @@ async function hubScreen(DB, pid, cid, now) {
   body.push({ t: 'lth', s: '퀘스트', dot: '#f5b800', live: true, pad: [16, 12, 16, 0] });
   body.push(panel([
     { t: 'row', gap: 8, kids: [btn('자녀 미션 ' + nc, call('kq.open', cid, 'c'), { fill: 'card2', tc: 'text', line: 'border', h: 40, size: 12.5 }), btn('부모님 미션 ' + np, call('kq.open', cid, 'p'), { fill: 'card2', tc: 'text', line: 'border', h: 40, size: 12.5 })] },
-    tx('스타포인트 ' + cur.stars + (wait ? ' · 내가 할 일 ' + wait + '개' : ''), { size: 13, bold: true, color: wait ? 'orange' : 'gold', lines: 1, pad: [0, 8, 0, 6] }),
+    tx('길동무포인트 ' + cur.stars + (wait ? ' · 내가 할 일 ' + wait + '개' : ''), { size: 13, bold: true, color: wait ? 'orange' : 'gold', lines: 1, pad: [0, 8, 0, 6] }),
     { t: 'navrow', title: '미션 보내기 · 확인하기', sub: wait ? '처리할 일 ' + wait : '', act: call('kq.open', cid, 'c'), size: 13, vp: 8 },
   ], { pad: [12, 1, 12, 0] }));
   // 지난 경로(s391): 30분 넘게 머물 때마다 그 전까지의 길이 저장된다 — 자녀당 RT_KEEP 개
@@ -980,7 +980,7 @@ async function hubScreen(DB, pid, cid, now) {
     const k = [tx('최근 이동 기록', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 4] })];
     for (const h of hist) {
       const dd = String(h.day).slice(4, 6) * 1 + '/' + String(h.day).slice(6) * 1;
-      k.push(tx(dd + ' ' + h.name + ' · ' + clock(h.td) + ' 출발' + (h.tc ? ' → ' + clock(h.tc) + ' 도착 (스타 +' + ARRIVE_PT + ')' : h.ta ? ' → ' + clock(h.ta) + ' 도착(미확인)' : ' → 도착 전'), { size: 12, color: h.tc ? 'text' : 'sub', pad: [0, 2, 0, 2] }));
+      k.push(tx(dd + ' ' + h.name + ' · ' + clock(h.td) + ' 출발' + (h.tc ? ' → ' + clock(h.tc) + ' 도착 (포인트 +' + ARRIVE_PT + ')' : h.ta ? ' → ' + clock(h.ta) + ' 도착(미확인)' : ' → 도착 전'), { size: 12, color: h.tc ? 'text' : 'sub', pad: [0, 2, 0, 2] }));
     }
     body.push(panel(k, { pad: [12, 8, 12, 0] }));
   }
@@ -1060,32 +1060,32 @@ async function questSheet(DB, pid, cid, qt) {
   // 상태(s): 0 대기 · 1 승낙(진행 중) · 2 완료 보고(확인 대기) · 3 종료 · 4 거절 — 자세한 흐름은 SEND_COST 위의 설명
   const list = tab === 'c' ? cRows : pRows;
   const doneN = list.filter((q) => q.s === QS_DONE).length, ingN = list.filter((q) => q.s < QS_DONE).length;
-  // 제목 · 스타포인트 · 알약(자녀 미션 / 부모님 미션)은 고정 머리 — 좌우로 밀어도 안 움직이고 고른 알약 색만 바뀐다. 그 아래(body)만 밀린다.
-  const head = [tx(nmOf(cur) + '의 미션', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('스타포인트 ' + star, { size: 12, bold: true, color: 'gold', pad: [16, 0, 16, 6] }),
+  // 제목 · 길동무포인트 · 알약(자녀 미션 / 부모님 미션)은 고정 머리 — 좌우로 밀어도 안 움직이고 고른 알약 색만 바뀐다. 그 아래(body)만 밀린다.
+  const head = [tx(nmOf(cur) + '의 미션', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('길동무포인트 ' + star, { size: 12, bold: true, color: 'gold', pad: [16, 0, 16, 6] }),
     { t: 'chips', pad: [12, 4, 12, 4], items: [{ label: '자녀 미션 ' + nc, on: tab === 'c', act: call('kq.tab', cid, 'c') }, { label: '부모님 미션 ' + np, on: tab === 'p', act: call('kq.tab', cid, 'p') }] }];
   const body = [
-    tx(tab === 'c' ? '부모님이 자녀에게 준 미션이에요. 자녀가 승낙하고 해낸 뒤 완료를 누르면, 확인을 눌러 스타포인트를 주세요.' : '자녀가 부모님께 보낸 미션이에요(한 번에 스타포인트 ' + SEND_COST + '). 승낙하면 자녀의 스타포인트가 ' + SEND_COST + ' 차감되고, 끝낸 뒤 완료를 누르면 자녀가 확인해요.', { size: 11, color: 'sub', pad: [16, 8, 16, 0] }),
+    tx(tab === 'c' ? '부모님이 자녀에게 준 미션이에요. 자녀가 승낙하고 해낸 뒤 완료를 누르면, 확인을 눌러 길동무포인트를 주세요.' : '자녀가 부모님께 보낸 미션이에요(한 번에 길동무포인트 ' + SEND_COST + '). 승낙하면 자녀의 길동무포인트가 ' + SEND_COST + ' 차감되고, 끝낸 뒤 완료를 누르면 자녀가 확인해요.', { size: 11, color: 'sub', pad: [16, 8, 16, 0] }),
     tx((tab === 'c' ? '오른쪽 부모님 미션' : '왼쪽 자녀 미션') + '으로 화면을 밀어서 넘길 수 있어요', { size: 10.5, color: 'sub', pad: [16, 2, 16, 4] }),
     tx('진행 중 ' + ingN + ' · 완료 ' + doneN, { size: 12.5, bold: true, color: ingN ? 'orange' : 'gold', pad: [16, 4, 16, 2] })];
   if (tab === 'c') {
     body.push(panel([tx('자녀에게 미션 보내기', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 6] }), { t: 'field', key: 'kqx', hint: '예) 방 정리하기', maxlen: 60, h: 42 },
-      tx('해냈을 때 받는 스타포인트', { size: 11.5, color: 'sub', pad: [0, 8, 0, 4] }),
+      tx('해냈을 때 받는 길동무포인트', { size: 11.5, color: 'sub', pad: [0, 8, 0, 4] }),
       { t: 'row', gap: 6, kids: [1, 2, 3, 4, 5].map((n) => btn(String(n), call('kq.pt', cid, String(n)), Object.assign({ h: 38 }, n === 1 ? gold : { fill: 'card2', tc: 'text', line: 'border' }))) },
-      tx('스타포인트를 고르고 아래 확인을 눌러야 보내져요', { size: 10.5, color: 'sub', pad: [0, 6, 0, 8] }),
+      tx('길동무포인트를 고르고 아래 확인을 눌러야 보내져요', { size: 10.5, color: 'sub', pad: [0, 6, 0, 8] }),
       btn('확인', call('kq.send', cid, '1'), Object.assign({ h: 42 }, gold))], { pad: [12, 8, 12, 0] }));
   }
   for (const q of list) {
     const k = [tx(q.x, { size: 13.5, bold: true })], p = q.pt || 1;
     const line = (txt, color, bold) => k.push(tx(txt, { size: 11.5, color, bold: !!bold, pad: [0, 4, 0, 4] }));
     if (tab === 'c') {
-      if (q.s === QS_WAIT) line('대기 중 · 자녀가 승낙하면 시작돼요 (완료하면 스타 +' + p + ')', 'sub');
+      if (q.s === QS_WAIT) line('대기 중 · 자녀가 승낙하면 시작돼요 (완료하면 포인트 +' + p + ')', 'sub');
       else if (q.s === QS_ON) line('진행 중 · 자녀가 완료를 누르면 확인할 수 있어요', 'sub');
-      else if (q.s === QS_REP) { line('자녀가 완료했어요 · 확인해 주세요', 'orange', true); k.push({ t: 'row', gap: 8, kids: [btn('확인 (스타 +' + p + ')', call('kq.ok', q.id, 'c'), gold), btn('다시 하기', call('kq.redo', q.id, 'c'), { fill: 'card2', tc: 'text', line: 'border' })] }); }
-      else if (q.s === QS_DONE) line('완료 · 스타 +' + p + ' 지급했어요', 'gold');
+      else if (q.s === QS_REP) { line('자녀가 완료했어요 · 확인해 주세요', 'orange', true); k.push({ t: 'row', gap: 8, kids: [btn('확인 (포인트 +' + p + ')', call('kq.ok', q.id, 'c'), gold), btn('다시 하기', call('kq.redo', q.id, 'c'), { fill: 'card2', tc: 'text', line: 'border' })] }); }
+      else if (q.s === QS_DONE) line('완료 · 포인트 +' + p + ' 지급했어요', 'gold');
       else line('자녀가 거절했어요', 'sub');
     } else {
-      if (q.s === QS_WAIT) { line('자녀가 보냈어요 · 승낙하면 자녀 스타 -' + (q.pt || SEND_COST) + ' 차감돼요', 'orange', true); k.push({ t: 'row', gap: 8, kids: [btn('승낙', call('kq.accept', q.id, 'p'), gold), btn('거절', call('kq.reject', q.id, 'p'), { fill: 'card2', tc: 'text', line: 'border' })] }); }
-      else if (q.s === QS_ON) { line('승낙했어요 (스타 -' + (q.pt || SEND_COST) + ') · 끝냈으면 완료를 눌러요', 'orange', true); k.push(btn('완료', call('kq.fin', q.id, 'p'), gold)); }
+      if (q.s === QS_WAIT) { line('자녀가 보냈어요 · 승낙하면 자녀 포인트 -' + (q.pt || SEND_COST) + ' 차감돼요', 'orange', true); k.push({ t: 'row', gap: 8, kids: [btn('승낙', call('kq.accept', q.id, 'p'), gold), btn('거절', call('kq.reject', q.id, 'p'), { fill: 'card2', tc: 'text', line: 'border' })] }); }
+      else if (q.s === QS_ON) { line('승낙했어요 (포인트 -' + (q.pt || SEND_COST) + ') · 끝냈으면 완료를 눌러요', 'orange', true); k.push(btn('완료', call('kq.fin', q.id, 'p'), gold)); }
       else if (q.s === QS_REP) line('완료했어요 · 자녀의 확인을 기다려요', 'sub');
       else if (q.s === QS_DONE) line('완료 · 자녀가 확인했어요', 'gold');
       else line('거절했어요', 'sub');
@@ -1211,7 +1211,7 @@ async function linkSheet(DB, pid, notice) {
   const body = [tx('길동무 키즈 연결', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('자녀 폰의 길동무 키즈 설정에서 QR 이나 시크릿 키를 만들어 주세요(10분 동안 쓸 수 있어요).', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 2, 16, 4] }));
   for (const k of kids) {
-    body.push(panel([tx(nmOf(k) + ' · 연결됨', { size: 13.5, bold: true }), tx('스타포인트 ' + k.stars, { size: 11.5, color: 'sub', pad: [0, 2, 0, 8] }),
+    body.push(panel([tx(nmOf(k) + ' · 연결됨', { size: 13.5, bold: true }), tx('길동무포인트 ' + k.stars, { size: 11.5, color: 'sub', pad: [0, 2, 0, 8] }),
       { t: 'field', key: 'kn_' + k.cid.slice(0, 12), hint: '자녀 이름 (예: 민지)', value: k.nm || '', maxlen: 8, h: 40 },
       { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('이름 저장', call('kl.name', k.cid), gold), btn('연결 끊기', call('kl.unlink', k.cid), { fill: 'card2', tc: 'orange', line: 'border' })] }], { pad: [12, 8, 12, 0] }));
   }
@@ -1433,10 +1433,10 @@ async function handle(req, env, url) {
         await DB.prepare('INSERT INTO chat(cid,f,x,t) VALUES(?,?,?,?)').bind(cid, 'c', arg, now).run();
         await markRd(DB, cid, 'c');
         later(notifyParents(env, DB, cid, (nm) => ({ k: 'chat', title: nm || '길동무 키즈', body: cut(arg, 80), tag: 'chat' })));
-      } else if (v === 'quest.send' && arg) {        // 부모님 미션 보내기: 스타포인트 SEND_COST 가 있어야 한다(아직 대기 중인 것의 몫은 미리 빼 둔다)
+      } else if (v === 'quest.send' && arg) {        // 부모님 미션 보내기: 길동무포인트 SEND_COST 가 있어야 한다(아직 대기 중인 것의 몫은 미리 빼 둔다)
         const have = await starsOf(DB, cid);
         const waiting = (await DB.prepare("SELECT COUNT(*) n FROM quests WHERE cid=? AND k='p' AND s=?").bind(cid, QS_WAIT).first())?.n || 0;
-        if (have - waiting * SEND_COST < SEND_COST) { notice = '스타포인트가 모자라요 (한 번에 ' + SEND_COST + ' 필요)'; changed = false; }
+        if (have - waiting * SEND_COST < SEND_COST) { notice = '길동무포인트가 모자라요 (한 번에 ' + SEND_COST + ' 필요)'; changed = false; }
         else {
           await DB.prepare('INSERT INTO quests(id,cid,k,x,s,t,pt,fl) VALUES(?,?,?,?,0,?,?,1)').bind(rid(), cid, 'p', arg, now, SEND_COST).run();
           later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + ' 부모님 미션을 보냈어요. 승낙해 주세요: ' + cut(arg, 40), tag: 'quest' })));
@@ -1446,7 +1446,7 @@ async function handle(req, env, url) {
         const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='c' AND s=?").bind(yes ? QS_ON : QS_NO, qid, cid, QS_WAIT).run();
         if (r && r.meta && r.meta.changes > 0) later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + (yes ? ' 미션을 승낙했어요' : ' 미션을 거절했어요'), tag: 'quest' })));
         else changed = false;
-      } else if (v.startsWith('quest.fin:')) {      // 자녀 미션: 자녀가 해냈다고 완료를 누른다 — 부모가 확인하면 스타포인트가 올라간다
+      } else if (v.startsWith('quest.fin:')) {      // 자녀 미션: 자녀가 해냈다고 완료를 누른다 — 부모가 확인하면 길동무포인트가 올라간다
         const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='c' AND s=?").bind(QS_REP, v.slice(10), cid, QS_ON).run();
         if (r && r.meta && r.meta.changes > 0) later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + ' 미션을 완료했대요. 확인해 주세요', tag: 'quest' })));
         else changed = false;
@@ -1455,10 +1455,10 @@ async function handle(req, env, url) {
         const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='p' AND s=?").bind(QS_DONE, qid, cid, QS_REP).run();
         if (r && r.meta && r.meta.changes > 0) later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + ' 부모님 미션 완료를 확인했어요', tag: 'quest' })));
         else changed = false;
-      } else if (v.startsWith('quest.done:')) {   // 옛 자녀 앱: 자녀가 해냈다고 알린다 — 부모가 길동무에서 확인해야 스타포인트가 오른다
+      } else if (v.startsWith('quest.done:')) {   // 옛 자녀 앱: 자녀가 해냈다고 알린다 — 부모가 길동무에서 확인해야 길동무포인트가 오른다
         const qd = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='c' AND s IN (0,1)").bind(QS_REP, v.slice(11), cid).run();
         if (qd && qd.meta && qd.meta.changes > 0) later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + ' 미션을 해냈대요. 확인해 주세요', tag: 'quest' })));
-      } else if (v.startsWith('trip.')) {         // 장소 알림: 확인(그냥 끔) · 출발 · 도착 확인(100m 안에서 스타포인트 50)
+      } else if (v.startsWith('trip.')) {         // 장소 알림: 확인(그냥 끔) · 출발 · 도착 확인(100m 안에서 길동무포인트 10)
         const kind = v.slice(5, v.indexOf(':')), id = v.slice(v.indexOf(':') + 1);
         const tr = await DB.prepare('SELECT t.st st, p.name name, p.la la, p.lo lo FROM trips t JOIN places p ON p.id=t.pl WHERE t.id=? AND t.cid=?').bind(id, cid).first();
         if (!tr) changed = false;
@@ -1470,7 +1470,7 @@ async function handle(req, env, url) {
           else if (hav(loc.la, loc.lo, tr.la, tr.lo) > ARR_M) { notice = '아직 ' + tr.name + '에 도착하지 않았어요'; changed = false; }
           else {
             const r = await DB.prepare("UPDATE trips SET st='done', tc=?, ta=CASE WHEN ta=0 THEN ? ELSE ta END WHERE id=? AND st='go'").bind(now, now, id).run();
-            if (r && r.meta && r.meta.changes > 0) { await addStars(DB, cid, ARRIVE_PT); notice = tr.name + '에 도착했어요! 스타포인트 ' + ARRIVE_PT + '점을 받았어요'; const tn = tr.name, tid = id; later(ev(DB, cid, 'done', tn, now)); if (await once(DB, tid, 4)) later(notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '길동무', body: who(nm) + ' ' + tn + '에 도착했어요 (스타 +' + ARRIVE_PT + ')', tag: 'trip' + tid }))); }
+            if (r && r.meta && r.meta.changes > 0) { await addStars(DB, cid, ARRIVE_PT); notice = tr.name + '에 도착했어요! 길동무포인트 ' + ARRIVE_PT + '점을 받았어요'; const tn = tr.name, tid = id; later(ev(DB, cid, 'done', tn, now)); if (await once(DB, tid, 4)) later(notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '길동무', body: who(nm) + ' ' + tn + '에 도착했어요 (포인트 +' + ARRIVE_PT + ')', tag: 'trip' + tid }))); }
           }
         } else changed = false;
       } else changed = false;
@@ -1696,25 +1696,25 @@ async function handle(req, env, url) {
         later(notifyChild(env, DB, cid, { k: 'quest', title: '새 퀘스트', body: cut(x, 80) + ' · 승낙해 주세요', tag: 'quest' }));
         return R({ screen: await questSheet(DB, pid, cid, 'c'), cid, clear: 'kqx', notice: '미션을 보냈어요' });
       }
-      if (v === 'kq.ok') {                          // 자녀 미션: 자녀가 완료했다고 한 것을 부모가 확인 → 종료 + 스타포인트 지급
+      if (v === 'kq.ok') {                          // 자녀 미션: 자녀가 완료했다고 한 것을 부모가 확인 → 종료 + 길동무포인트 지급
         const q = await DB.prepare("SELECT pt FROM quests WHERE id=? AND cid=? AND k='c' AND s=?").bind(id, cid, QS_REP).first();
         let notice = '확인할 수 있는 상태가 아니에요';
         if (q) {
           const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='c' AND s=?").bind(QS_DONE, id, cid, QS_REP).run();
-          if (r && r.meta && r.meta.changes > 0) { await addStars(DB, cid, q.pt || 1); notice = '스타포인트 ' + (q.pt || 1) + '점을 줬어요'; await bump(DB, cid); later(notifyChild(env, DB, cid, { k: 'star', title: '스타포인트', body: '미션을 해내서 스타포인트 ' + (q.pt || 1) + '점을 받았어요', tag: 'quest' })); }
+          if (r && r.meta && r.meta.changes > 0) { await addStars(DB, cid, q.pt || 1); notice = '길동무포인트 ' + (q.pt || 1) + '점을 줬어요'; await bump(DB, cid); later(notifyChild(env, DB, cid, { k: 'star', title: '길동무포인트', body: '미션을 해내서 길동무포인트 ' + (q.pt || 1) + '점을 받았어요', tag: 'quest' })); }
         }
         return R({ screen: await questSheet(DB, pid, cid, 'c'), cid, notice });
       }
       if (v === 'kq.redo') { const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='c' AND s=?").bind(QS_ON, id, cid, QS_REP).run(); if (r && r.meta && r.meta.changes > 0) { await bump(DB, cid); later(notifyChild(env, DB, cid, { k: 'quest', title: '미션', body: '부모님이 다시 해 보래요', tag: 'quest' })); } return R({ screen: await questSheet(DB, pid, cid, 'c'), cid, notice: '다시 하게 돌려보냈어요' }); }
-      if (v === 'kq.accept') {                      // 부모님 미션: 부모가 승낙 → 자녀 스타포인트 SEND_COST 차감(모자라면 승낙되지 않는다)
+      if (v === 'kq.accept') {                      // 부모님 미션: 부모가 승낙 → 자녀 길동무포인트 SEND_COST 차감(모자라면 승낙되지 않는다)
         const q = await DB.prepare("SELECT pt FROM quests WHERE id=? AND cid=? AND k='p' AND s=?").bind(id, cid, QS_WAIT).first();
         let notice = '이미 처리한 미션이에요';
         if (q) {
           const cost = q.pt || SEND_COST;
           const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='p' AND s=?").bind(QS_ON, id, cid, QS_WAIT).run();
           if (r && r.meta && r.meta.changes > 0) {
-            if (await takeStars(DB, cid, cost)) { notice = '승낙했어요 · 자녀 스타포인트 ' + cost + ' 차감'; await bump(DB, cid); later(notifyChild(env, DB, cid, { k: 'quest', title: '미션 승낙', body: '부모님이 승낙했어요 · 스타포인트 ' + cost + ' 차감', tag: 'quest' })); }
-            else { await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='p' AND s=?").bind(QS_WAIT, id, cid, QS_ON).run(); notice = '자녀의 스타포인트가 모자라서 승낙할 수 없어요'; }
+            if (await takeStars(DB, cid, cost)) { notice = '승낙했어요 · 자녀 길동무포인트 ' + cost + ' 차감'; await bump(DB, cid); later(notifyChild(env, DB, cid, { k: 'quest', title: '미션 승낙', body: '부모님이 승낙했어요 · 길동무포인트 ' + cost + ' 차감', tag: 'quest' })); }
+            else { await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='p' AND s=?").bind(QS_WAIT, id, cid, QS_ON).run(); notice = '자녀의 길동무포인트가 모자라서 승낙할 수 없어요'; }
           }
         }
         return R({ screen: await questSheet(DB, pid, cid, 'p'), cid, notice });

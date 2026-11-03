@@ -1242,7 +1242,7 @@ final class Engine {
         JSONObject c = b("chips", "eq", "1", "loop", "1");
         put(c, "items", chips);
         a.put(c);
-        a.put(b("text", "text", kid ? "부모님이 길동무 앱에서 보내 주신 미션이에요. 해내면 부모님이 완료를 눌러 주고, 그러면 스타포인트가 올라가요." : "내가 부모님께 보내는 미션이에요(한 번에 스타포인트 50). 부모님이 승낙하면 차감돼요.", "sub", "1"));
+        a.put(b("text", "text", kid ? "부모님이 길동무 앱에서 보내 주신 미션이에요. 해내면 부모님이 완료를 눌러 주고, 그러면 길동무포인트가 올라가요." : "내가 부모님께 보내는 미션이에요(한 번에 길동무포인트 50). 부모님이 승낙하면 차감돼요.", "sub", "1"));
         if (!kid) a.put(b("input", "hint", "부모님께 보낼 미션을 적어요", "act", "quest.send"));
         int shown = 0;
         for (int i = quests.length() - 1; i >= 0; i--) {
@@ -1250,7 +1250,7 @@ final class Engine {
             if (q == null || "p".equals(q.optString("k")) == kid) continue;
             int qs = q.optInt("s", 0);
             boolean done = kid ? qs >= 2 : qs == 1;                  // 자녀 미션은 부모님이 완료(2) · 부모님 미션은 자녀가 완료(1)
-            String st = kid ? (done ? "완료! 스타 +" + q.optInt("pt", 1) + " 받았어요" : "부모님이 완료해 주면 스타 +" + q.optInt("pt", 1)) : (done ? "완료했어요" : "부모님이 해 주셨으면 눌러서 완료해요");
+            String st = kid ? (done ? "완료! 포인트 +" + q.optInt("pt", 1) + " 받았어요" : "부모님이 완료해 주면 포인트 +" + q.optInt("pt", 1)) : (done ? "완료했어요" : "부모님이 해 주셨으면 눌러서 완료해요");
             a.put(b("card", "title", q.optString("x"), "text", st, "thumb", "", "act", !kid && !done ? "quest.pdone:" + q.optString("i") : "", "tone", done ? "0" : "1"));
             shown++;
         }
@@ -1755,7 +1755,7 @@ final class Engine {
         } else if (v.startsWith("quest.tab:")) {
             questTab = v.substring(10).equals("p") ? "p" : "c";
             remAskT = 0L;
-        } else if (v.startsWith("quest.accept:") || v.startsWith("quest.reject:") || v.startsWith("quest.fin:") || v.startsWith("quest.confirm:")) {          // 미션 승낙 · 거절 · 완료 · 확인(부모님 미션 완료 확인) — 상태 · 스타포인트 계산은 모두 서버가 하고 새 화면을 돌려준다
+        } else if (v.startsWith("quest.accept:") || v.startsWith("quest.reject:") || v.startsWith("quest.fin:") || v.startsWith("quest.confirm:")) {          // 미션 승낙 · 거절 · 완료 · 확인(부모님 미션 완료 확인) — 상태 · 길동무포인트 계산은 모두 서버가 하고 새 화면을 돌려준다
             kidAct(v, "");
         } else if (v.startsWith("quest.pdone:")) {          // (옛 단추) 부모님 미션: 자녀가 완료를 누르면 이 화면도 바로 완료로 바뀐다
             for (int qi = 0; qi < quests.length(); qi++) {

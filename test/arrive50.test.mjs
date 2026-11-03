@@ -1,4 +1,4 @@
-// 도착 50m 시험(s403): 등록 장소 50m 안에 들어서면 도착(알림 · 출발한 길이면 스타포인트) — 80m 넘게 벗어나야 다시
+// 도착 50m 시험(s403): 등록 장소 50m 안에 들어서면 도착(알림 · 출발한 길이면 길동무포인트) — 80m 넘게 벗어나야 다시
 // 실행: node --no-warnings test/arrive50.test.mjs
 import fs from 'fs';
 import crypto from 'crypto';
@@ -86,14 +86,14 @@ NOW += 6 * MIN; await at(300); NOW += 6 * MIN;
 a = pushes.length; await at(20, 90);
 chk(arrPush(a) === 0, '오차 90m 위치는 도착으로 치지 않는다');
 
-// 출발한 길(go)이 있으면 단추 없이 도착 확인 + 스타포인트
+// 출발한 길(go)이 있으면 단추 없이 도착 확인 + 길동무포인트
 NOW += 6 * MIN; await at(300);
 const day = Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(NOW)).replace(/-/g, ''));
 DB._db.prepare("INSERT INTO trips(id,cid,pl,day,st,tn,td) VALUES(?,?,?,?,'go',?,?)").run(PL + ':' + day, CID, PL, day, NOW, NOW);
 const s0 = star(); a = pushes.length; NOW += 6 * MIN; await at(40);
 const tr = rows('SELECT st,tc FROM trips WHERE cid=?', CID)[0];
-chk(tr && tr.st === 'done' && tr.tc === NOW && star() === s0 + 50, '출발한 길은 50m 안에서 자동으로 도착 확인 + 스타 50');
-chk(pushes.slice(a).filter((p) => p.data.k === 'done' && p.token === PTK).length === 1 && nearPush(a) === 0, '"도착했어요 (스타 +50)" 알림 1건 · 같은 때 "근처에 왔어요"는 따로 가지 않는다');
+chk(tr && tr.st === 'done' && tr.tc === NOW && star() === s0 + 10, '출발한 길은 50m 안에서 자동으로 도착 확인 + 길동무포인트 10');
+chk(pushes.slice(a).filter((p) => p.data.k === 'done' && p.token === PTK).length === 1 && nearPush(a) === 0 && /포인트 \+10/.test(pushes.slice(a).find((p) => p.data.k === 'done').data.body), '"도착했어요 (포인트 +10)" 알림 1건 · 같은 때 "근처에 왔어요"는 따로 가지 않는다');
 
 console.log('\n' + ok + ' 통과, ' + bad + ' 실패');
 process.exit(bad ? 1 : 0);
