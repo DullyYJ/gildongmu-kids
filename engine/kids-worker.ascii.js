@@ -969,7 +969,7 @@ async function hubScreen(DB, pid, cid, now) {
   while (rows.length < EV_VIS) rows.unshift({ a: '\u00a0' });
   const fk = [{ t: 'pickl', key: 'kev' + cid, plain: true, h: 21, vis: EV_VIS, size: 12.5, pad: [0, 8, 0, 0], rows }];
   body.push({ t: 'lth', s: nm + ' \ubb50\ud558\ub2c8?', dot: '#ff3b30', live: true, pad: [16, 12, 16, 0] });
-  const regBtn = { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('+ \uc7a5\uc18c \ub4f1\ub85d', call('kpg.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('\ub4f1\ub85d\ud55c \uc7a5\uc18c' + (pls.length ? ' ' + pls.length : ''), call('kps.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 })] };          // \uc67c\ucabd = \uc0c8 \uc7a5\uc18c \ub4f1\ub85d \ud31d\uc5c5 \u00b7 \uc624\ub978\ucabd = \ub4f1\ub85d\ud55c \uc7a5\uc18c \ubaa9\ub85d \ud31d\uc5c5(s401)
+  const regBtn = { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('+ \uc7a5\uc18c \ub4f1\ub85d', call('kpg.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('\ub4f1\ub85d\ud55c \uc7a5\uc18c' + (pls.length ? ' ' + pls.length : ''), call('kps.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('\uc9c0\ub09c \uacbd\ub85c' + (rts.length ? ' ' + rts.length : ''), call('kr.open'), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 })] };          // \uc67c\ucabd = \uc0c8 \uc7a5\uc18c \ub4f1\ub85d \ud31d\uc5c5 \u00b7 \uc624\ub978\ucabd = \ub4f1\ub85d\ud55c \uc7a5\uc18c \ubaa9\ub85d \ud31d\uc5c5(s401)
   body.push(panel(al.concat(fk, [regBtn]), { pad: [12, 1, 12, 0], fill: lines.some((l) => l.tone === 'warn') ? 'card2' : 'card' }));
   // \ud018\uc2a4\ud2b8(\ub178\ub780 \uc810)
   const qs = (await DB.prepare('SELECT k,s FROM quests WHERE cid=?').bind(cid).all()).results || [];
@@ -980,8 +980,7 @@ async function hubScreen(DB, pid, cid, now) {
     tx('\uae38\ub3d9\ubb34\ud3ec\uc778\ud2b8 ' + cur.stars + (wait ? ' \u00b7 \ub0b4\uac00 \ud560 \uc77c ' + wait + '\uac1c' : ''), { size: 13, bold: true, color: wait ? 'orange' : 'gold', lines: 1, pad: [0, 8, 0, 6] }),
     { t: 'navrow', title: '\ubbf8\uc158 \ubcf4\ub0b4\uae30 \u00b7 \ud655\uc778\ud558\uae30', sub: wait ? '\ucc98\ub9ac\ud560 \uc77c ' + wait : '', act: call('kq.open', cid, 'c'), size: 13, vp: 8 },
   ], { pad: [12, 1, 12, 0] }));
-  // \uc9c0\ub09c \uacbd\ub85c(s391): 30\ubd84 \ub118\uac8c \uba38\ubb3c \ub54c\ub9c8\ub2e4 \uadf8 \uc804\uae4c\uc9c0\uc758 \uae38\uc774 \uc800\uc7a5\ub41c\ub2e4 \u2014 \uc790\ub140\ub2f9 RT_KEEP \uac1c
-  if (!viewing) body.push(panel([{ t: 'navrow', title: '\uc9c0\ub09c \uacbd\ub85c', sub: rts.length ? rts.length + '\uac1c \u00b7 \ucd5c\uadfc ' + rtTitle(rts[0], now) : '\uc544\uc9c1 \uc5c6\uc5b4\uc694 \u00b7 \ud55c \uacf3\uc5d0 30\ubd84 \uba38\ubb3c\uba74 \uc800\uc7a5\ub3fc\uc694', act: call('kr.open'), size: 13, vp: 8 }], { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
+  // \uc9c0\ub09c \uacbd\ub85c(s391): 30\ubd84 \ub118\uac8c \uba38\ubb3c \ub54c\ub9c8\ub2e4 \uadf8 \uc804\uae4c\uc9c0\uc758 \uae38\uc774 \uc800\uc7a5\ub41c\ub2e4 \u2014 \uc790\ub140\ub2f9 RT_KEEP \uac1c. \ubaa9\ub85d\uc740 \uc704 '\uc9c0\ub09c \uacbd\ub85c' \ub2e8\ucd94\uc758 \ud31d\uc5c5(rtSheet)\uc5d0\uc11c \ubcf8\ub2e4(s413: \uc904 \u2192 \ub2e8\ucd94)
   // \ub4f1\ub85d\ud55c \uc7a5\uc18c\ub294 \uc704 \uc624\ub978\ucabd \ub2e8\ucd94\uc758 \ud31d\uc5c5(placesSheet)\uc5d0\uc11c \ubcf8\ub2e4
   const hist = (await DB.prepare('SELECT t.day day,t.st st,t.tn tn,t.td td,t.ta ta,t.tc tc,p.name name FROM trips t JOIN places p ON p.id=t.pl WHERE t.cid=? AND t.td>0 ORDER BY t.td DESC LIMIT 4').bind(cid).all()).results || [];
   if (hist.length) {

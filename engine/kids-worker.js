@@ -969,7 +969,7 @@ async function hubScreen(DB, pid, cid, now) {
   while (rows.length < EV_VIS) rows.unshift({ a: '\u00a0' });
   const fk = [{ t: 'pickl', key: 'kev' + cid, plain: true, h: 21, vis: EV_VIS, size: 12.5, pad: [0, 8, 0, 0], rows }];
   body.push({ t: 'lth', s: nm + ' 뭐하니?', dot: '#ff3b30', live: true, pad: [16, 12, 16, 0] });
-  const regBtn = { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('+ 장소 등록', call('kpg.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('등록한 장소' + (pls.length ? ' ' + pls.length : ''), call('kps.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 })] };          // 왼쪽 = 새 장소 등록 팝업 · 오른쪽 = 등록한 장소 목록 팝업(s401)
+  const regBtn = { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('+ 장소 등록', call('kpg.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('등록한 장소' + (pls.length ? ' ' + pls.length : ''), call('kps.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('지난 경로' + (rts.length ? ' ' + rts.length : ''), call('kr.open'), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 })] };          // 왼쪽 = 새 장소 등록 팝업 · 오른쪽 = 등록한 장소 목록 팝업(s401)
   body.push(panel(al.concat(fk, [regBtn]), { pad: [12, 1, 12, 0], fill: lines.some((l) => l.tone === 'warn') ? 'card2' : 'card' }));
   // 퀘스트(노란 점)
   const qs = (await DB.prepare('SELECT k,s FROM quests WHERE cid=?').bind(cid).all()).results || [];
@@ -980,8 +980,7 @@ async function hubScreen(DB, pid, cid, now) {
     tx('길동무포인트 ' + cur.stars + (wait ? ' · 내가 할 일 ' + wait + '개' : ''), { size: 13, bold: true, color: wait ? 'orange' : 'gold', lines: 1, pad: [0, 8, 0, 6] }),
     { t: 'navrow', title: '미션 보내기 · 확인하기', sub: wait ? '처리할 일 ' + wait : '', act: call('kq.open', cid, 'c'), size: 13, vp: 8 },
   ], { pad: [12, 1, 12, 0] }));
-  // 지난 경로(s391): 30분 넘게 머물 때마다 그 전까지의 길이 저장된다 — 자녀당 RT_KEEP 개
-  if (!viewing) body.push(panel([{ t: 'navrow', title: '지난 경로', sub: rts.length ? rts.length + '개 · 최근 ' + rtTitle(rts[0], now) : '아직 없어요 · 한 곳에 30분 머물면 저장돼요', act: call('kr.open'), size: 13, vp: 8 }], { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
+  // 지난 경로(s391): 30분 넘게 머물 때마다 그 전까지의 길이 저장된다 — 자녀당 RT_KEEP 개. 목록은 위 '지난 경로' 단추의 팝업(rtSheet)에서 본다(s413: 줄 → 단추)
   // 등록한 장소는 위 오른쪽 단추의 팝업(placesSheet)에서 본다
   const hist = (await DB.prepare('SELECT t.day day,t.st st,t.tn tn,t.td td,t.ta ta,t.tc tc,p.name name FROM trips t JOIN places p ON p.id=t.pl WHERE t.cid=? AND t.td>0 ORDER BY t.td DESC LIMIT 4').bind(cid).all()).results || [];
   if (hist.length) {

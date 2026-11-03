@@ -83,6 +83,12 @@ chk(cards.length === 1, '부모 화면 머리에 데리러 와줘 카드가 있�
 const tt = cards[0] ? cards[0].kids.filter((k) => k.t === 'text') : [];
 chk(tt.length === 2 && tt.every((k) => k.align === 'center'), '카드 제목 · 안내 글이 가운데 맞춤이다');
 
+// 지난 경로: 아래 줄이 아니라 '+ 장소 등록 · 등록한 장소' 줄의 세 번째 단추(누르면 kr.open 팝업)
+const flat = (n) => (Array.isArray(n) ? n.flatMap(flat) : n && typeof n === 'object' ? [n].concat(Object.values(n).flatMap(flat)) : []);
+const rows3 = flat(hub.screen.body).filter((n) => n.t === 'row' && Array.isArray(n.kids) && n.kids.some((k) => k.act && k.act.v === 'kps.open'));
+chk(rows3.length === 1 && rows3[0].kids.length === 3 && rows3[0].kids[2].s.startsWith('지난 경로') && rows3[0].kids[2].act.v === 'kr.open', '지난 경로가 장소 등록 · 등록한 장소 줄의 세 번째 단추다');
+chk(!flat(hub.screen.body).some((n) => n.t === 'navrow' && n.title === '지난 경로'), '예전 "지난 경로" 줄은 없다');
+
 // 연결 끊김: 부모 없음
 await req('POST', '/c/unlink', 'c', {});
 r = await req('POST', '/c/call', 'c', { k: 'arr' });

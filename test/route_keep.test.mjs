@@ -132,8 +132,8 @@ chk(rows('SELECT COUNT(*) n FROM routes WHERE cid=?', 'other0000001')[0].n === 0
 // ── 화면 ──
 const hub = await req('GET', '/p/screen?v=hub&cid=' + CID, 'p');
 const str = JSON.stringify(hub.screen);
-chk(hub.ok && /지난 경로/.test(str) && /kr\.open/.test(str), '확인 화면에 "지난 경로" 줄이 있다');
-chk(/10개 · 최근/.test(str), '줄에 개수와 최근 길이 보인다');
+chk(hub.ok && /지난 경로/.test(str) && /kr\.open/.test(str), '확인 화면에 "지난 경로" 단추가 있다');
+chk(/"s":"지난 경로 10"/.test(str), '단추에 개수(10)가 보인다');
 const sheet = await req('POST', '/p/act', 'p', { v: 'kr.open', cid: CID });
 const sj = JSON.stringify(sheet.screen);
 chk(sheet.ok && sheet.sheet === 'ev' && (sj.match(/"v":"kr\.\d+"/g) || []).length === 10, '목록 팝업에 길 10개(누르는 행동 kr.<번호>)');
