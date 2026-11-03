@@ -500,6 +500,16 @@ public class MainActivity extends Activity {
 
     /** 눌림은 그대로 엔진에 넘긴다. 결과로 나온 명령(위치 권한·시작·멈춤)만 여기서 한다. */
     private void act(final String v, final String arg) {
+        if ("kid.arr".equals(v) || "kid.pick".equals(v)) {                    // 놀기 박스 아래 호출 단추 — 확인 창 · 연타 방지 · 연결 확인은 Calls 가 한다
+            ui.post(new Runnable() {
+                @Override
+                public void run() {
+                    if ("kid.arr".equals(v)) Calls.arrivedAsk(MainActivity.this);
+                    else Calls.pickup(MainActivity.this);
+                }
+            });
+            return;
+        }
         if (v != null && !v.startsWith("clean:") && !v.startsWith("sel:") && !v.startsWith("kid.pick:")) Buzz.play(this, "tap");     // 버튼을 누를 때마다 짧은 진동(친구를 만질 때는 그 친구의 진동이 따로 있다)
         eh.post(new Runnable() {
             @Override

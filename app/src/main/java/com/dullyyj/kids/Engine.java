@@ -1420,10 +1420,10 @@ final class Engine {
         wk.put(wl);
         if (!w[1].isEmpty()) wk.put(tx(w[1], 11, false, "sub", 0));
         body.put(nd("panel", "pad", pad(12, 8, 12, 0), "ip", pad(14, 12, 14, 12), "kids", wk));
-        body.put(nd("lth", "s", "길동무 길거리", "dot", "#34c759", "live", true, "pad", pad(16, 12, 16, 2)));
+        body.put(nd("lth", "s", "길동무 친구들", "dot", "#34c759", "live", true, "pad", pad(16, 12, 16, 2)));
         String sc = sceneOut(now);
         if (!sc.isEmpty()) {
-            int sh = viewDp > 0 ? Math.max(200, Math.min(720, viewDp - 335)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
+            int sh = viewDp > 0 ? Math.max(200, Math.min(720, viewDp - 339)) : 420;   // 고정 높이(viewDp = 본문 칸 높이) — 아래 글 줄 수가 바뀌어도 장면이 다시 만들어지지 않는다
             body.put(nd("scene", "h", sh, "r", 16, "pad", pad(12, 6, 12, 6), "sc", sc));
         } else {
             JSONArray ph = new JSONArray();
@@ -1452,11 +1452,12 @@ final class Engine {
         }
         if (!rest.isEmpty()) {
             StringBuilder sb = new StringBuilder("💤 친구들이 휴식 중이에요 — ");
-            for (int i = 0; i < rest.size(); i++) sb.append(i > 0 ? ", " : "").append(rest.get(i).name);
+            for (int i = 0; i < rest.size(); i++) sb.append(i > 0 ? ", " : "").append(rest.get(i).name).append(stateTag(stateOf(rest.get(i), now)));          // 밥 · 응가 같은 일은 문장을 보태지 않고 이름 옆 이모티콘으로만
             kids.put(tx(sb.toString(), 12, false, "sub", 5));
         }
-        kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 10, false, "sub", 6));
-        body.put(nd("panel", "pad", pad(12, 0, 12, 14), "ip", pad(14, 12, 14, 8), "fillRest", true, "kids", kids));
+        kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 10, false, "sub", 8));
+        kids.put(callButtons());                                           // 안전 도착 · 데리러 와줘 — 부모님과 연결된 때만 켜진다(아니면 회색)
+        body.put(nd("panel", "pad", pad(12, 0, 12, 10), "ip", pad(14, 10, 14, 10), "kids", kids));
         JSONObject o = new JSONObject();
         put(o, "ok", true);
         put(o, "v", 1);
@@ -1468,6 +1469,17 @@ final class Engine {
         put(o, "body", body);
         put(o, "info", new JSONObject());
         return o.toString();
+    }
+
+    /** 놀기 박스 아래 두 단추. 연결된 부모님이 없으면 회색이고(눌러도 아무것도 보내지 않고 안내만) 있으면 초록 · 주황. */
+    private JSONObject callButtons() {
+        boolean on = linked > 0;
+        JSONArray k = new JSONArray();
+        k.put(nd("button", "s", "✅ 안전 도착", "act", callAct("kid.arr"), "h", 40, "size", 12.5, "bold", true,
+                "fill", on ? "card" : "card2", "line", on ? "#2F9E44" : "border", "tc", on ? "#2F9E44" : "sub", "r", 20));
+        k.put(nd("button", "s", "🚗 데리러 와줘", "act", callAct("kid.pick"), "h", 40, "size", 12.5, "bold", true,
+                "fill", on ? "card" : "card2", "line", on ? "#E8590C" : "border", "tc", on ? "#E8590C" : "sub", "r", 20));
+        return nd("row", "gap", 8, "pad", pad(0, 0, 0, 0), "kids", k);
     }
 
     private static JSONObject btnRow(String[][] items, int padB) {

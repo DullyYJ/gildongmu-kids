@@ -446,6 +446,8 @@ final class KidsActs {
     // ───────── 장면 위에 얹는 것: 원형 메뉴 ─────────
     // ───────── 장면 아래 모서리 호출 버튼: 왼쪽 "안전 도착" · 오른쪽 "데리러 와줘" (s400) ─────────
     // 크기는 dp 로 정하고 장면 좌표(S.k 로 나눈 값)로 바꿔 그린다. 누른 자리에서 손가락이 14dp 넘게 움직이거나 1.5초를 넘기면 보내지 않는다(스크롤 · 캐릭터 끌기와 안 섞이게).
+    // s406: 두 단추는 장면 위가 아니라 화면 아래 '길동무 친구들과 놀기' 박스 안으로 옮겼다(Engine.callButtons). 장면 쪽 단추는 꺼 둔다 — 아래 코드는 되돌릴 때를 위해 남긴다.
+    static final boolean BTNS = false;
     static int btnDown = -1;
     static double btnX0, btnY0, btnT0;
     static final String[] B_ICON = {"✅", "🚗"};
@@ -458,6 +460,7 @@ final class KidsActs {
         return new double[] {i == 0 ? p : S.W - p - w, S.H - p - h, w, h};
     }
     static int btnAt(SceneCore S, double x, double y) {
+        if (!BTNS) return -1;
         for (int i = 0; i < 2; i++) {
             double[] r = btnRect(S, i);
             double m = 6 / S.k;
@@ -476,6 +479,7 @@ final class KidsActs {
         }
     }
     static void drawBtns(SceneCore S, SceneCv c) {
+        if (!BTNS) return;
         double u = 1 / S.k;
         for (int i = 0; i < 2; i++) {
             double[] r = btnRect(S, i);

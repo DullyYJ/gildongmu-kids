@@ -1,8 +1,6 @@
 package com.dullyyj.kids;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Handler;
@@ -84,44 +82,31 @@ public final class Calls {
         if (burst() || !ready(a)) return;
         final int[] left = {sec};
         final boolean[] stop = {false};
-        final AlertDialog d = new AlertDialog.Builder(a, android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("긴급 호출")
-                .setMessage(sec + "초 뒤에 부모님께 알려요")
-                .setCancelable(false)
-                .setNegativeButton("취소", new DialogInterface.OnClickListener() {
+        final Pop.Win d = Pop.show(a, "긴급 호출", sec + "초 뒤에 부모님께 알려요", false,
+                new Pop.Btn("119", Pop.ALERT, new Runnable() {
                     @Override
-                    public void onClick(DialogInterface di, int w) {
-                        stop[0] = true;
-                    }
-                })
-                .setNeutralButton("119", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface di, int w) {
+                    public void run() {
                         stop[0] = true;
                         dial119(a);
                     }
-                })
-                .create();
-        d.show();
+                }),
+                new Pop.Btn("취소", Pop.MAIN, new Runnable() {
+                    @Override
+                    public void run() {
+                        stop[0] = true;
+                    }
+                }));
         final Runnable[] tick = new Runnable[1];
         tick[0] = new Runnable() {
             @Override
             public void run() {
                 if (stop[0] || a.isFinishing() || a.isDestroyed()) {
-                    try {
-                        d.dismiss();
-                    } catch (Throwable ignored) {
-                        // 이미 닫혔다
-                    }
+                    d.dismiss();
                     return;
                 }
                 left[0]--;
                 if (left[0] <= 0) {
-                    try {
-                        d.dismiss();
-                    } catch (Throwable ignored) {
-                        // 이미 닫혔다
-                    }
+                    d.dismiss();
                     sendSos(a);
                     return;
                 }
@@ -153,74 +138,64 @@ public final class Calls {
     }
 
     private static void noParent(final Activity a) {
-        new AlertDialog.Builder(a, android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("연결된 부모님이 없어요")
-                .setMessage("지금 위급하면 119에 전화해 주세요")
-                .setPositiveButton("119", new DialogInterface.OnClickListener() {
+        Pop.show(a, "연결된 부모님이 없어요", "지금 위급하면 119에 전화해 주세요", true,
+                new Pop.Btn("닫기", Pop.PLAIN, null),
+                new Pop.Btn("119", Pop.ALERT, new Runnable() {
                     @Override
-                    public void onClick(DialogInterface di, int w) {
+                    public void run() {
                         dial119(a);
                     }
-                })
-                .setNegativeButton("닫기", null)
-                .show();
+                }));
     }
 
     private static void failed(final Activity a, final String kind, String msg) {
-        AlertDialog.Builder b = new AlertDialog.Builder(a, android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("sos".equals(kind) ? "긴급 호출" : "데리러 와 주세요")
-                .setMessage(msg)
-                .setPositiveButton("다시 보내기", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface di, int w) {
-                        if ("sos".equals(kind)) sendSos(a);
-                        else sendPickup(a);
-                    }
-                })
-                .setNegativeButton("닫기", null);
-        if ("sos".equals(kind)) {
-            b.setNeutralButton("119", new DialogInterface.OnClickListener() {
+        final boolean sos = "sos".equals(kind);
+        Pop.Btn again = new Pop.Btn("다시 보내기", Pop.MAIN, new Runnable() {
+            @Override
+            public void run() {
+                if (sos) sendSos(a);
+                else sendPickup(a);
+            }
+        });
+        Pop.Btn close = new Pop.Btn("닫기", Pop.PLAIN, null);
+        if (sos) {
+            Pop.show(a, "긴급 호출", msg, true, new Pop.Btn("119", Pop.ALERT, new Runnable() {
                 @Override
-                public void onClick(DialogInterface di, int w) {
+                public void run() {
                     dial119(a);
                 }
-            });
+            }), close, again);
+        } else {
+            Pop.show(a, "데리러 와 주세요", msg, true, close, again);
         }
-        b.show();
     }
 
     /** 보낸 뒤 상태 창: 서버가 정한 글(부모님이 확인하면 바뀐다)을 2초마다 읽어 보여 주고, "괜찮아요" 로 취소할 수 있다(최대 10분). */
     private static void status(final Activity a, final String kind, String first) {
         final boolean sos = "sos".equals(kind);
         final boolean[] gone = {false};
-        AlertDialog.Builder b = new AlertDialog.Builder(a, android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle(sos ? "긴급 호출" : "데리러 와 주세요")
-                .setMessage(first)
-                .setCancelable(true)
-                .setPositiveButton("닫기", null)
-                .setNegativeButton("괜찮아요(취소)", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface di, int w) {
-                        Core.engine.callSend(kind, true, null);
-                        Toast.makeText(a, "취소했어요", Toast.LENGTH_SHORT).show();
-                    }
-                });
-        if (sos) {
-            b.setNeutralButton("119", new DialogInterface.OnClickListener() {
-                @Override
-                public void onClick(DialogInterface di, int w) {
-                    dial119(a);
-                }
-            });
-        }
-        final AlertDialog d = b.create();
-        d.setOnDismissListener(new DialogInterface.OnDismissListener() {
+        Pop.Btn cancel = new Pop.Btn("괜찮아요(취소)", Pop.PLAIN, new Runnable() {
             @Override
-            public void onDismiss(DialogInterface di) {
+            public void run() {
+                Core.engine.callSend(kind, true, null);
+                Toast.makeText(a, "취소했어요", Toast.LENGTH_SHORT).show();
+            }
+        });
+        Pop.Btn close = new Pop.Btn("닫기", Pop.MAIN, null);
+        final Pop.Win d = sos
+                ? Pop.show(a, "긴급 호출", first, true, new Pop.Btn("119", Pop.ALERT, new Runnable() {
+                    @Override
+                    public void run() {
+                        dial119(a);
+                    }
+                }), cancel, close)
+                : Pop.show(a, "데리러 와 주세요", first, true, cancel, close);
+        d.onDismiss(new Runnable() {
+            @Override
+            public void run() {
                 gone[0] = true;
             }
         });
-        d.show();
         final long end = System.currentTimeMillis() + 10 * 60000L;
         final Runnable[] poll = new Runnable[1];
         poll[0] = new Runnable() {
@@ -241,17 +216,14 @@ public final class Calls {
     public static void arrivedAsk(final Activity a) {
         if (burst() || !ready(a)) return;
         if (!linkedOk()) { noParentToast(a); return; }
-        new AlertDialog.Builder(a, android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("안전 도착")
-                .setMessage("안전하게 도착했다고 부모님께 알릴까요?")
-                .setPositiveButton("알리기", new DialogInterface.OnClickListener() {
+        Pop.show(a, "안전 도착", "안전하게 도착했다고 부모님께 알릴까요?", true,
+                new Pop.Btn("아니요", Pop.PLAIN, null),
+                new Pop.Btn("알리기", Pop.MAIN, new Runnable() {
                     @Override
-                    public void onClick(DialogInterface di, int w) {
+                    public void run() {
                         arrived(a);
                     }
-                })
-                .setNegativeButton("아니요", null)
-                .show();
+                }));
     }
 
     /** 눌러서 바로 "안전하게 도착했어요" 를 알린다(서버가 장소 이름을 붙이고, 2분 안의 되풀이는 알림을 또 보내지 않는다). */
@@ -278,17 +250,14 @@ public final class Calls {
     public static void pickup(final Activity a) {
         if (burst() || !ready(a)) return;
         if (!linkedOk()) { noParentToast(a); return; }
-        new AlertDialog.Builder(a, android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("데리러 와 주세요")
-                .setMessage("부모님께 데리러 와 달라고 알릴까요?")
-                .setPositiveButton("알리기", new DialogInterface.OnClickListener() {
+        Pop.show(a, "데리러 와 주세요", "부모님께 데리러 와 달라고 알릴까요?", true,
+                new Pop.Btn("아니요", Pop.PLAIN, null),
+                new Pop.Btn("알리기", Pop.MAIN, new Runnable() {
                     @Override
-                    public void onClick(DialogInterface di, int w) {
+                    public void run() {
                         sendPickup(a);
                     }
-                })
-                .setNegativeButton("아니요", null)
-                .show();
+                }));
     }
 
     private static void sendPickup(final Activity a) {
