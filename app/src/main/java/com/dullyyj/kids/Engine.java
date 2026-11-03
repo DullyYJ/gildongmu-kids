@@ -1847,11 +1847,6 @@ final class Engine {
         if (!own) l = new ArrayList<String>(java.util.Arrays.asList(HOPE[s]));
         long day = (now + java.util.TimeZone.getDefault().getOffset(now)) / 86400000L;
         if (!own) Collections.shuffle(l, new Random(day * 7L + s));
-        final boolean wt = watched() && locOn();                  // 부모님이 지금 내 위치를 보는 중이면 알려 준다(말없이 보지 않는다 — 법에서도 자녀에게 알릴 것을 요구한다)
-        if (wt) {
-            l = new ArrayList<String>();
-            l.add("부모님이 지금 내 위치를 보고 있어요");
-        }
         JSONArray m = new JSONArray();
         for (int i = 0; i < l.size(); i++) m.put(l.get(i));
         JSONArray body = new JSONArray();
@@ -1860,7 +1855,7 @@ final class Engine {
         put(o, "ok", true);
         put(o, "v", 1);
         put(o, "screen", "hdr");
-        put(o, "rev", day + ":" + s + (wt ? ":w" : ""));
+        put(o, "rev", day + ":" + s);
         put(o, "cover", "tab");
         put(o, "head", new JSONArray());
         put(o, "body", body);
