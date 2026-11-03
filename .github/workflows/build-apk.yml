@@ -50,7 +50,7 @@ jobs:
           git -C /tmp/sub sparse-checkout set native/shell shell-android/app/src/main/assets
           A=/tmp/sub/shell-android/app/src/main/assets
           mkdir -p app/src/main/java/com/dullyyj/subway app/src/main/assets/chars3d
-          for f in ScreenView ActRowCore PerfLog RunnerArt RunnerCore SceneDriver SceneHello ScreenCore TileLoader TileMapArt TileMapCore AndroidCv Chars OpenWx OpenCore OpenView OpenHost WidgetSim WidgetGeo SceneCore SceneCv SceneHaptics SceneModel SceneUtil SceneActs SceneArt SceneFx ScenePlatform SceneTrain ScenePlaces MetroMapView MetroRenderer MetroCamera MetroMapData PlayView PlayCore; do cp /tmp/sub/native/shell/$f.java app/src/main/java/com/dullyyj/subway/; done
+          for f in ScreenView ActRowCore PerfLog RunnerArt RunnerCore SceneDriver SceneHello ScreenCore TileLoader TileMapArt MarkerPhoto TileMapCore AndroidCv Chars OpenWx OpenCore OpenView OpenHost WidgetSim WidgetGeo SceneCore SceneCv SceneHaptics SceneModel SceneUtil SceneActs SceneArt SceneFx ScenePlatform SceneTrain ScenePlaces MetroMapView MetroRenderer MetroCamera MetroMapData PlayView PlayCore; do cp /tmp/sub/native/shell/$f.java app/src/main/java/com/dullyyj/subway/; done
           cp -r $A/. app/src/main/assets/
           du -sh app/src/main/assets
           ls -la app/src/main/assets/chars3d
