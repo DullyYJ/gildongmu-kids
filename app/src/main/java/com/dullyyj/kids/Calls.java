@@ -77,7 +77,7 @@ public final class Calls {
         sos(a, COUNT);
     }
 
-    /** sec 초를 세고 보낸다(홈 화면을 5초 눌러 부를 때는 이미 5초를 꾹 눌렀으니 5초만 센다). */
+    /** sec 초를 세고 보낸다(홈 화면을 10초 눌러 부를 때는 이미 오래 꾹 눌렀으니 5초만 센다). */
     public static void sos(final Activity a, final int sec) {
         if (burst() || !ready(a)) return;
         final int[] left = {sec};

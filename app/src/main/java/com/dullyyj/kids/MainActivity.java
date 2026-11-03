@@ -200,9 +200,9 @@ public class MainActivity extends Activity {
         if (b == null) OpenHost.show(this); // 켤 때 오프닝: 길동무와 똑같은 한 갈래(OpenHost) — 시간대 · 날씨 · 친구 · 움직임이 같다
     }
 
-    // ───────── 홈 화면 아무 데나 5초 꾹 누르면 긴급 호출 ─────────
+    // ───────── 홈 화면 아무 데나 10초 꾹 누르면 긴급 호출 ─────────
     // 눌림을 가로채지 않고 지켜보기만 한다(장면 · 카드 · 스크롤은 평소대로). 손가락이 움직이거나 떼어지거나 두 손가락이 되면 취소.
-    private static final long HOLD_MS = 5000L;
+    private static final long HOLD_MS = 10000L;
     private final android.os.Handler holdH = new android.os.Handler(android.os.Looper.getMainLooper());
     private float holdX, holdY;
     private final Runnable holdFire = new Runnable() {
