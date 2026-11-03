@@ -22,6 +22,8 @@ import android.widget.Toast;
 
 import com.dullyyj.subway.MetroMapData;
 import com.dullyyj.subway.MetroMapView;
+import com.dullyyj.subway.PlayCore;
+import com.dullyyj.subway.PlayView;
 import com.dullyyj.subway.ScreenCore;
 import com.dullyyj.subway.ScreenView;
 
@@ -59,7 +61,7 @@ final class MapPane extends LinearLayout {
     private int headSeq = 0;
     private Dialog sheet;
     private TtSheet tt;
-    private String mode = "subway";
+    private String mode = "bus";                                   // 길동무처럼 노선도를 열면 🚌 버스 탭부터
     private final ScreenView bus;
     private String busVw = "near";
     private int busSel = -1, busSeq = 0;
@@ -957,6 +959,30 @@ head.setScreen(sc, true);
         t.show();
     }
 
+    // 방금 연 역의 시간표 첫 화면 기억(길동무 ttCache 와 같다): 같은 역을 150초 안에 다시 누르면 기다림 없이 뜬다. 최대 6곳.
+    private static final long TT_KEEP_MS = 150000L;
+    private final LinkedHashMap<String, String> ttCache = new LinkedHashMap<String, String>();
+    private final LinkedHashMap<String, Long> ttCacheAt = new LinkedHashMap<String, Long>();
+
+    private String ttHit(String key) {
+        String c = ttCache.get(key);
+        Long at = ttCacheAt.get(key);
+        return c != null && at != null && System.currentTimeMillis() - at < TT_KEEP_MS ? c : null;
+    }
+
+    private void ttPut(String key, String txt) {
+        if (key == null || txt == null || txt.length() == 0 || txt.length() > 300000) return;
+        ttCache.remove(key);
+        ttCacheAt.remove(key);
+        ttCache.put(key, txt);
+        ttCacheAt.put(key, System.currentTimeMillis());
+        while (ttCache.size() > 6) {
+            String k = ttCache.keySet().iterator().next();
+            ttCache.remove(k);
+            ttCacheAt.remove(k);
+        }
+    }
+
     /** 시간표 시트: 길동무 서버(part "tt")가 화면을 채워 주고, 못 채운 노선·요일만 /next-train 으로 받아 다시 부탁한다. */
     private final class TtSheet {
         final String name;
@@ -984,8 +1010,20 @@ head.setScreen(sc, true);
             int[] pal = SvHost.palette(theme);
             sv.setPalette(pal);
             sv.setParentIntercept(true);
+            sv.setScrollHook(new Runnable() {
+                @Override
+                public void run() {
+                    playScroll();
+                }
+            });
+            ScreenCore.Screen loc = SvHost.parse(localLoading());       // 서버 답을 기다리는 동안 바로 보이는 제목 + 0→100% 막대
+            if (loc != null) sv.setScreen(loc, false);
+            FrameLayout box = new FrameLayout(ctx);
+            box.addView(sv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            pv = new PlayView(ctx, dpr);                                // 제목 오른쪽 빈 칸의 캐릭터 놀이터(길동무와 같다) — 만져지지 않는다
+            box.addView(pv, new FrameLayout.LayoutParams(1, 1, Gravity.TOP | Gravity.LEFT));
             d = new Dialog(ctx, android.R.style.Theme_Material_Light_Dialog_NoActionBar);
-            d.setContentView(sv);
+            d.setContentView(box);
             int hpx = Math.round(ctx.getResources().getDisplayMetrics().heightPixels * 0.62f);
             try {
                 Window w = d.getWindow();
@@ -1003,12 +1041,14 @@ head.setScreen(sc, true);
                     @Override
                     public void onDismiss(DialogInterface x) {
                         gen++;
+                        if (pv != null) pv.end();
                         if (sheet == me) sheet = null;
                         if (tt == TtSheet.this) tt = null;
                         if (metro != null) metro.setCover(0f);
                     }
                 });
                 sheet = d;
+                render();                                               // 창이 올라오는 그림보다 먼저 서버에 묻는다
                 d.show();
                 dv.animate().alpha(1f).translationY(0f).setDuration(340L).setInterpolator(new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f)).start();
             } catch (Throwable t) {
@@ -1021,7 +1061,91 @@ head.setScreen(sc, true);
                 return;
             }
             if (metro != null) metro.ensureVisible(name);
-            render();
+            playLater();
+        }
+
+        /** 서버가 답하기 전에 바로 그리는 화면: 제목줄(놀이터 칸 포함) + 불러오는 중 막대. 모양은 서버(map.js mapTimetableSheet)의 불러오는 화면과 같다. */
+        String localLoading() {
+            try {
+                JSONObject bar = new JSONObject();
+                bar.put("t", "bar");
+                bar.put("pad", new JSONArray().put(16).put(36).put(16).put(12));
+                bar.put("rw", 100);
+                bar.put("mq", true);
+                bar.put("title", name + " 시간표");
+                JSONObject lb = new JSONObject();
+                lb.put("t", "lbar");
+                lb.put("ttl", "시간표를 불러오는 중이에요");
+                lb.put("sub", "잠시만 기다려 주세요");
+                lb.put("pad", new JSONArray().put(16).put(36).put(16).put(0));
+                JSONObject o = new JSONObject();
+                o.put("ok", true);
+                o.put("v", 1);
+                o.put("screen", "maptt");
+                o.put("cover", "tab");
+                o.put("head", new JSONArray().put(bar));
+                o.put("body", new JSONArray().put(lb));
+                o.put("rev", "local-tt");
+                return o.toString();
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        // ── 놀이터(길동무 ShellActivity.playPlace 와 같다): 제목 오른쪽 빈 칸에 캐릭터들이 논다 ──
+        PlayView pv;
+        float playScrollY;
+
+        void playLater() {
+            Runnable r = new Runnable() {
+                @Override
+                public void run() {
+                    playPlace();
+                }
+            };
+            ui.post(r);
+            ui.postDelayed(r, 90L);
+            ui.postDelayed(r, 420L);                                    // 올라오는 그림이 끝난 뒤 한 번 더(칸 크기가 정해진 뒤)
+        }
+
+        void playPlace() {
+            final PlayView v = pv;
+            if (v == null || sv == null || d == null || !d.isShowing() || tt != TtSheet.this) return;
+            try {
+                float[] a = sv.playAnchor(ScreenCore.K_BAR);
+                float w = sv.getWidth() / dpr;
+                float[] h = a == null || w <= 0f ? null : PlayCore.ttHost(a[4], a[5], a[0], a[2], a[6]);
+                if (h == null) {                                        // 빈 칸이 없으면 놀이터도 없다
+                    v.end();
+                    return;
+                }
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) v.getLayoutParams();
+                int wp = Math.round(h[2] * dpr), hp = Math.round(h[3] * dpr), lx = Math.round(h[0] * dpr), ty = Math.round(Math.max(0f, h[1]) * dpr);
+                if (lp.width != wp || lp.height != hp || lp.leftMargin != lx || lp.topMargin != ty) {
+                    lp.width = wp;
+                    lp.height = hp;
+                    lp.leftMargin = lx;
+                    lp.topMargin = ty;
+                    v.setLayoutParams(lp);
+                }
+                boolean reduce = false;
+                try {
+                    reduce = android.provider.Settings.Global.getFloat(ctx.getContentResolver(), android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f;
+                } catch (Throwable ignored) {
+                    reduce = false;
+                }
+                v.begin(wp, hp, "dark".equals(theme), reduce, v.snap());
+                playScrollY = a[7] > 0f ? 1f : 0f;
+                playScroll();
+            } catch (Throwable t) {
+                v.end();                                                // 장식일 뿐 — 실패해도 시간표는 그대로
+            }
+        }
+
+        /** 머리줄이 글과 함께 올라가면 놀이터 그림도 같은 만큼 옮긴다. */
+        void playScroll() {
+            if (pv == null || sv == null) return;
+            pv.setTranslationY(playScrollY > 0f ? -sv.scrollPos() * dpr : 0f);
         }
 
         void onAct(String v) {
@@ -1092,9 +1216,30 @@ head.setScreen(sc, true);
             return o.toString();
         }
 
+        /** 처음 요청(고른 것도 받아 둔 것도 없는 요청)인가 — 이 요청의 답만 잠깐 기억해 둔다. */
+        boolean initial() {
+            return res.isEmpty() && line.isEmpty() && day.isEmpty() && dk.isEmpty() && "loading".equals(state);
+        }
+
+        void apply(String r, ScreenCore.Screen sc) {
+            readInfo(r);
+            sv.setScreen(sc, true);
+            playPlace();
+            if (need && !"fail".equals(state)) fetch();
+        }
+
         void render() {
             final int my = ++gen;
             final String b = body();
+            final boolean first = initial();
+            if (first) {                                               // 방금 본 역이면 기다림 없이(다음 열차 시각이 든 화면이라 150초만)
+                String hit = ttHit(b);
+                ScreenCore.Screen hs = hit == null ? null : SvHost.parse(SvHost.strip(hit));
+                if (hs != null) {
+                    apply(hit, hs);
+                    return;
+                }
+            }
             Wire.EX.execute(new Runnable() {
                 @Override
                 public void run() {
@@ -1109,9 +1254,8 @@ head.setScreen(sc, true);
                                 if (res.isEmpty()) closeSheet();
                                 return;
                             }
-                            readInfo(r);
-                            sv.setScreen(sc, true);
-                            if (need && !"fail".equals(state)) fetch();
+                            apply(r, sc);
+                            if (first && !need) ttPut(b, r);           // 서버가 다 채운 화면만 둔다
                         }
                     });
                 }
