@@ -386,3 +386,8 @@
 - `kn.open` → `kidMenuSheet`(가운데 팝업 `kidmenu`): 키즈 화면으로 시작 알약(`kidsHome`, 앱이 `kl.start` 로 저장) · 자녀 응원문구 · **마커 변경**(`km.open`) · 연동 관리(`kl.open`) · 닫기. `km.open` → `kidMarkerSheet`(`kidmk`): 자녀마다 [사진 고르기 `km.pick`][기본으로 `km.clr`] (id=자녀 열쇠) — 두 행동은 **앱이 이 폰 안에서만 처리**(사진은 서버에 올리지 않는다). 응원문구 팝업에 [‹ 뒤로] 추가.
 - 허브 지도의 자녀 핀(`k:'m'`)에 `g: 'kid.' + markerKey(cid)` — 앱이 이 열쇠로 저장된 동그란 사진을 찾아 마커로 그린다(`markerKey` = 영문·숫자·_·- 외 '_' · 34자, 앱 `MarkerCropCore.key` 와 같은 규칙).
 - 시험: `test/kidmenu.test.mjs` 11 + 기존 callnp 15 · calls 36 · guardian 23 · gdseed 3 · safety 70 · watch 21 · route_keep 41 · loc_request 5 · locjump 10 · arrive50 9 · boundary 42. 팝업 JSON 은 앱 ScreenCore 검증기 통과(건너뛴 노드 0). **워커 배포 필요(kids-worker.ascii.js), 기기 미확인.**
+
+## s417 (2026-11-04) — 키즈 · 부모 앱 알림: 진동 + 알림음 확실히 (가족대화 포함)
+- 알림 채널을 새 id(`kids_alert2`)로 갈아탄다(안드로이드는 만든 채널의 소리 · 진동을 바꿀 수 없어서 옛 `kids_push` 는 지움): 기기 알림음 명시 + 진동 0.3초×3 + 잠금화면 표시. 부모 앱 `KidsPush`(긴급 `kids_sos` 는 그대로 알람음) · 자녀 앱 `Push`.
+- 알림 카드를 숨기던 두 경우(키즈 화면/대화방을 보는 중 · 호출을 팝업으로 보여 준 때, 자녀 앱은 대화 탭을 보는 중)에도 `cue()` 로 진동 + 알림음을 낸다 — 가족대화 메시지가 화면을 보고 있을 때도 울린다. 소리는 기기 알림 음량 · 무음 모드를 따른다.
+- 서버 변경 없음(chat 푸시는 이미 양방향). **기기 미확인.**

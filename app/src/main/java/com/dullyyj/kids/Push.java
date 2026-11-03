@@ -26,7 +26,7 @@ public class Push extends FirebaseMessagingService {
     static volatile Context app;
     static volatile boolean fg = false;
     private static boolean started = false;
-    private static final String CH = "kids_push";
+    private static final String CH = "kids_alert2", CH_OLD = "kids_push";
 
     /** 엔진이 1초마다 부른다 — 동의한 뒤 한 번만 토큰을 받아 서버에 올린다(Firebase 설정 파일이 없는 빌드에서는 조용히 건너뛴다). */
     static void ping(boolean consented) {
@@ -101,10 +101,32 @@ public class Push extends FirebaseMessagingService {
             }
             String title = d.get("title"), body = d.get("body"), tag = d.get("tag");
             if (body == null || body.isEmpty()) return;
-            if (fg && "chat".equals(Core.engine.tab())) return; // 대화 탭을 보고 있을 때만 숨긴다(다른 탭이면 카톡처럼 알림이 온다)
+            if (fg && "chat".equals(Core.engine.tab())) { cue(getApplicationContext()); return; } // 대화 탭을 보고 있을 때만 알림 카드를 숨긴다(다른 탭이면 카톡처럼 알림이 온다) — 대신 진동 + 알림음은 낸다
             show(this, title == null || title.isEmpty() ? "길동무 키즈" : title, body, tag == null ? "k" : tag);
         } catch (Throwable t) {
             // 알림 하나를 못 띄워도 앱은 계속 쓴다
+        }
+    }
+
+    /** 알림 카드를 숨기는 때(대화 탭을 보는 중)에도 진동 + 알림음은 낸다. 소리는 기기의 알림 음량 · 무음 설정을 따른다. */
+    static void cue(Context c) {
+        try {
+            android.os.Vibrator v = (android.os.Vibrator) c.getSystemService(Context.VIBRATOR_SERVICE);
+            if (v != null && v.hasVibrator()) {
+                long[] pat = {0, 300, 150, 300};
+                if (Build.VERSION.SDK_INT >= 26) v.vibrate(android.os.VibrationEffect.createWaveform(pat, -1)); else v.vibrate(pat, -1);
+            }
+        } catch (Throwable t) {
+            // 진동을 못 내도 계속
+        }
+        try {
+            android.media.Ringtone r = android.media.RingtoneManager.getRingtone(c, android.provider.Settings.System.DEFAULT_NOTIFICATION_URI);
+            if (r != null) {
+                if (Build.VERSION.SDK_INT >= 28) r.setAudioAttributes(new android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+                r.play();
+            }
+        } catch (Throwable t) {
+            // 소리를 못 내도 계속
         }
     }
 
@@ -112,9 +134,14 @@ public class Push extends FirebaseMessagingService {
         NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CH) == null) {
+            try { nm.deleteNotificationChannel(CH_OLD); } catch (Throwable ignored) { } // 옛 채널은 설정을 바꿀 수 없어 새 채널로 갈아탄다
             NotificationChannel ch = new NotificationChannel(CH, "길동무 키즈 알림", NotificationManager.IMPORTANCE_HIGH);
             ch.enableVibration(true);
-            ch.setVibrationPattern(new long[] {0, 180, 90, 180});
+            ch.enableLights(true);
+            ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            ch.setVibrationPattern(new long[] {0, 300, 150, 300, 150, 300});
+            ch.setSound(android.provider.Settings.System.DEFAULT_NOTIFICATION_URI, new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
             nm.createNotificationChannel(ch);
         }
         Intent it = new Intent(c, MainActivity.class);
@@ -122,7 +149,7 @@ public class Push extends FirebaseMessagingService {
         PendingIntent pi = PendingIntent.getActivity(c, 0, it, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder nb = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CH) : new Notification.Builder(c);
         nb.setSmallIcon(c.getApplicationInfo().icon).setContentTitle(title).setContentText(body)
-                .setStyle(new Notification.BigTextStyle().bigText(body)).setAutoCancel(true).setContentIntent(pi);
+                .setStyle(new Notification.BigTextStyle().bigText(body)).setAutoCancel(true).setContentIntent(pi).setVisibility(Notification.VISIBILITY_PUBLIC);
         if (Build.VERSION.SDK_INT < 26) nb.setPriority(Notification.PRIORITY_HIGH).setDefaults(Notification.DEFAULT_ALL);
         nm.notify(tag, 1, nb.build());
     }
