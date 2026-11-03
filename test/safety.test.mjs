@@ -124,7 +124,8 @@ await loc();                                                     // 자녀 위�
   const nf = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '없는곳xyz' } });
   chk(/찾지 못했어요/.test(JSON.stringify(nf.screen)), '못 찾으면 안내');
   geoFail = true; const gf = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '가양로 12' } }); geoFail = false;
-  chk(gf.ok && /찾지 못했어요/.test(JSON.stringify(gf.screen)), '주소 서버가 실패해도 오류 없이 안내');
+  chk(gf.ok && /검색 서버가 응답하지 않아요 \(응답 500\)/.test(JSON.stringify(gf.screen)), '주소 서버가 실패하면 "없음"이 아니라 서버 문제라고 알린다(원인 표시)');
+  chk(!JSON.stringify(f1.screen.body.find((n) => n.t === 'tmap')).includes('"live"'), '팝업 지도는 고정 지도다(끌 수 있는 지도를 올리면 버벅인다)');
   await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '가양로 12' } });
   const ad = await req('POST', '/p/act', 'p', { v: 'kpg.add', cid: CID, f: { kpn: '학원' } });
   const pl = rows('SELECT * FROM places');
