@@ -150,6 +150,12 @@ await loc();                                                     // 자녀 위�
   const pl = rows('SELECT * FROM places');
   chk(ad.ok && ad.close === true && ad.hub === 1 && pl.length === 1 && pl[0].name === '학원' && Math.abs(pl[0].la - 37.53) < 1e-6 && pl[0].days === 0, '이름을 적고 등록 → 장소 저장(요일 없음 = 시각 규칙 없음)');
   chk(rows('SELECT * FROM drafts').length === 0, '등록하면 임시 작성본은 지워진다');
+  const hb = await req('GET', '/p/screen?v=hub&cid=' + CID, 'p'), hbt = JSON.stringify(hb.screen);
+  chk(/kpg\.open/.test(hbt) && /kps\.open/.test(hbt) && /등록한 장소 1/.test(hbt), '허브: 왼쪽 "장소 등록" · 오른쪽 "등록한 장소 1" 단추');
+  chk(!/"act":\{"a":"call","v":"kp\.[0-9]+"/.test(hbt), '허브에는 장소 목록이 더 이상 펼쳐 있지 않다(팝업으로 옮김)');
+  const pls = await req('POST', '/p/act', 'p', { v: 'kps.open', cid: CID });
+  const plt = JSON.stringify(pls.screen);
+  chk(pls.ok && pls.sheet === 'ev' && pls.screen.screen === 'kidpls' && /1\. 학원/.test(plt) && /kp\.[0-9]+/.test(plt) && /kl\.close/.test(plt) && /kpg\.open/.test(plt), '"등록한 장소" 팝업: 목록 · 누르면 고치기(kp.) · 닫기 · 장소 등록');
   const c1 = await req('POST', '/p/act', 'p', { v: 'kpg.open', cid: CID }); await req('POST', '/p/act', 'p', { v: 'kpg.cancel', cid: CID });
   chk(rows('SELECT * FROM drafts').length === 0 && rows('SELECT * FROM places').length === 1, '취소하면 아무것도 저장하지 않는다');
 }

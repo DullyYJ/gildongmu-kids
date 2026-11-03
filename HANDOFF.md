@@ -310,3 +310,7 @@
 - 홈 화면(홈 탭) 아무 데나 **5초** 꾹 누르면 `Calls.sos(activity, 5)` — 이미 5초를 눌렀으니 5초만 세고(취소 · 119 단추 그대로) 부모님께 보낸다. `MainActivity.dispatchTouchEvent` 가 눌림을 가로채지 않고 지켜본다: 손가락이 24dp 넘게 움직이거나 떼거나 두 손가락이 되면 취소 · 동의 전 · 다른 탭에서는 안 된다. (장면의 3초 '모이기'와 별개 — 5초까지 누르면 모이기도 일어난 뒤 긴급 호출 창이 뜬다.)
 - 장면 아래 모서리 단추 둘: 왼쪽 "✅ 안전 도착"(`Calls.arrivedAsk` — 실수로 눌러 거짓 안심을 드리지 않게 한 번 묻는다) · 오른쪽 "🚗 데리러 와줘"(`Calls.pickup`). 장면(SceneCore) 안에 `KidsActs.drawBtns`(hud 안) 로 그리고 `menuDown/btnMove/btnUp`(swaps.txt 에 `move`·`up` 두 곳 추가)로 받는다 — 누르고 떼면 `Poke.call("arr"|"pick")` → `MainActivity` 의 `Poke.Caller`. 14dp 넘게 움직이거나 1.5초를 넘기면 보내지 않는다(스크롤 · 캐릭터 끌기와 안 섞임). 크기 108×36dp · 모서리 10dp(`B_W/B_H/B_PAD`).
 - 시험: `test/jvm/ButtonCap.java`(JVM: 위치 · 짧게 눌러 뗌 · 움직이면 취소 · 오래 누르면 취소 · 그리기). 안드로이드 쪽(MainActivity 누르기 · 창)은 CI 컴파일만 확인, 기기 미확인.
+
+## s401 (2026-11-03) — 장소 등록 · 등록한 장소 두 단추 (워커)
+- `hubScreen` 의 장소 한 줄이 두 단추: 왼쪽 `kpg.open`(장소 등록 팝업) · 오른쪽 `kps.open`(등록한 장소 팝업 `placesSheet`, id `kidpls`, sheet:'ev' — 목록 · 한 곳 누르면 `kp.<id>` 고치기 · 닫기(`kl.close`, 앱이 바로 닫음) · + 장소 등록). 펼쳐 있던 목록 칸 삭제. 부모 앱 `KidsHub.kindOf` 에 `kidpls` 추가(길동무 앱도 새로 설치해야 한다).
+- 시험: safety 70(버튼 둘 · 목록 팝업).

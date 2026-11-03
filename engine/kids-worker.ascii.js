@@ -943,7 +943,7 @@ async function hubScreen(DB, pid, cid, now) {
   while (rows.length < EV_VIS) rows.unshift({ a: '\u00a0' });
   const fk = [{ t: 'pickl', key: 'kev' + cid, plain: true, h: 21, vis: EV_VIS, size: 12.5, pad: [0, 8, 0, 0], rows }];
   body.push({ t: 'lth', s: nm + ' \ubb50\ud558\ub2c8?', dot: '#ff3b30', live: true, pad: [16, 12, 16, 0] });
-  const regBtn = { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('+ \uc7a5\uc18c \ub4f1\ub85d (\ub3c4\ucc29\u00b7\ucd9c\ubc1c \uc54c\ub9bc)', call('kpg.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 })] };
+  const regBtn = { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('+ \uc7a5\uc18c \ub4f1\ub85d', call('kpg.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('\ub4f1\ub85d\ud55c \uc7a5\uc18c' + (pls.length ? ' ' + pls.length : ''), call('kps.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 })] };          // \uc67c\ucabd = \uc0c8 \uc7a5\uc18c \ub4f1\ub85d \ud31d\uc5c5 \u00b7 \uc624\ub978\ucabd = \ub4f1\ub85d\ud55c \uc7a5\uc18c \ubaa9\ub85d \ud31d\uc5c5(s401)
   body.push(panel(al.concat(fk, [regBtn]), { pad: [12, 1, 12, 0], fill: lines.some((l) => l.tone === 'warn') ? 'card2' : 'card' }));
   // \ud018\uc2a4\ud2b8(\ub178\ub780 \uc810)
   const qs = (await DB.prepare('SELECT k,s FROM quests WHERE cid=?').bind(cid).all()).results || [];
@@ -956,12 +956,7 @@ async function hubScreen(DB, pid, cid, now) {
   ], { pad: [12, 1, 12, 0] }));
   // \uc9c0\ub09c \uacbd\ub85c(s391): 30\ubd84 \ub118\uac8c \uba38\ubb3c \ub54c\ub9c8\ub2e4 \uadf8 \uc804\uae4c\uc9c0\uc758 \uae38\uc774 \uc800\uc7a5\ub41c\ub2e4 \u2014 \uc790\ub140\ub2f9 RT_KEEP \uac1c
   if (!viewing) body.push(panel([{ t: 'navrow', title: '\uc9c0\ub09c \uacbd\ub85c', sub: rts.length ? rts.length + '\uac1c \u00b7 \ucd5c\uadfc ' + rtTitle(rts[0], now) : '\uc544\uc9c1 \uc5c6\uc5b4\uc694 \u00b7 \ud55c \uacf3\uc5d0 30\ubd84 \uba38\ubb3c\uba74 \uc800\uc7a5\ub3fc\uc694', act: call('kr.open'), size: 13, vp: 8 }], { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
-  // \uc7a5\uc18c\u00b7\uae30\ub85d
-  if (pls.length) {
-    const k = [tx('\ub4f1\ub85d\ud55c \uc7a5\uc18c', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 4] })];
-    pls.forEach((p, i) => k.push({ t: 'navrow', title: (i + 1) + '. ' + p.name, sub: p.days ? pad2(p.hh) + ':' + pad2(p.mm) + ' ' + daysTxt(p.days) : '\ucd9c\uc785 \uc54c\ub9bc \u00b7 \uc2dc\uac01 \uc5c6\uc74c', act: call('kp.' + p.id), size: 13, vp: 8 }));
-    body.push(panel(k, { pad: [12, 8, 12, 0], ip: [14, 12, 14, 6] }));
-  }
+  // \ub4f1\ub85d\ud55c \uc7a5\uc18c\ub294 \uc704 \uc624\ub978\ucabd \ub2e8\ucd94\uc758 \ud31d\uc5c5(placesSheet)\uc5d0\uc11c \ubcf8\ub2e4
   const hist = (await DB.prepare('SELECT t.day day,t.st st,t.tn tn,t.td td,t.ta ta,t.tc tc,p.name name FROM trips t JOIN places p ON p.id=t.pl WHERE t.cid=? AND t.td>0 ORDER BY t.td DESC LIMIT 4').bind(cid).all()).results || [];
   if (hist.length) {
     const k = [tx('\ucd5c\uadfc \uc774\ub3d9 \uae30\ub85d', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 4] })];
@@ -1154,6 +1149,15 @@ function regSheet(d, results, notice) {
     tx('\uc704\uce58 ' + (+d.la).toFixed(4) + ', ' + (+d.lo).toFixed(4) + ' \u00b7 \uc2dc\uac01 \uc54c\ub9bc\uc740 \ub4f1\ub85d \ub4a4 \uc7a5\uc18c\ub97c \ub20c\ub7ec \uc815\ud560 \uc218 \uc788\uc5b4\uc694', { size: 10.5, color: 'sub', pad: [0, 8, 0, 0] })], { pad: [12, 8, 12, 0] }));
   body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('\ucde8\uc18c', call('kpg.cancel'), { fill: 'card2', tc: 'text', line: 'border' }), btn('\ub4f1\ub85d', call('kpg.add'), gold)] });
   return scr('kidreg', [], body, { dlg: dlg() });
+}
+/** \ub4f1\ub85d\ud55c \uc7a5\uc18c \ubaa9\ub85d \ud31d\uc5c5(s401): \ud55c \uacf3\uc744 \ub204\ub974\uba74 \uadf8 \uc7a5\uc18c\ub97c \uace0\uce58\ub294 \ud31d\uc5c5(kp.<id>)\uc73c\ub85c \ubc14\ub010\ub2e4. */
+async function placesSheet(DB, cid) {
+  const pls = (await DB.prepare('SELECT id,name,hh,mm,days FROM places WHERE cid=? ORDER BY hh,mm LIMIT ?').bind(cid, MAX_PLACES).all()).results || [];
+  const body = [tx('\ub4f1\ub85d\ud55c \uc7a5\uc18c', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
+    tx(pls.length ? '\uc7a5\uc18c\ub97c \ub204\ub974\uba74 \uc2dc\uac01 \u00b7 \uc694\uc77c\uc744 \uace0\uce58\uac70\ub098 \uc9c0\uc6b8 \uc218 \uc788\uc5b4\uc694. (' + pls.length + '/' + MAX_PLACES + ')' : '\uc544\uc9c1 \ub4f1\ub85d\ud55c \uc7a5\uc18c\uac00 \uc5c6\uc5b4\uc694. \uc7a5\uc18c\ub97c \ub4f1\ub85d\ud558\uba74 \uc790\ub140\uac00 \ub3c4\ucc29\ud558\uac70\ub098 \ubc97\uc5b4\ub0a0 \ub54c \uc54c\ub824 \ub4dc\ub824\uc694.', { size: 12, color: 'sub', pad: [16, 0, 16, 8] })];
+  if (pls.length) body.push(panel(pls.map((p, i) => ({ t: 'navrow', title: (i + 1) + '. ' + p.name, sub: p.days ? pad2(p.hh) + ':' + pad2(p.mm) + ' ' + daysTxt(p.days) : '\ucd9c\uc785 \uc54c\ub9bc \u00b7 \uc2dc\uac01 \uc5c6\uc74c', act: call('kp.' + p.id), size: 13, vp: 8 })), { pad: [12, 4, 12, 0], ip: [14, 6, 14, 6] }));
+  body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('\ub2eb\uae30', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' }), btn('+ \uc7a5\uc18c \ub4f1\ub85d', call('kpg.open', cid), gold)] });
+  return scr('kidpls', [], body, { dlg: dlg() });
 }
 function placeSheet(d, edit, notice) {
   const body = [tx(edit ? '\uc7a5\uc18c \uace0\uce58\uae30' : '\uc7a5\uc18c \ub4f1\ub85d', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('\uc694\uc77c\uc744 \uace0\ub974\uba74 \uadf8 \uc2dc\uac01\uc5d0 \uc790\ub140\uac00 \uc774 \uc7a5\uc18c\uc5d0 \uc788\uc5b4\uc57c \ud574\uc694(30\ubd84 \uc804\uc5d0 \uc790\ub140\uc5d0\uac8c \uc54c\ub824\uc694). \uc694\uc77c\uc744 \uc548 \uace0\ub974\uba74 \ub3c4\ucc29 \u00b7 \ucd9c\ubc1c \uc54c\ub9bc\ub9cc \uc640\uc694.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] }),
@@ -1502,7 +1506,7 @@ async function handle(req, env, url) {
         await bump(DB, cid);
         return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
       }
-      if (/^k(r|pg|p|pl|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
+      if (/^k(r|pg|p|pl|ps|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
       if (v === 'kx.ack' || v === 'kx.done') {          // \ubd80\ubaa8\uac00 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \ub97c \ud655\uc778\ud588\ub2e4 / \ub05d\ub0ac\ub2e4
         if (!cid || !t) return R({ hub: 1 });
         const ack = v === 'kx.ack';
@@ -1576,6 +1580,7 @@ async function handle(req, env, url) {
       }
       if (v === 'kc.open') { await markRd(DB, cid, 'p'); return R({ screen: await chatSheet(DB, pid, cid, now), cid, sheet: 'chat' }); }
       if (v === 'kd.open') return R({ screen: await evSheet(DB, pid, cid, now), cid, sheet: 'ev' });
+      if (v === 'kps.open') return R({ screen: await placesSheet(DB, cid), cid, sheet: 'ev' });
       // \uc7a5\uc18c \ub4f1\ub85d(s392)
       if (v === 'kpg.open') {
         if (((await DB.prepare('SELECT COUNT(*) n FROM places WHERE cid=?').bind(cid).first()) || { n: 0 }).n >= MAX_PLACES) return R({ notice: '\uc7a5\uc18c\ub294 ' + MAX_PLACES + '\uacf3\uae4c\uc9c0 \ub4f1\ub85d\ud560 \uc218 \uc788\uc5b4\uc694' });

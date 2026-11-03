@@ -943,7 +943,7 @@ async function hubScreen(DB, pid, cid, now) {
   while (rows.length < EV_VIS) rows.unshift({ a: '\u00a0' });
   const fk = [{ t: 'pickl', key: 'kev' + cid, plain: true, h: 21, vis: EV_VIS, size: 12.5, pad: [0, 8, 0, 0], rows }];
   body.push({ t: 'lth', s: nm + ' 뭐하니?', dot: '#ff3b30', live: true, pad: [16, 12, 16, 0] });
-  const regBtn = { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('+ 장소 등록 (도착·출발 알림)', call('kpg.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 })] };
+  const regBtn = { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('+ 장소 등록', call('kpg.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('등록한 장소' + (pls.length ? ' ' + pls.length : ''), call('kps.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 })] };          // 왼쪽 = 새 장소 등록 팝업 · 오른쪽 = 등록한 장소 목록 팝업(s401)
   body.push(panel(al.concat(fk, [regBtn]), { pad: [12, 1, 12, 0], fill: lines.some((l) => l.tone === 'warn') ? 'card2' : 'card' }));
   // 퀘스트(노란 점)
   const qs = (await DB.prepare('SELECT k,s FROM quests WHERE cid=?').bind(cid).all()).results || [];
@@ -956,12 +956,7 @@ async function hubScreen(DB, pid, cid, now) {
   ], { pad: [12, 1, 12, 0] }));
   // 지난 경로(s391): 30분 넘게 머물 때마다 그 전까지의 길이 저장된다 — 자녀당 RT_KEEP 개
   if (!viewing) body.push(panel([{ t: 'navrow', title: '지난 경로', sub: rts.length ? rts.length + '개 · 최근 ' + rtTitle(rts[0], now) : '아직 없어요 · 한 곳에 30분 머물면 저장돼요', act: call('kr.open'), size: 13, vp: 8 }], { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
-  // 장소·기록
-  if (pls.length) {
-    const k = [tx('등록한 장소', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 4] })];
-    pls.forEach((p, i) => k.push({ t: 'navrow', title: (i + 1) + '. ' + p.name, sub: p.days ? pad2(p.hh) + ':' + pad2(p.mm) + ' ' + daysTxt(p.days) : '출입 알림 · 시각 없음', act: call('kp.' + p.id), size: 13, vp: 8 }));
-    body.push(panel(k, { pad: [12, 8, 12, 0], ip: [14, 12, 14, 6] }));
-  }
+  // 등록한 장소는 위 오른쪽 단추의 팝업(placesSheet)에서 본다
   const hist = (await DB.prepare('SELECT t.day day,t.st st,t.tn tn,t.td td,t.ta ta,t.tc tc,p.name name FROM trips t JOIN places p ON p.id=t.pl WHERE t.cid=? AND t.td>0 ORDER BY t.td DESC LIMIT 4').bind(cid).all()).results || [];
   if (hist.length) {
     const k = [tx('최근 이동 기록', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 4] })];
@@ -1154,6 +1149,15 @@ function regSheet(d, results, notice) {
     tx('위치 ' + (+d.la).toFixed(4) + ', ' + (+d.lo).toFixed(4) + ' · 시각 알림은 등록 뒤 장소를 눌러 정할 수 있어요', { size: 10.5, color: 'sub', pad: [0, 8, 0, 0] })], { pad: [12, 8, 12, 0] }));
   body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('취소', call('kpg.cancel'), { fill: 'card2', tc: 'text', line: 'border' }), btn('등록', call('kpg.add'), gold)] });
   return scr('kidreg', [], body, { dlg: dlg() });
+}
+/** 등록한 장소 목록 팝업(s401): 한 곳을 누르면 그 장소를 고치는 팝업(kp.<id>)으로 바뀐다. */
+async function placesSheet(DB, cid) {
+  const pls = (await DB.prepare('SELECT id,name,hh,mm,days FROM places WHERE cid=? ORDER BY hh,mm LIMIT ?').bind(cid, MAX_PLACES).all()).results || [];
+  const body = [tx('등록한 장소', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
+    tx(pls.length ? '장소를 누르면 시각 · 요일을 고치거나 지울 수 있어요. (' + pls.length + '/' + MAX_PLACES + ')' : '아직 등록한 장소가 없어요. 장소를 등록하면 자녀가 도착하거나 벗어날 때 알려 드려요.', { size: 12, color: 'sub', pad: [16, 0, 16, 8] })];
+  if (pls.length) body.push(panel(pls.map((p, i) => ({ t: 'navrow', title: (i + 1) + '. ' + p.name, sub: p.days ? pad2(p.hh) + ':' + pad2(p.mm) + ' ' + daysTxt(p.days) : '출입 알림 · 시각 없음', act: call('kp.' + p.id), size: 13, vp: 8 })), { pad: [12, 4, 12, 0], ip: [14, 6, 14, 6] }));
+  body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' }), btn('+ 장소 등록', call('kpg.open', cid), gold)] });
+  return scr('kidpls', [], body, { dlg: dlg() });
 }
 function placeSheet(d, edit, notice) {
   const body = [tx(edit ? '장소 고치기' : '장소 등록', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('요일을 고르면 그 시각에 자녀가 이 장소에 있어야 해요(30분 전에 자녀에게 알려요). 요일을 안 고르면 도착 · 출발 알림만 와요.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] }),
@@ -1502,7 +1506,7 @@ async function handle(req, env, url) {
         await bump(DB, cid);
         return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
       }
-      if (/^k(r|pg|p|pl|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
+      if (/^k(r|pg|p|pl|ps|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
       if (v === 'kx.ack' || v === 'kx.done') {          // 부모가 긴급 호출 · 데리러 와줘 를 확인했다 / 끝났다
         if (!cid || !t) return R({ hub: 1 });
         const ack = v === 'kx.ack';
@@ -1576,6 +1580,7 @@ async function handle(req, env, url) {
       }
       if (v === 'kc.open') { await markRd(DB, cid, 'p'); return R({ screen: await chatSheet(DB, pid, cid, now), cid, sheet: 'chat' }); }
       if (v === 'kd.open') return R({ screen: await evSheet(DB, pid, cid, now), cid, sheet: 'ev' });
+      if (v === 'kps.open') return R({ screen: await placesSheet(DB, cid), cid, sheet: 'ev' });
       // 장소 등록(s392)
       if (v === 'kpg.open') {
         if (((await DB.prepare('SELECT COUNT(*) n FROM places WHERE cid=?').bind(cid).first()) || { n: 0 }).n >= MAX_PLACES) return R({ notice: '장소는 ' + MAX_PLACES + '곳까지 등록할 수 있어요' });
