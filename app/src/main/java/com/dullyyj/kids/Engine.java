@@ -340,6 +340,11 @@ final class Engine {
         return loc && consented();
     }
 
+    /** 부모님이 지금 내 위치를 보고 있나 — 서버가 정한 값(w)을 그대로 따른다. 서버 응답이 90초 넘게 없으면 저절로 꺼진다. */
+    synchronized boolean watched() {
+        return watchW > 0 && System.currentTimeMillis() < watchUntil;
+    }
+
     /** 부모가 보기 시작했다는 푸시(watch)를 받았다 — 서버 응답이 올 때까지 90초 동안 빠른 주기. 이후엔 위치 보고 응답의 w 가 정한다. */
     void watchOn() {
         setWatch(1);
@@ -1824,6 +1829,11 @@ final class Engine {
         if (!own) l = new ArrayList<String>(java.util.Arrays.asList(HOPE[s]));
         long day = (now + java.util.TimeZone.getDefault().getOffset(now)) / 86400000L;
         if (!own) Collections.shuffle(l, new Random(day * 7L + s));
+        final boolean wt = watched() && locOn();                  // 부모님이 지금 내 위치를 보는 중이면 알려 준다(말없이 보지 않는다 — 법에서도 자녀에게 알릴 것을 요구한다)
+        if (wt) {
+            l = new ArrayList<String>();
+            l.add("부모님이 지금 내 위치를 보고 있어요");
+        }
         JSONArray m = new JSONArray();
         for (int i = 0; i < l.size(); i++) m.put(l.get(i));
         JSONArray body = new JSONArray();
@@ -1832,7 +1842,7 @@ final class Engine {
         put(o, "ok", true);
         put(o, "v", 1);
         put(o, "screen", "hdr");
-        put(o, "rev", day + ":" + s);
+        put(o, "rev", day + ":" + s + (wt ? ":w" : ""));
         put(o, "cover", "tab");
         put(o, "head", new JSONArray());
         put(o, "body", body);

@@ -37,12 +37,8 @@ public class LocationService extends Service {
         Core.init(getApplicationContext());
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("loc", "위치 공유", NotificationManager.IMPORTANCE_LOW));
-        Notification n = new Notification.Builder(this, "loc")
-                .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-                .setContentTitle("길동무 키즈")
-                .setContentText("부모님께 내 위치를 알려주는 중이에요")
-                .setOngoing(true)
-                .build();
+        lastWatched = Core.engine.watched();
+        Notification n = note(lastWatched);
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(11, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
         } else {
@@ -51,6 +47,30 @@ public class LocationService extends Service {
         if (cb != null) request();                                  // 이미 돌고 있으면 주기만 새로 건다(부모가 보기 시작했을 때 빠른 주기로)
         else begin();
         return START_STICKY;
+    }
+
+    private boolean lastWatched = false;
+
+    /** 상태 표시줄 알림 — 부모님이 보는 동안은 그렇다고 알려 준다. */
+    private Notification note(boolean watched) {
+        return new Notification.Builder(this, "loc")
+                .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                .setContentTitle("길동무 키즈")
+                .setContentText(watched ? "부모님이 지금 내 위치를 보고 있어요" : "부모님께 내 위치를 알려주는 중이에요")
+                .setOngoing(true)
+                .build();
+    }
+
+    /** 보는 중인지가 바뀌었으면 알림 글을 바꾼다. */
+    private void syncNote() {
+        boolean w = Core.engine.watched();
+        if (w == lastWatched) return;
+        lastWatched = w;
+        try {
+            getSystemService(NotificationManager.class).notify(11, note(w));
+        } catch (Throwable e) {
+            // 알림 글을 못 바꿔도 위치 공유는 계속된다
+        }
     }
 
     private void begin() {
@@ -67,6 +87,7 @@ public class LocationService extends Service {
             public void onLocationResult(LocationResult r) {
                 Location l = r.getLastLocation();
                 if (l == null) return;
+                syncNote();
                 try {                                                      // 배터리는 읽기만 하고 판단은 서버가 한다(s392)
                     Intent bi = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
                     if (bi != null) {
