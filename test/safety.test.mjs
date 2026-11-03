@@ -145,6 +145,15 @@ await loc();                                                     // 자녀 위�
   chk(ad2.ok && ad2.close && pl2 && Math.abs(pl2.la - 37.7) < 1e-6 && Math.abs(pl2.lo - 127.2) < 1e-6, '초안 없이도 앱이 보낸 좌표로 등록된다');
   DB._db.prepare("DELETE FROM places WHERE name='좌표확인'").run();
   await req('POST', '/p/act', 'p', { v: 'kpg.open', cid: CID });
+  // s420: 지도를 눌러 위치 지정 — 파란 안내 한 줄 · 지도에 눌림(kpg.map) · 좌표 없이 오면 닫지 않는다
+  const rg = JSON.stringify(f2.screen), tmx = f2.screen.body.find((n) => n.t === 'tmap'), bi = f2.screen.body.findIndex((n) => n.t === 'text' && /원하는 위치가 없을시 지도를 클릭하여 위치를 지정하세요/.test(n.s));
+  chk(bi >= 0 && f2.screen.body[bi].cc === '#1A73E8' && f2.screen.body[bi].size <= 12 && f2.screen.body[bi + 1] === tmx, '지도 바로 위에 파란 한 줄 안내가 있다');
+  chk(tmx.act && tmx.act.v === 'kpg.map', '지도 눌림이 kpg.map 으로 간다');
+  const mp0 = await req('POST', '/p/act', 'p', { v: 'kpg.map', cid: CID });
+  chk(mp0.ok && !mp0.close && !mp0.screen, '좌표 없는 지도 눌림은 무시(팝업을 닫지 않는다)');
+  const mp1 = await req('POST', '/p/act', 'p', { v: 'kpg.sv', cid: CID, t: '37.511111|126.911111|', f: { kpn: '', kpa: '학교' } });
+  const dm = rows('SELECT * FROM drafts')[0];
+  chk(mp1.ok && dm && Math.abs(dm.la - 37.511111) < 1e-6 && Math.abs(dm.lo - 126.911111) < 1e-6 && dm.name === '', '지도로 고른 좌표(이름 없이)가 초안에 저장된다');
   const nn = await req('POST', '/p/act', 'p', { v: 'kpg.add', cid: CID, f: { kpn: '' } });
   chk(/장소 이름을 적어/.test(JSON.stringify(nn.screen)) && rows('SELECT * FROM places').length === 0, '이름 없이 등록 → 막고 안내(등록 안 됨)');
   const nf = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '없는곳xyz' } });

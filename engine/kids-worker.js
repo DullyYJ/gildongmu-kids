@@ -1196,7 +1196,8 @@ function regSheet(d, results, notice) {
   body.push(panel([{ t: 'field', key: 'kpa', hint: '주소 또는 건물·학교·회사 이름 (예: 대동초등학교 · 가양로 12)', value: d.q || '', maxlen: 60, h: 44 },
     { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('주소 찾기', call('kpg.find'), gold)] }], { pad: [12, 6, 12, 0] }));
   if (results && results.length > 1) body.push(panel(results.map((r, i) => ({ t: 'navrow', title: r.n, sub: r.a, act: call('kpg.pick', '', (+r.la).toFixed(6) + '|' + (+r.lo).toFixed(6) + '|' + String(r.n || '').replace(/\|/g, ' ').slice(0, 20)), size: 13, vp: 8 })), { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
-  body.push({ t: 'tmap', h: 190, r: 14, pad: [12, 8, 12, 0], pts: [{ la: d.la, lo: d.lo, k: 's', n: '', l: d.name || '여기' }], foc: 0, fz: 17 });          // 고정 지도(live 아님): 팝업에 MapLibre 를 올리면 열 때마다 버벅인다 · 위치는 찾기로 정한다
+  body.push(tx('원하는 위치가 없을시 지도를 클릭하여 위치를 지정하세요', { size: 11.5, bold: true, cc: '#1A73E8', color: 'text', pad: [14, 10, 14, 0] }));          // s420: 파란 한 줄 안내(옛 앱은 cc 를 몰라 기본 글색)
+  body.push({ t: 'tmap', h: 190, r: 14, act: call('kpg.map'), pad: [12, 4, 12, 0], pts: [{ la: d.la, lo: d.lo, k: 's', n: '', l: d.name || '여기' }], foc: 0, fz: 17 });          // 고정 지도(live 아님): 팝업에 MapLibre 를 올리면 열 때마다 버벅인다 · 위치는 찾기로 정한다
   body.push(panel([{ t: 'field', key: 'kpn', hint: '장소 이름 (예: 우리집 · 00학교)', value: d.name || '', maxlen: 20, h: 44 },
     tx('위치 ' + (+d.la).toFixed(4) + ', ' + (+d.lo).toFixed(4) + ' · 시각 알림은 등록 뒤 장소를 눌러 정할 수 있어요', { size: 10.5, color: 'sub', pad: [0, 8, 0, 0] })], { pad: [12, 8, 12, 0] }));
   body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('취소', call('kpg.cancel'), { fill: 'card2', tc: 'text', line: 'border' }), btn('등록', call('kpg.add'), gold)] });
@@ -1714,7 +1715,8 @@ async function handle(req, env, url) {
         }
         const name = typeof f.kpn === 'string' ? f.kpn.replace(/\s+/g, ' ').trim().slice(0, 20) : d.name;
         const xy = /^(-?\d{1,3}(?:\.\d+)?)\|(-?\d{1,3}(?:\.\d+)?)\|/.exec(String(t || ''));       // 앱이 결과에서 고른 곳을 직접 알려 준다(다시 찾지 않는다)
-        if (xy && (v === 'kpg.pick' || v === 'kpg.sv')) {
+        if (v === 'kpg.map' && !xy) return R({});                      // 좌표 없이 온 지도 눌림(옛 앱)은 무시 — 팝업을 닫지 않는다
+        if (xy && (v === 'kpg.pick' || v === 'kpg.sv' || v === 'kpg.map')) {
           const la9 = +xy[1], lo9 = +xy[2];
           if (!(Math.abs(la9) <= 85 && Math.abs(lo9) <= 180)) return R({});
           const q9 = typeof f.kpa === 'string' ? f.kpa.replace(/\s+/g, ' ').trim().slice(0, 60) : (d.q || '');
