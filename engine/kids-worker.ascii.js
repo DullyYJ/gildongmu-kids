@@ -377,12 +377,12 @@ async function once(DB, id, bit) {
 const cut = (x, n) => (x.length > n ? x.slice(0, n - 1) + '\u2026' : x);
 
 /** \ub4f1\ub85d \uc7a5\uc18c\uc5d0 \ub4e4\uc5b4\uc624\uac70\ub098 \ubc97\uc5b4\ub098\uba74 \ubd80\ubaa8\uc5d0\uac8c \uc54c\ub9b0\ub2e4(\uac19\uc740 \uacf3 \u00b7 \uac19\uc740 \uc77c\uc740 5\ubd84\uc5d0 \ud55c \ubc88 \u2014 GPS \ud754\ub4e4\ub9bc \u00b7 \uc624\uac00\ub294 \uac83 \ubc29\uc9c0). \ub3c4\ucc29 \ud655\uc778\uc744 \ub20c\ub7ec \ub454 \uacf3('\ucd9c\ubc1c'\ud55c \uc774\ub3d9)\uc740 \uadf8\ucabd \uc54c\ub9bc\uc774 \uc788\uc5b4 '\uc654\uc5b4\uc694'\ub294 \uc0dd\ub7b5. */
-async function zoneAlert(env, DB, cid, kind, plId, name, now) {
+async function zoneAlert(env, DB, cid, kind, plId, name, now, pt) {
   const key = cid + ':' + plId + ':' + kind;
   const zr = await DB.prepare('INSERT INTO zt(k,t) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET t=excluded.t WHERE zt.t<?').bind(key, now, now - 5 * 60000).run();      // 5\ubd84 \uc548\uc5d0 \uc774\ubbf8 \ubcf4\ub0c8\uc73c\uba74 \ubc14\ub00c\ub294 \uac83\uc774 \uc5c6\ub2e4(\uc6cc\ucee4 \uc778\uc2a4\ud134\uc2a4\uac00 \ub2ec\ub77c\ub3c4 \ud55c \ubc88\ub9cc)
   if (!(zr && zr.meta && zr.meta.changes > 0)) return false;
   if (kind === 'at') { const g = await DB.prepare("SELECT 1 a FROM trips WHERE cid=? AND pl=? AND st='go' AND day=?").bind(cid, plId, kstParts(now).ds).first(); if (g) return false; }
-  await notifyParents(env, DB, cid, (nm) => ({ k: 'zone', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' ' + name + (kind === 'at' ? ' \uadfc\ucc98\uc5d0 \uc654\uc5b4\uc694' : kind === 'in' ? '\uc5d0 \ub3c4\ucc29\ud588\uc5b4\uc694' : '\uc5d0\uc11c \uba40\uc5b4\uc84c\uc5b4\uc694') + ' \u00b7 ' + clock(now), tag: 'zone' + plId }));
+  await notifyParents(env, DB, cid, (nm) => ({ k: 'zone', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' ' + name + (kind === 'at' ? ' \uadfc\ucc98\uc5d0 \uc654\uc5b4\uc694' : kind === 'in' ? '\uc5d0 \ub3c4\ucc29\ud588\uc5b4\uc694' + (pt ? ' (\ud3ec\uc778\ud2b8 +' + ARRIVE_PT + ')' : '') : '\uc5d0\uc11c \uba40\uc5b4\uc84c\uc5b4\uc694') + ' \u00b7 ' + clock(now), tag: 'zone' + plId }));
   return true;
 }
 /** \ub3c4\ucc29(50m \uc548): \uadf8\ub0a0 '\ucd9c\ubc1c'\ud55c \uae38\uc774 \uc788\uc73c\uba74 \ub3c4\ucc29\uc744 \ud655\uc778\ud574 \uae38\ub3d9\ubb34\ud3ec\uc778\ud2b8\ub97c \uc8fc\uace0(\uc790\ub140\uac00 \ub2e8\ucd94\ub97c \uc548 \ub20c\ub7ec\ub3c4), \uc5c6\uc73c\uba74 '\ub3c4\ucc29\ud588\uc5b4\uc694' \uc54c\ub9bc\ub9cc \ubcf4\ub0b8\ub2e4. */
@@ -391,13 +391,14 @@ async function arriveAuto(env, DB, cid, plId, name, now) {
   if (tr) {
     const r = await DB.prepare("UPDATE trips SET st='done', tc=?, ta=CASE WHEN ta=0 THEN ? ELSE ta END WHERE id=? AND st='go'").bind(now, now, tr.id).run();
     if (r && r.meta && r.meta.changes > 0) {
-      await addStars(DB, cid, ARRIVE_PT);
+      const paid = await arrivePay(DB, cid, plId, now);
       await ev(DB, cid, 'done', name, now);
-      if (await once(DB, tr.id, 4)) await notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' ' + name + '\uc5d0 \ub3c4\ucc29\ud588\uc5b4\uc694 (\ud3ec\uc778\ud2b8 +' + ARRIVE_PT + ')', tag: 'trip' + tr.id }));
+      if (await once(DB, tr.id, 4)) await notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' ' + name + '\uc5d0 \ub3c4\ucc29\ud588\uc5b4\uc694' + (paid ? ' (\ud3ec\uc778\ud2b8 +' + ARRIVE_PT + ')' : ''), tag: 'trip' + tr.id }));
     }
     return;
   }
-  if (await zoneAlert(env, DB, cid, 'in', plId, name, now)) await ev(DB, cid, 'in', name, now);
+  const paid2 = await arrivePay(DB, cid, plId, now);                 // s422: \ucd9c\ubc1c \ub2e8\ucd94 \u00b7 \uc2dc\uac01 \uaddc\uce59\uc774 \uc5c6\uc5b4\ub3c4 \ub4f1\ub85d\ud55c \uc7a5\uc18c\uc5d0 \ub3c4\ucc29\ud558\uba74 \ud3ec\uc778\ud2b8(\uadf8\ub0a0 \uadf8 \uc7a5\uc18c \uccab \ub3c4\ucc29\ub9cc)
+  if (await zoneAlert(env, DB, cid, 'in', plId, name, now, paid2)) await ev(DB, cid, 'in', name, now);
 }
 /** \ubc30\ud130\ub9ac\uac00 \ub0ae\uc73c\uba74 \ubd80\ubaa8\uc5d0\uac8c(3\uc2dc\uac04\uc5d0 \ud55c \ubc88) */
 async function battAlert(env, DB, cid, bt, now) {
@@ -650,6 +651,13 @@ async function takeStars(DB, cid, n) {
 }
 async function addStars(DB, cid, n) {
   await DB.prepare('INSERT INTO stars(cid,n) VALUES(?,?) ON CONFLICT(cid) DO UPDATE SET n=n+excluded.n').bind(cid, n).run();
+}
+/** s422: \ub4f1\ub85d\ud55c \uc7a5\uc18c\uc5d0 \ub3c4\ucc29\ud558\uba74 \uadf8 \uc7a5\uc18c \u00b7 \uadf8\ub0a0(\ud55c\uad6d\uc2dc\uac04) \uccab \ub3c4\ucc29\uc5d0 \ud55c\ud574 \uae38\ub3d9\ubb34\ud3ec\uc778\ud2b8 ARRIVE_PT. \uc2dc\uac01 \uaddc\uce59\uc774 \uc5c6\ub294 \uc7a5\uc18c(\uc694\uc77c\uc744 \uc548 \uace0\ub978 \uc7a5\uc18c)\ub098 '\ucd9c\ubc1c'\uc744 \uc548 \ub20c\ub800\uc5b4\ub3c4 \ubc1b\uace0, \uac19\uc740 \uacf3\uc744 \ud558\ub8e8\uc5d0 \uc5ec\ub7ec \ubc88 \uc624\uac00\ub3c4 \ud55c \ubc88\ub9cc(\ud3ec\uc778\ud2b8 \ubd88\ub9ac\uae30 \ubc29\uc9c0). \ubc1b\uc558\uc73c\uba74 true. */
+async function arrivePay(DB, cid, plId, now) {
+  const r = await DB.prepare('INSERT OR IGNORE INTO zt(k,t) VALUES(?,?)').bind('pt:' + cid + ':' + plId + ':' + kstParts(now).ds, now).run();
+  if (!(r && r.meta && r.meta.changes > 0)) return false;
+  await addStars(DB, cid, ARRIVE_PT);
+  return true;
 }
 
 // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \uc2e4\uc2dc\uac04: \ubc14\ub014 \ub54c\ub9c8\ub2e4 rev \ub97c \uc62c\ub9ac\uace0, \uae30\ub2e4\ub9ac\ub294 \ucabd\uc740 \ubc14\ub00c\ub294 \uc989\uc2dc \uae68\uc5b4\ub09c\ub2e4 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -1534,7 +1542,7 @@ async function handle(req, env, url) {
         if (qd && qd.meta && qd.meta.changes > 0) later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' \ubbf8\uc158\uc744 \ud574\ub0c8\ub300\uc694. \ud655\uc778\ud574 \uc8fc\uc138\uc694', tag: 'quest' })));
       } else if (v.startsWith('trip.')) {         // \uc7a5\uc18c \uc54c\ub9bc: \ud655\uc778(\uadf8\ub0e5 \ub054) \u00b7 \ucd9c\ubc1c \u00b7 \ub3c4\ucc29 \ud655\uc778(100m \uc548\uc5d0\uc11c \uae38\ub3d9\ubb34\ud3ec\uc778\ud2b8 10)
         const kind = v.slice(5, v.indexOf(':')), id = v.slice(v.indexOf(':') + 1);
-        const tr = await DB.prepare('SELECT t.st st, p.name name, p.la la, p.lo lo FROM trips t JOIN places p ON p.id=t.pl WHERE t.id=? AND t.cid=?').bind(id, cid).first();
+        const tr = await DB.prepare('SELECT t.st st, t.pl pl, p.name name, p.la la, p.lo lo FROM trips t JOIN places p ON p.id=t.pl WHERE t.id=? AND t.cid=?').bind(id, cid).first();
         if (!tr) changed = false;
         else if (kind === 'ok' && tr.st === 'due') await DB.prepare("UPDATE trips SET st='seen', tk=? WHERE id=? AND st='due'").bind(now, id).run();
         else if (kind === 'go' && (tr.st === 'due' || tr.st === 'seen')) { await DB.prepare("UPDATE trips SET st='go', td=? WHERE id=? AND st IN ('due','seen')").bind(now, id).run(); notice = tr.name + '\uc5d0 \ub3c4\ucc29\ud558\uba74 \ud3ec\uc778\ud2b8\uac00 \uc313\uc5ec\uc694'; const tid = id; later(ev(DB, cid, 'go', tr.name, now)); if (await once(DB, tid, 2)) { const tn = tr.name, kn = tn; later(notifyParents(env, DB, cid, (nm) => ({ k: 'go', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' ' + kn + '\ub85c \ucd9c\ubc1c\ud588\uc5b4\uc694', tag: 'trip' + tid }))); } }
@@ -1544,7 +1552,7 @@ async function handle(req, env, url) {
           else if (hav(loc.la, loc.lo, tr.la, tr.lo) > ARR_M) { notice = '\uc544\uc9c1 ' + tr.name + '\uc5d0 \ub3c4\ucc29\ud558\uc9c0 \uc54a\uc558\uc5b4\uc694'; changed = false; }
           else {
             const r = await DB.prepare("UPDATE trips SET st='done', tc=?, ta=CASE WHEN ta=0 THEN ? ELSE ta END WHERE id=? AND st='go'").bind(now, now, id).run();
-            if (r && r.meta && r.meta.changes > 0) { await addStars(DB, cid, ARRIVE_PT); notice = tr.name + '\uc5d0 \ub3c4\ucc29\ud588\uc5b4\uc694! \uae38\ub3d9\ubb34\ud3ec\uc778\ud2b8 ' + ARRIVE_PT + '\uc810\uc744 \ubc1b\uc558\uc5b4\uc694'; const tn = tr.name, tid = id; later(ev(DB, cid, 'done', tn, now)); if (await once(DB, tid, 4)) later(notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' ' + tn + '\uc5d0 \ub3c4\ucc29\ud588\uc5b4\uc694 (\ud3ec\uc778\ud2b8 +' + ARRIVE_PT + ')', tag: 'trip' + tid }))); }
+            if (r && r.meta && r.meta.changes > 0) { const paid3 = await arrivePay(DB, cid, tr.pl, now); notice = tr.name + '\uc5d0 \ub3c4\ucc29\ud588\uc5b4\uc694!' + (paid3 ? ' \uae38\ub3d9\ubb34\ud3ec\uc778\ud2b8 ' + ARRIVE_PT + '\uc810\uc744 \ubc1b\uc558\uc5b4\uc694' : ''); const tn = tr.name, tid = id; later(ev(DB, cid, 'done', tn, now)); if (await once(DB, tid, 4)) later(notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' ' + tn + '\uc5d0 \ub3c4\ucc29\ud588\uc5b4\uc694' + (paid3 ? ' (\ud3ec\uc778\ud2b8 +' + ARRIVE_PT + ')' : ''), tag: 'trip' + tid }))); }
           }
         } else changed = false;
       } else changed = false;

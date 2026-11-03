@@ -75,11 +75,13 @@ a = pushes.length; NOW += 20 * SEC; await at(70);
 chk(arrPush(a) === 0 && rows('SELECT ap FROM loc WHERE cid=?', CID)[0].ap === '', '70m 는 아직 도착이 아니다');
 a = pushes.length; NOW += 20 * SEC; await at(45);
 chk(arrPush(a) === 1, '45m 안에 들어서면 "도착했어요" 알림 1건');
+chk(star() === 10 && /포인트 \+10/.test(pushes.slice(a).find((p) => p.data.k === 'zone' && /도착했어요/.test(p.data.body || '')).data.body), 's422: 출발 단추 · 시각 규칙이 없어도(요일 없는 장소) 그날 첫 도착이면 길동무포인트 10 + 알림 글에 포인트');
 chk(rows('SELECT ap FROM loc WHERE cid=?', CID)[0].ap === PL && rows('SELECT k FROM evs WHERE cid=? AND k=?', CID, 'in').length === 1, '도착 장소가 기록되고 활동 줄 1개');
 a = pushes.length; NOW += 20 * SEC; await at(30); NOW += 20 * SEC; await at(55); NOW += 20 * SEC; await at(48);
 chk(arrPush(a) === 0, '안에서 왔다 갔다(80m 안)해도 알림이 또 가지 않는다');
 a = pushes.length; NOW += 20 * SEC; await at(120); NOW += 6 * MIN; await at(40);
 chk(arrPush(a) === 1, '80m 넘게 벗어났다가 다시 50m 안에 들어오면 다시 도착');
+chk(star() === 10, 's422: 같은 장소를 하루에 다시 도착해도 포인트는 한 번만(10 그대로)');
 
 // 오차가 큰 위치로는 도착으로 보지 않는다
 NOW += 6 * MIN; await at(300); NOW += 6 * MIN;
@@ -92,8 +94,15 @@ const day = Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', ye
 DB._db.prepare("INSERT INTO trips(id,cid,pl,day,st,tn,td) VALUES(?,?,?,?,'go',?,?)").run(PL + ':' + day, CID, PL, day, NOW, NOW);
 const s0 = star(); a = pushes.length; NOW += 6 * MIN; await at(40);
 const tr = rows('SELECT st,tc FROM trips WHERE cid=?', CID)[0];
-chk(tr && tr.st === 'done' && tr.tc === NOW && star() === s0 + 10, '출발한 길은 50m 안에서 자동으로 도착 확인 + 길동무포인트 10');
-chk(pushes.slice(a).filter((p) => p.data.k === 'done' && p.token === PTK).length === 1 && nearPush(a) === 0 && /포인트 \+10/.test(pushes.slice(a).find((p) => p.data.k === 'done').data.body), '"도착했어요 (포인트 +10)" 알림 1건 · 같은 때 "근처에 왔어요"는 따로 가지 않는다');
+chk(tr && tr.st === 'done' && tr.tc === NOW && star() === s0, '출발한 길은 50m 안에서 자동으로 도착 확인(오늘 이미 받았으면 포인트는 더 주지 않는다)');
+chk(pushes.slice(a).filter((p) => p.data.k === 'done' && p.token === PTK).length === 1 && nearPush(a) === 0 && !/포인트/.test(pushes.slice(a).find((p) => p.data.k === 'done').data.body), '이미 받은 날은 "도착했어요" 알림에 포인트 글이 없다 · 같은 때 "근처에 왔어요"는 따로 가지 않는다');
+
+// 다음날: 출발한 길이 있으면 도착 확인 + 포인트 10(하루 한 번이라 다시 받는다)
+NOW += 24 * 60 * MIN; await at(300); NOW += 6 * MIN;
+const day2 = Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(NOW)).replace(/-/g, ''));
+DB._db.prepare("INSERT INTO trips(id,cid,pl,day,st,tn,td) VALUES(?,?,?,?,'go',?,?)").run(PL + ':' + day2, CID, PL, day2, NOW, NOW);
+const s1 = star(); a = pushes.length; NOW += 6 * MIN; await at(40);
+chk(star() === s1 + 10 && rows('SELECT st FROM trips WHERE id=?', PL + ':' + day2)[0].st === 'done' && /포인트 \+10/.test(pushes.slice(a).find((p) => p.data.k === 'done').data.body), '다음날 출발한 길은 도착 확인 + 포인트 10 + 알림에 포인트 글');
 
 console.log('\n' + ok + ' 통과, ' + bad + ' 실패');
 process.exit(bad ? 1 : 0);

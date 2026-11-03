@@ -377,12 +377,12 @@ async function once(DB, id, bit) {
 const cut = (x, n) => (x.length > n ? x.slice(0, n - 1) + '…' : x);
 
 /** 등록 장소에 들어오거나 벗어나면 부모에게 알린다(같은 곳 · 같은 일은 5분에 한 번 — GPS 흔들림 · 오가는 것 방지). 도착 확인을 눌러 둔 곳('출발'한 이동)은 그쪽 알림이 있어 '왔어요'는 생략. */
-async function zoneAlert(env, DB, cid, kind, plId, name, now) {
+async function zoneAlert(env, DB, cid, kind, plId, name, now, pt) {
   const key = cid + ':' + plId + ':' + kind;
   const zr = await DB.prepare('INSERT INTO zt(k,t) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET t=excluded.t WHERE zt.t<?').bind(key, now, now - 5 * 60000).run();      // 5분 안에 이미 보냈으면 바뀌는 것이 없다(워커 인스턴스가 달라도 한 번만)
   if (!(zr && zr.meta && zr.meta.changes > 0)) return false;
   if (kind === 'at') { const g = await DB.prepare("SELECT 1 a FROM trips WHERE cid=? AND pl=? AND st='go' AND day=?").bind(cid, plId, kstParts(now).ds).first(); if (g) return false; }
-  await notifyParents(env, DB, cid, (nm) => ({ k: 'zone', title: '길동무', body: who(nm) + ' ' + name + (kind === 'at' ? ' 근처에 왔어요' : kind === 'in' ? '에 도착했어요' : '에서 멀어졌어요') + ' · ' + clock(now), tag: 'zone' + plId }));
+  await notifyParents(env, DB, cid, (nm) => ({ k: 'zone', title: '길동무', body: who(nm) + ' ' + name + (kind === 'at' ? ' 근처에 왔어요' : kind === 'in' ? '에 도착했어요' + (pt ? ' (포인트 +' + ARRIVE_PT + ')' : '') : '에서 멀어졌어요') + ' · ' + clock(now), tag: 'zone' + plId }));
   return true;
 }
 /** 도착(50m 안): 그날 '출발'한 길이 있으면 도착을 확인해 길동무포인트를 주고(자녀가 단추를 안 눌러도), 없으면 '도착했어요' 알림만 보낸다. */
@@ -391,13 +391,14 @@ async function arriveAuto(env, DB, cid, plId, name, now) {
   if (tr) {
     const r = await DB.prepare("UPDATE trips SET st='done', tc=?, ta=CASE WHEN ta=0 THEN ? ELSE ta END WHERE id=? AND st='go'").bind(now, now, tr.id).run();
     if (r && r.meta && r.meta.changes > 0) {
-      await addStars(DB, cid, ARRIVE_PT);
+      const paid = await arrivePay(DB, cid, plId, now);
       await ev(DB, cid, 'done', name, now);
-      if (await once(DB, tr.id, 4)) await notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '길동무', body: who(nm) + ' ' + name + '에 도착했어요 (포인트 +' + ARRIVE_PT + ')', tag: 'trip' + tr.id }));
+      if (await once(DB, tr.id, 4)) await notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '길동무', body: who(nm) + ' ' + name + '에 도착했어요' + (paid ? ' (포인트 +' + ARRIVE_PT + ')' : ''), tag: 'trip' + tr.id }));
     }
     return;
   }
-  if (await zoneAlert(env, DB, cid, 'in', plId, name, now)) await ev(DB, cid, 'in', name, now);
+  const paid2 = await arrivePay(DB, cid, plId, now);                 // s422: 출발 단추 · 시각 규칙이 없어도 등록한 장소에 도착하면 포인트(그날 그 장소 첫 도착만)
+  if (await zoneAlert(env, DB, cid, 'in', plId, name, now, paid2)) await ev(DB, cid, 'in', name, now);
 }
 /** 배터리가 낮으면 부모에게(3시간에 한 번) */
 async function battAlert(env, DB, cid, bt, now) {
@@ -650,6 +651,13 @@ async function takeStars(DB, cid, n) {
 }
 async function addStars(DB, cid, n) {
   await DB.prepare('INSERT INTO stars(cid,n) VALUES(?,?) ON CONFLICT(cid) DO UPDATE SET n=n+excluded.n').bind(cid, n).run();
+}
+/** s422: 등록한 장소에 도착하면 그 장소 · 그날(한국시간) 첫 도착에 한해 길동무포인트 ARRIVE_PT. 시각 규칙이 없는 장소(요일을 안 고른 장소)나 '출발'을 안 눌렀어도 받고, 같은 곳을 하루에 여러 번 오가도 한 번만(포인트 불리기 방지). 받았으면 true. */
+async function arrivePay(DB, cid, plId, now) {
+  const r = await DB.prepare('INSERT OR IGNORE INTO zt(k,t) VALUES(?,?)').bind('pt:' + cid + ':' + plId + ':' + kstParts(now).ds, now).run();
+  if (!(r && r.meta && r.meta.changes > 0)) return false;
+  await addStars(DB, cid, ARRIVE_PT);
+  return true;
 }
 
 // ───────── 실시간: 바뀔 때마다 rev 를 올리고, 기다리는 쪽은 바뀌는 즉시 깨어난다 ─────────
@@ -1534,7 +1542,7 @@ async function handle(req, env, url) {
         if (qd && qd.meta && qd.meta.changes > 0) later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + ' 미션을 해냈대요. 확인해 주세요', tag: 'quest' })));
       } else if (v.startsWith('trip.')) {         // 장소 알림: 확인(그냥 끔) · 출발 · 도착 확인(100m 안에서 길동무포인트 10)
         const kind = v.slice(5, v.indexOf(':')), id = v.slice(v.indexOf(':') + 1);
-        const tr = await DB.prepare('SELECT t.st st, p.name name, p.la la, p.lo lo FROM trips t JOIN places p ON p.id=t.pl WHERE t.id=? AND t.cid=?').bind(id, cid).first();
+        const tr = await DB.prepare('SELECT t.st st, t.pl pl, p.name name, p.la la, p.lo lo FROM trips t JOIN places p ON p.id=t.pl WHERE t.id=? AND t.cid=?').bind(id, cid).first();
         if (!tr) changed = false;
         else if (kind === 'ok' && tr.st === 'due') await DB.prepare("UPDATE trips SET st='seen', tk=? WHERE id=? AND st='due'").bind(now, id).run();
         else if (kind === 'go' && (tr.st === 'due' || tr.st === 'seen')) { await DB.prepare("UPDATE trips SET st='go', td=? WHERE id=? AND st IN ('due','seen')").bind(now, id).run(); notice = tr.name + '에 도착하면 포인트가 쌓여요'; const tid = id; later(ev(DB, cid, 'go', tr.name, now)); if (await once(DB, tid, 2)) { const tn = tr.name, kn = tn; later(notifyParents(env, DB, cid, (nm) => ({ k: 'go', title: '길동무', body: who(nm) + ' ' + kn + '로 출발했어요', tag: 'trip' + tid }))); } }
@@ -1544,7 +1552,7 @@ async function handle(req, env, url) {
           else if (hav(loc.la, loc.lo, tr.la, tr.lo) > ARR_M) { notice = '아직 ' + tr.name + '에 도착하지 않았어요'; changed = false; }
           else {
             const r = await DB.prepare("UPDATE trips SET st='done', tc=?, ta=CASE WHEN ta=0 THEN ? ELSE ta END WHERE id=? AND st='go'").bind(now, now, id).run();
-            if (r && r.meta && r.meta.changes > 0) { await addStars(DB, cid, ARRIVE_PT); notice = tr.name + '에 도착했어요! 길동무포인트 ' + ARRIVE_PT + '점을 받았어요'; const tn = tr.name, tid = id; later(ev(DB, cid, 'done', tn, now)); if (await once(DB, tid, 4)) later(notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '길동무', body: who(nm) + ' ' + tn + '에 도착했어요 (포인트 +' + ARRIVE_PT + ')', tag: 'trip' + tid }))); }
+            if (r && r.meta && r.meta.changes > 0) { const paid3 = await arrivePay(DB, cid, tr.pl, now); notice = tr.name + '에 도착했어요!' + (paid3 ? ' 길동무포인트 ' + ARRIVE_PT + '점을 받았어요' : ''); const tn = tr.name, tid = id; later(ev(DB, cid, 'done', tn, now)); if (await once(DB, tid, 4)) later(notifyParents(env, DB, cid, (nm) => ({ k: 'done', title: '길동무', body: who(nm) + ' ' + tn + '에 도착했어요' + (paid3 ? ' (포인트 +' + ARRIVE_PT + ')' : ''), tag: 'trip' + tid }))); }
           }
         } else changed = false;
       } else changed = false;
