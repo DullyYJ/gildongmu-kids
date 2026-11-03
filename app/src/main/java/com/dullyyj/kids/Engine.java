@@ -470,6 +470,11 @@ final class Engine {
     /** 긴급 호출 · 안전하게 도착 · 데리러 와줘 를 서버에 보낸 결과(뒤 스레드에서 불린다). */
     interface CallCb {
         void done(boolean ok, int linked, boolean dup);
+
+        /** np = 지금 알림을 실제로 받을 수 있는 부모님 수(서버가 알려 준다 · 모르면 -1). 기본은 np 를 무시한다. */
+        default void done(boolean ok, int linked, boolean dup, int np) {
+            done(ok, linked, dup);
+        }
     }
 
     /**
@@ -488,6 +493,7 @@ final class Engine {
                 boolean ok = false;
                 int linked = -1;
                 boolean dup = false;
+                int np = -1;
                 try {
                     if (ensureReg()) {
                         JSONObject o = new JSONObject();
@@ -503,12 +509,13 @@ final class Engine {
                             ok = j.optBoolean("ok", false);
                             linked = j.optInt("linked", -1);
                             dup = j.optInt("dup", 0) == 1;
+                            np = j.optInt("np", -1);
                         }
                     }
                 } catch (Exception e) {
                     ok = false;
                 }
-                if (cb != null) cb.done(ok, linked, dup);
+                if (cb != null) cb.done(ok, linked, dup, np);
             }
         });
     }

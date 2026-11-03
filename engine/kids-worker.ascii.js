@@ -292,6 +292,13 @@ async function notifyParents(env, DB, cid, mk, all) {      // all: \ubc95\uc815\
   await pushRows(env, DB, rs.map((r) => ({ id: r.id, ft: r.ft, data: Object.assign({ cid }, mk(r.nm || '')) })));
 }
 const who = (nm) => (nm ? ga(nm) : '\uc790\ub140\uac00');
+/** \uc9c0\uae08 \uc54c\ub9bc\uc744 \uc2e4\uc81c\ub85c \ubc1b\uc744 \uc218 \uc788\ub294 \ubd80\ubaa8 \uc218(notifyParents \uc640 \uac19\uc740 \uc870\uac74) \u2014 0 \uc774\uba74 \uc790\ub140 \uc571\uc5d0 "\uc54c\ub9bc\uc774 \uac00\uc9c0 \uc54a\uc544\uc694" \ub77c\uace0 \uc54c\ub824 \uc900\ub2e4. */
+async function pushable(DB, cid, all) {
+  const r = all
+    ? await DB.prepare("SELECT COUNT(*) n FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.ft<>''").bind(cid).first()
+    : await DB.prepare("SELECT COUNT(*) n FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>''").bind(GD_VER, cid).first();
+  return (r && r.n) || 0;
+}
 // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \uae34\uae09 \ud638\ucd9c \u00b7 \uc548\uc804\ud558\uac8c \ub3c4\ucc29 \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918(s399) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 // \uc790\ub140\uac00 \ub204\ub974\uba74(\uc790\ub140 \uc571 /c/call) \uc11c\ubc84\uac00 \uae30\ub85d\ud558\uace0 \ubd80\ubaa8\uc5d0\uac8c \uc54c\ub9b0\ub2e4. \uc54c\ub9bc \uae00\uc5d0\ub294 \uc88c\ud45c\uac00 \uc5c6\uace0(\uc7a5\uc18c \uc774\ub984\ub9cc), \uc88c\ud45c\ub294 \ubd80\ubaa8\uac00 \ud655\uc778\uc744 \ub9c8\uce5c \ud654\uba74\uc5d0\uc11c\ub9cc \ubcf4\uc778\ub2e4.
 const CALL_GAP = { sos: 60000, pick: 5 * 60000, arr: 2 * 60000 };          // \uac19\uc740 \uac83\uc744 \uc774 \uc2dc\uac04 \uc548\uc5d0 \ub610 \ub204\ub974\uba74 \uc0c8\ub85c \ub9cc\ub4e4\uc9c0 \uc54a\ub294\ub2e4(\uc2e4\uc218\ub85c \uc5ec\ub7ec \ubc88 \ub20c\ub7ec\ub3c4 \uc54c\ub9bc \ud3ed\ud0c4 \uc5c6\uc74c)
@@ -308,6 +315,7 @@ async function callRequest(env, DB, cid, body, now) {
   if (!CALL_GAP[k]) return { err: '\ud615\uc2dd\uc774 \ub9de\uc9c0 \uc54a\uc544\uc694' };
   const linked = await linkedCount(DB, cid);
   if (linked === 0) return { ok: true, linked: 0 };
+  const np = await pushable(DB, cid, k === 'sos');                     // \uc54c\ub9bc\uc744 \ubc1b\uc744 \uc218 \uc788\ub294 \ubd80\ubaa8 \uc218(0 \uc774\uba74 \uc790\ub140 \uc571\uc774 \uc548\ub0b4\ud55c\ub2e4)
   let la = Number(body.la), lo = Number(body.lo);
   let has = body.la != null && body.lo != null && Number.isFinite(la) && Number.isFinite(lo) && Math.abs(la) <= 85 && Math.abs(lo) <= 180 && (la || lo);
   if (!has) { const l = await DB.prepare('SELECT la,lo,t FROM loc WHERE cid=?').bind(cid).first(); if (l && now - l.t < 30 * 60000) { la = l.la; lo = l.lo; has = true; } }
@@ -321,7 +329,7 @@ async function callRequest(env, DB, cid, body, now) {
     return { ok: true, linked };
   }
   const last = await DB.prepare('SELECT id,t,st FROM calls WHERE cid=? AND k=? ORDER BY t DESC LIMIT 1').bind(cid, k).first();
-  if (last && last.st !== 2 && now - last.t < CALL_GAP[k]) return { ok: true, id: last.id, dup: 1, linked };
+  if (last && last.st !== 2 && now - last.t < CALL_GAP[k]) return { ok: true, id: last.id, dup: 1, linked, np };
   const place = has ? await nearPlaceName(DB, cid, la, lo) : '';
   const keep = has && k !== 'arr';                                      // \ub3c4\ucc29 \uc54c\ub9bc\uc740 \uc88c\ud45c\ub97c \ub0a8\uae30\uc9c0 \uc54a\ub294\ub2e4(\uc7a5\uc18c \uc774\ub984\ub9cc)
   const opened = k === 'arr' ? null : await DB.prepare('SELECT id FROM calls WHERE cid=? AND k=? AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 1').bind(cid, k, now - CALL_OPEN_MS).first();
@@ -339,7 +347,7 @@ async function callRequest(env, DB, cid, body, now) {
     ? { k: 'sos', title: '\ud83d\udea8 \uae34\uae09 \ud638\ucd9c', body: who(nm) + ' \uae34\uae09 \ud638\ucd9c\uc744 \ud588\uc5b4\uc694. \uc9c0\uae08 \uae38\ub3d9\ubb34\ub97c \uc5f4\uc5b4 \ud655\uc778\ud574 \uc8fc\uc138\uc694', tag: 'sos' }
     : k === 'pick' ? { k: 'pick', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694' + near, tag: 'pick' }
       : { k: 'arr', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' \uc548\uc804\ud558\uac8c \ub3c4\ucc29\ud588\ub2e4\uace0 \uc54c\ub838\uc5b4\uc694' + near + ' \u00b7 ' + clock(now), tag: 'arr' }), k === 'sos'));
-  return { ok: true, id, linked };
+  return { ok: true, id, linked, np };
 }
 /** \uac19\uc740 \uc77c\uc744 \ub450 \ubc88 \ubcf4\ub0b4\uc9c0 \uc54a\ub294\ub2e4(\ube44\ud2b8\uac00 \ucc98\uc74c \ucf1c\uc9c8 \ub54c\ub9cc true) */
 async function once(DB, id, bit) {
@@ -928,8 +936,8 @@ async function hubScreen(DB, pid, cid, now) {
     { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: 250, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '\uc9c0\ub09c \uacbd\ub85c \u00b7 \uc544\ub798 \ub2e8\ucd94\ub85c \uc2e4\uc2dc\uac04\uc73c\ub85c \ub3cc\uc544\uac00\uc694' : noLoc ? '\uc790\ub140 \uc704\uce58\ub97c \uc544\uc9c1 \ubc1b\uc9c0 \ubabb\ud588\uc5b4\uc694' : follow ? '\uc2e4\uc2dc\uac04\uc73c\ub85c \ub530\ub77c\uac00\ub294 \uc911 \u00b7 \uc9c0\ub3c4\ub97c \ubc00\uba74 \uc7a0\uc2dc \uba48\ucdb0\uc694' : '\uc9c0\ub3c4\ub97c 3\ucd08 \ub204\ub974\uba74 \uc7a5\uc18c\ub97c \ub4f1\ub85d\ud574\uc694', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
   for (const c of calls.slice().reverse()) head.unshift(panel([
-    tx((c.k === 'sos' ? '\ud83d\udea8 ' + nm + ' \uae34\uae09 \ud638\ucd9c' : '\ud83d\ude97 ' + nm + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694'), { size: 15, bold: true, color: 'orange', lines: 1 }),
-    tx(clock(c.t) + (c.pl ? ' \u00b7 ' + c.pl + ' \uadfc\ucc98' : '') + (c.st === 1 ? ' \u00b7 \ubd80\ubaa8\ub2d8 \uc911 \ud55c \ubd84\uc774 \ud655\uc778\ud588\uc5b4\uc694' : '') + ((c.la || c.lo) ? ' \u00b7 \uc9c0\ub3c4\uc5d0 \ud45c\uc2dc\ud588\uc5b4\uc694' : ' \u00b7 \uc704\uce58\ub97c \uc544\uc9c1 \ubabb \ubc1b\uc558\uc5b4\uc694'), { size: 11.5, color: 'sub', lines: 2, pad: [0, 3, 0, 8] }),
+    tx((c.k === 'sos' ? '\ud83d\udea8 ' + nm + ' \uae34\uae09 \ud638\ucd9c' : '\ud83d\ude97 ' + nm + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694'), { size: 15, bold: true, color: 'orange', lines: 1, align: 'center' }),
+    tx(clock(c.t) + (c.pl ? ' \u00b7 ' + c.pl + ' \uadfc\ucc98' : '') + (c.st === 1 ? ' \u00b7 \ubd80\ubaa8\ub2d8 \uc911 \ud55c \ubd84\uc774 \ud655\uc778\ud588\uc5b4\uc694' : '') + ((c.la || c.lo) ? ' \u00b7 \uc9c0\ub3c4\uc5d0 \ud45c\uc2dc\ud588\uc5b4\uc694' : ' \u00b7 \uc704\uce58\ub97c \uc544\uc9c1 \ubabb \ubc1b\uc558\uc5b4\uc694'), { size: 11.5, color: 'sub', lines: 2, align: 'center', pad: [0, 3, 0, 8] }),
     { t: 'row', gap: 8, kids: [c.st === 0 ? btn(c.k === 'sos' ? '\ud655\uc778\ud588\uc5b4\uc694' : '\uc9c0\uae08 \uac00\uc694', call('kx.ack', '', c.id), gold) : btn(c.k === 'sos' ? '\uc0c1\ud669\uc774 \ub05d\ub0ac\uc5b4\uc694' : '\ub9cc\ub0ac\uc5b4\uc694', call('kx.done', '', c.id), gold)] },
   ], { pad: [12, 8, 12, 0], ip: [14, 12, 14, 12] }));
   const body = [];

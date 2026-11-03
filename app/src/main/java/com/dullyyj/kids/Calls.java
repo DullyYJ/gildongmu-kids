@@ -231,18 +231,25 @@ public final class Calls {
         if (burst() || !ready(a)) return;
         Core.engine.callSend("arr", false, new Engine.CallCb() {
             @Override
-            public void done(final boolean ok, final int linked, final boolean dup) {
+            public void done(boolean ok, int linked, boolean dup) {
+            }
+
+            @Override
+            public void done(final boolean ok, final int linked, final boolean dup, final int np) {
                 MAIN.post(new Runnable() {
                     @Override
                     public void run() {
                         if (a.isFinishing() || a.isDestroyed()) return;
-                        String m = !ok ? "보내지 못했어요. 연결을 확인해 주세요" : linked == 0 ? "연결된 부모님이 없어요" : dup ? "방금 알렸어요" : "부모님께 안전하게 도착했다고 알렸어요";
-                        Toast.makeText(a, m, Toast.LENGTH_SHORT).show();
+                        String m = !ok ? "보내지 못했어요. 연결을 확인해 주세요" : linked == 0 ? "연결된 부모님이 없어요" : np == 0 ? NO_PUSH : dup ? "방금 알렸어요" : "부모님께 안전하게 도착했다고 알렸어요";
+                        Toast.makeText(a, m, Toast.LENGTH_LONG).show();
                     }
                 });
             }
         });
     }
+
+    /** 부모님이 아직 확인(법정대리인 확인 · 알림 설정)을 마치지 않아 알림을 받을 수 없을 때 아이에게 보여 주는 글. */
+    static final String NO_PUSH = "부모님이 아직 확인을 마치지 않아서 알림이 가지 않아요";
 
     // ───────── 데리러 와 주세요 ─────────
 
@@ -263,13 +270,18 @@ public final class Calls {
     private static void sendPickup(final Activity a) {
         Core.engine.callSend("pick", false, new Engine.CallCb() {
             @Override
-            public void done(final boolean ok, final int linked, boolean dup) {
+            public void done(boolean ok, int linked, boolean dup) {
+            }
+
+            @Override
+            public void done(final boolean ok, final int linked, final boolean dup, final int np) {
                 MAIN.post(new Runnable() {
                     @Override
                     public void run() {
                         if (a.isFinishing() || a.isDestroyed()) return;
                         if (!ok) failed(a, "pick", "보내지 못했어요. 연결을 확인해 주세요");
                         else if (linked == 0) Toast.makeText(a, "연결된 부모님이 없어요", Toast.LENGTH_SHORT).show();
+                        else if (np == 0) Pop.show(a, "데리러 와 주세요", NO_PUSH + ". 부모님께 직접 말씀드려 주세요", true, new Pop.Btn("닫기", Pop.MAIN, null));
                         else status(a, "pick", "부모님께 알렸어요");
                     }
                 });

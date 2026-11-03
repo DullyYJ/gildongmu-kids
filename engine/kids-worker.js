@@ -292,6 +292,13 @@ async function notifyParents(env, DB, cid, mk, all) {      // all: 법정대리�
   await pushRows(env, DB, rs.map((r) => ({ id: r.id, ft: r.ft, data: Object.assign({ cid }, mk(r.nm || '')) })));
 }
 const who = (nm) => (nm ? ga(nm) : '자녀가');
+/** 지금 알림을 실제로 받을 수 있는 부모 수(notifyParents 와 같은 조건) — 0 이면 자녀 앱에 "알림이 가지 않아요" 라고 알려 준다. */
+async function pushable(DB, cid, all) {
+  const r = all
+    ? await DB.prepare("SELECT COUNT(*) n FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.ft<>''").bind(cid).first()
+    : await DB.prepare("SELECT COUNT(*) n FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>''").bind(GD_VER, cid).first();
+  return (r && r.n) || 0;
+}
 // ───────── 긴급 호출 · 안전하게 도착 · 데리러 와줘(s399) ─────────
 // 자녀가 누르면(자녀 앱 /c/call) 서버가 기록하고 부모에게 알린다. 알림 글에는 좌표가 없고(장소 이름만), 좌표는 부모가 확인을 마친 화면에서만 보인다.
 const CALL_GAP = { sos: 60000, pick: 5 * 60000, arr: 2 * 60000 };          // 같은 것을 이 시간 안에 또 누르면 새로 만들지 않는다(실수로 여러 번 눌러도 알림 폭탄 없음)
@@ -308,6 +315,7 @@ async function callRequest(env, DB, cid, body, now) {
   if (!CALL_GAP[k]) return { err: '형식이 맞지 않아요' };
   const linked = await linkedCount(DB, cid);
   if (linked === 0) return { ok: true, linked: 0 };
+  const np = await pushable(DB, cid, k === 'sos');                     // 알림을 받을 수 있는 부모 수(0 이면 자녀 앱이 안내한다)
   let la = Number(body.la), lo = Number(body.lo);
   let has = body.la != null && body.lo != null && Number.isFinite(la) && Number.isFinite(lo) && Math.abs(la) <= 85 && Math.abs(lo) <= 180 && (la || lo);
   if (!has) { const l = await DB.prepare('SELECT la,lo,t FROM loc WHERE cid=?').bind(cid).first(); if (l && now - l.t < 30 * 60000) { la = l.la; lo = l.lo; has = true; } }
@@ -321,7 +329,7 @@ async function callRequest(env, DB, cid, body, now) {
     return { ok: true, linked };
   }
   const last = await DB.prepare('SELECT id,t,st FROM calls WHERE cid=? AND k=? ORDER BY t DESC LIMIT 1').bind(cid, k).first();
-  if (last && last.st !== 2 && now - last.t < CALL_GAP[k]) return { ok: true, id: last.id, dup: 1, linked };
+  if (last && last.st !== 2 && now - last.t < CALL_GAP[k]) return { ok: true, id: last.id, dup: 1, linked, np };
   const place = has ? await nearPlaceName(DB, cid, la, lo) : '';
   const keep = has && k !== 'arr';                                      // 도착 알림은 좌표를 남기지 않는다(장소 이름만)
   const opened = k === 'arr' ? null : await DB.prepare('SELECT id FROM calls WHERE cid=? AND k=? AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 1').bind(cid, k, now - CALL_OPEN_MS).first();
@@ -339,7 +347,7 @@ async function callRequest(env, DB, cid, body, now) {
     ? { k: 'sos', title: '🚨 긴급 호출', body: who(nm) + ' 긴급 호출을 했어요. 지금 길동무를 열어 확인해 주세요', tag: 'sos' }
     : k === 'pick' ? { k: 'pick', title: '길동무', body: who(nm) + ' 데리러 와 달라고 해요' + near, tag: 'pick' }
       : { k: 'arr', title: '길동무', body: who(nm) + ' 안전하게 도착했다고 알렸어요' + near + ' · ' + clock(now), tag: 'arr' }), k === 'sos'));
-  return { ok: true, id, linked };
+  return { ok: true, id, linked, np };
 }
 /** 같은 일을 두 번 보내지 않는다(비트가 처음 켜질 때만 true) */
 async function once(DB, id, bit) {
@@ -928,8 +936,8 @@ async function hubScreen(DB, pid, cid, now) {
     { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: 250, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '자녀 위치를 아직 받지 못했어요' : follow ? '실시간으로 따라가는 중 · 지도를 밀면 잠시 멈춰요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
   for (const c of calls.slice().reverse()) head.unshift(panel([
-    tx((c.k === 'sos' ? '🚨 ' + nm + ' 긴급 호출' : '🚗 ' + nm + ' 데리러 와 달라고 해요'), { size: 15, bold: true, color: 'orange', lines: 1 }),
-    tx(clock(c.t) + (c.pl ? ' · ' + c.pl + ' 근처' : '') + (c.st === 1 ? ' · 부모님 중 한 분이 확인했어요' : '') + ((c.la || c.lo) ? ' · 지도에 표시했어요' : ' · 위치를 아직 못 받았어요'), { size: 11.5, color: 'sub', lines: 2, pad: [0, 3, 0, 8] }),
+    tx((c.k === 'sos' ? '🚨 ' + nm + ' 긴급 호출' : '🚗 ' + nm + ' 데리러 와 달라고 해요'), { size: 15, bold: true, color: 'orange', lines: 1, align: 'center' }),
+    tx(clock(c.t) + (c.pl ? ' · ' + c.pl + ' 근처' : '') + (c.st === 1 ? ' · 부모님 중 한 분이 확인했어요' : '') + ((c.la || c.lo) ? ' · 지도에 표시했어요' : ' · 위치를 아직 못 받았어요'), { size: 11.5, color: 'sub', lines: 2, align: 'center', pad: [0, 3, 0, 8] }),
     { t: 'row', gap: 8, kids: [c.st === 0 ? btn(c.k === 'sos' ? '확인했어요' : '지금 가요', call('kx.ack', '', c.id), gold) : btn(c.k === 'sos' ? '상황이 끝났어요' : '만났어요', call('kx.done', '', c.id), gold)] },
   ], { pad: [12, 8, 12, 0], ip: [14, 12, 14, 12] }));
   const body = [];
