@@ -165,15 +165,15 @@ await loc();                                                     // 자녀 위�
   const home = { la: 37.5300, lo: 126.8600 };                    // '학원'
   la = 37.5000; lo = 126.8400; await loc();
   let a = n0();
-  la = home.la + 30 * M; lo = home.lo; NOW += 10 * MIN; await loc();
-  chk(kinds(a).join() === 'zone' && /학원 근처에 왔어요/.test(pushes[a].data.body) && /쭈르/.test(pushes[a].data.body), '장소 150m 안에 들어오면 부모에게 "왔어요" 푸시');
-  a = n0(); NOW += 1 * MIN; la = home.la + 60 * M; await loc();
+  la = home.la + 100 * M; lo = home.lo; NOW += 10 * MIN; await loc();
+  chk(kinds(a).join() === 'zone' && /학원 근처에 왔어요/.test(pushes[a].data.body) && /쭈르/.test(pushes[a].data.body), '장소 150m 안(50m 밖)에 들어오면 부모에게 "왔어요" 푸시');
+  a = n0(); NOW += 1 * MIN; la = home.la + 120 * M; await loc();
   chk(kinds(a).length === 0, '장소 안에서 움직여도 다시 알리지 않는다');
   a = n0(); NOW += 10 * MIN; la = home.la + 1000 * M; await loc();
   chk(kinds(a).join() === 'zone' && /멀어졌어요/.test(pushes[a].data.body), '벗어나면 "멀어졌어요" 푸시');
-  a = n0(); NOW += 1 * MIN; la = home.la + 20 * M; await loc(); NOW += 1 * MIN; la = home.la + 1000 * M; await loc(); NOW += 1 * MIN; la = home.la + 20 * M; await loc(); NOW += 1 * MIN; la = home.la + 1000 * M; await loc();
+  a = n0(); NOW += 1 * MIN; la = home.la + 100 * M; await loc(); NOW += 1 * MIN; la = home.la + 1000 * M; await loc(); NOW += 1 * MIN; la = home.la + 100 * M; await loc(); NOW += 1 * MIN; la = home.la + 1000 * M; await loc();
   chk(kinds(a).join() === 'zone', '5분 안에 오가며 흔들려도(GPS) 같은 종류 알림은 5분에 한 번만 — 들어옴 1건만 나가고 나머지는 생략');
-  NOW += 10 * MIN; la = home.la + 20 * M; a = n0(); await loc();
+  NOW += 10 * MIN; la = home.la + 100 * M; a = n0(); await loc();
   chk(kinds(a).join() === 'zone', '5분이 지난 뒤 다시 도착하면 다시 알린다');
   chk(rows('SELECT COUNT(*) n FROM zt')[0].n >= 2, '도착/출발 알림 시각이 서버 표(zt)에 남는다(워커 인스턴스가 바뀌어도 5분 제한 유지)');
   // 도착 확인(약속)을 눌러 둔 곳은 '왔어요' 푸시를 생략(그쪽 알림이 있다)
