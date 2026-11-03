@@ -600,10 +600,10 @@ function nearStn(la, lo) {
   return best && bd <= STN_NEAR_M ? { n: best.n.replace(/\uc5ed$/, ''), m: bd } : null;
 }
 const dongOf = (dn) => { const w = String(dn || '').trim().split(/\s+/); return w[w.length - 1] || ''; };
-function locHead(nm, loc, now) {                                // '\ucb48\ub974 \uc704\uce58: \ub300\ub355\ub3d9 (\uc1a1\ub3c4\uc5ed \uc8fc\ubcc0 120m)' \u2014 \uc5ed \uc8fc\ubcc0\uc774 \uc544\ub2c8\uba74 \uad04\ud638 \uc5c6\uc774 \ub3d9\uae4c\uc9c0\ub9cc
+function locHead(nm, loc, now) {                                // '\ucb48\ub974 \uc704\uce58: \ub300\ub355\ub3d9 (11\uc6d403\uc77c23\uc2dc12\ubd84 \uae30\uc900) (\uc1a1\ub3c4\uc5ed \uc8fc\ubcc0 120m)' \u2014 \uc5ed \uc8fc\ubcc0\uc774 \uc544\ub2c8\uba74 \ub4a4 \uad04\ud638 \uc5c6\uc774
   const dong = dongOf(loc.dn), sn = nearStn(loc.la, loc.lo);
-  const stale = now - loc.t > 5 * 60000 ? ' \u00b7 ' + ago(now - loc.t) : '';
-  return nm + ' \uc704\uce58: ' + (dong || '\ud655\uc778 \uc911') + (sn ? ' (' + sn.n + '\uc5ed \uc8fc\ubcc0 ' + fmtDist(sn.m) + ')' : '') + stale;
+  const p = kstParts(loc.t), at = ' (' + pad2(p.mo) + '\uc6d4' + pad2(p.d) + '\uc77c' + pad2(p.h) + '\uc2dc' + pad2(p.mi) + '\ubd84 \uae30\uc900)';          // s418: \uc774 \uc704\uce58\ub97c \ubc1b\uc740 \ub54c(\ud55c\uad6d\uc2dc\uac04)
+  return nm + ' \uc704\uce58: ' + (dong || '\ud655\uc778 \uc911') + at + (sn ? ' (' + sn.n + '\uc5ed \uc8fc\ubcc0 ' + fmtDist(sn.m) + ')' : '');
 }
 function ga(nm) {                                              // '\ubbfc\uc9c0' -> '\ubbfc\uc9c0\uac00' \u00b7 '\ucca0\uc218' -> '\ucca0\uc218\uac00' \u00b7 \ubc1b\uce68 \uc788\uc73c\uba74 '\uc774\uac00' ('00\uc774\uac00')
   const c = nm.charCodeAt(nm.length - 1);

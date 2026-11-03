@@ -83,5 +83,9 @@ const tm = flat([...(sc.screen.head || []), ...(sc.screen.body || [])]).find((n)
 const me = tm && (tm.pts || []).find((p) => p.k === 'm');
 chk(me && me.g === 'kid.' + CID && /^kid\.[A-Za-z0-9_-]{1,34}$/.test(me.g), '허브 지도: 자녀 마커 핀에 사진 열쇠 kid.<자녀열쇠> (' + (me && me.g) + ')');
 
+// 허브 상태 줄: 위치를 받은 때(한국시간) "(00월00일00시00분 기준)"
+const stl = flat(sc.screen.body.concat(sc.screen.head || [])).filter((n) => n.t === 'text').map((n) => n.s);
+chk(stl.some((x) => /위치: .*\(\d\d월\d\d일\d\d시\d\d분 기준\)/.test(x)), '허브: 자녀 위치 줄에 (00월00일00시00분 기준) — ' + (stl.find((x) => /위치:/.test(x)) || ''));
+
 console.log(`${ok} 통과, ${bad} 실패`);
 process.exit(bad ? 1 : 0);

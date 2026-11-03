@@ -600,10 +600,10 @@ function nearStn(la, lo) {
   return best && bd <= STN_NEAR_M ? { n: best.n.replace(/역$/, ''), m: bd } : null;
 }
 const dongOf = (dn) => { const w = String(dn || '').trim().split(/\s+/); return w[w.length - 1] || ''; };
-function locHead(nm, loc, now) {                                // '쭈르 위치: 대덕동 (송도역 주변 120m)' — 역 주변이 아니면 괄호 없이 동까지만
+function locHead(nm, loc, now) {                                // '쭈르 위치: 대덕동 (11월03일23시12분 기준) (송도역 주변 120m)' — 역 주변이 아니면 뒤 괄호 없이
   const dong = dongOf(loc.dn), sn = nearStn(loc.la, loc.lo);
-  const stale = now - loc.t > 5 * 60000 ? ' · ' + ago(now - loc.t) : '';
-  return nm + ' 위치: ' + (dong || '확인 중') + (sn ? ' (' + sn.n + '역 주변 ' + fmtDist(sn.m) + ')' : '') + stale;
+  const p = kstParts(loc.t), at = ' (' + pad2(p.mo) + '월' + pad2(p.d) + '일' + pad2(p.h) + '시' + pad2(p.mi) + '분 기준)';          // s418: 이 위치를 받은 때(한국시간)
+  return nm + ' 위치: ' + (dong || '확인 중') + at + (sn ? ' (' + sn.n + '역 주변 ' + fmtDist(sn.m) + ')' : '');
 }
 function ga(nm) {                                              // '민지' -> '민지가' · '철수' -> '철수가' · 받침 있으면 '이가' ('00이가')
   const c = nm.charCodeAt(nm.length - 1);
