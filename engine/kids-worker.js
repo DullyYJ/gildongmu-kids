@@ -41,8 +41,8 @@ const EV_KEEP = 3 * DAY, MAX_EV = 150;
 const TRAIL_KEEP = 3 * DAY, TRAIL_MS = 6 * 3600000, MAX_TRAIL = 1500, TRAIL_PTS = 400, CRUMB_M = 40, MV_EV_M = 200, MV_EV_GAP = 170000;
 // ───────── 지난 경로 보관(s391): 한 곳에 30분 넘게 머물면 그 전까지 이동한 길을 한 건으로 닫아 자녀당 10개까지 둔다(11번째부터 가장 오래된 것을 지운다) ─────────
 // 정지 = 위치가 이어서 들어오는 동안 반경 RT_DWELL_M(100m) 안에 RT_DWELL_MS(30분) 넘게. 보고가 RT_GAP_MS(20분) 넘게 끊기면 '정지'로 치지 않는다(꺼졌던 폰으로 가짜 경로를 만들지 않게).
-// 이동 거리가 RT_MIN_M(300m) 미만이면 저장하지 않는다(집 안 · GPS 흔들림이 10칸을 채우지 않게). 점은 RT_PTS(300)개 이하로 간추려 둔다(화면 지도가 400점까지 받는다).
-const RT_KEEP = 10, RT_MIN_M = 300, RT_DWELL_M = 100, RT_DWELL_MS = 30 * 60000, RT_GAP_MS = 20 * 60000, RT_PTS = 300, RT_VIEW_MS = 10 * 60000;
+// 이동 거리가 RT_MIN_M(100m) 미만이면 저장하지 않는다(집 안 · GPS 흔들림이 10칸을 채우지 않게). 점은 RT_PTS(300)개 이하로 간추려 둔다(화면 지도가 400점까지 받는다).
+const RT_KEEP = 10, RT_MIN_M = 100, RT_DWELL_M = 100, RT_DWELL_MS = 30 * 60000, RT_GAP_MS = 20 * 60000, RT_PTS = 300, RT_VIEW_MS = 10 * 60000;
 // ── routes:begin (순수 계산 — 시험이 이 구간을 떼어 돌린다) ──
 /** 정지 상태 한 걸음. st = {dla,dlo,dt,cl,rte,rsa,rso,sn,en}(없으면 null) · lastT = 바로 앞 보고 시각(0 이면 없음) · name = 지금 있는 곳 이름.
  *  돌려주는 값 {st, close} — close = {t1, from:[la,lo]|null, since, sn, en} 이면 '지금까지의 길'을 한 건으로 닫으라는 뜻(점은 호출한 쪽이 since 이후 · t1 이전 기록에서 읽는다). */
@@ -89,7 +89,7 @@ function rtThin(pts, max) {
   }
   return [pts[0], pts[pts.length - 1]];
 }
-/** 닫을 길의 점 모으기: 출발 자리 + 기록된 점들 + 멈춘 자리. 300m 미만이면 null(저장하지 않는다). */
+/** 닫을 길의 점 모으기: 출발 자리 + 기록된 점들 + 멈춘 자리. RT_MIN_M(100m) 미만이면 null(저장하지 않는다). */
 function rtBuild(rows, c, hav) {
   const pts = [];
   const push = (la, lo) => { const q = [+la.toFixed(5), +lo.toFixed(5)]; const l = pts[pts.length - 1]; if (!l || hav(l[0], l[1], q[0], q[1]) >= 5) pts.push(q); };
@@ -732,7 +732,7 @@ function rtSub(r) { const mi = Math.max(1, Math.round((r.t1 - r.t0) / 60000)); r
 async function rtSheet(DB, pid, cid, now, notice) {
   const cur = (await childrenOf(DB, pid)).find((k) => k.cid === cid), nm = nmOf(cur);
   const rows = (await DB.prepare('SELECT id,t0,t1,m,sn,en FROM routes WHERE cid=? ORDER BY id DESC LIMIT ?').bind(cid, RT_KEEP).all()).results || [];
-  const body = [tx(nm + ' 지난 경로', { size: 15, bold: true, pad: [16, 14, 16, 4] }), tx('한 곳에 30분 넘게 머물면 그 전까지의 길이 저장돼요 · 최대 ' + RT_KEEP + '개 · 300m 미만은 저장하지 않아요', { size: 11, color: 'sub', pad: [16, 0, 16, 8] })];
+  const body = [tx(nm + ' 지난 경로', { size: 15, bold: true, pad: [16, 14, 16, 4] }), tx('한 곳에 30분 넘게 머물면 그 전까지의 길이 저장돼요 · 최대 ' + RT_KEEP + '개 · ' + RT_MIN_M + 'm 미만은 저장하지 않아요', { size: 11, color: 'sub', pad: [16, 0, 16, 8] })];
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 0, 16, 6] }));
   if (!rows.length) body.push(tx('아직 저장된 경로가 없어요', { size: 12.5, color: 'sub', pad: [16, 12, 16, 12] }));
   if (rows.length) body.push(panel(rows.map((r) => ({ t: 'navrow', title: rtTitle(r, now), sub: rtSub(r), act: call('kr.' + r.id), size: 13, vp: 8 })), { pad: [12, 0, 12, 0], ip: [14, 6, 14, 6] }));
