@@ -66,6 +66,15 @@ public class LocationService extends Service {
             public void onLocationResult(LocationResult r) {
                 Location l = r.getLastLocation();
                 if (l == null) return;
+                try {                                                      // 배터리는 읽기만 하고 판단은 서버가 한다(s392)
+                    Intent bi = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+                    if (bi != null) {
+                        int lv = bi.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1), sc = bi.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100), st = bi.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
+                        if (lv >= 0 && sc > 0) Core.engine.setBattery(lv * 100 / sc, st == android.os.BatteryManager.BATTERY_STATUS_CHARGING || st == android.os.BatteryManager.BATTERY_STATUS_FULL);
+                    }
+                } catch (Throwable ignored) {
+                    // 배터리를 못 읽어도 위치는 보낸다
+                }
                 Core.engine.lastFix(l.getLatitude(), l.getLongitude(), l.getAccuracy(), System.currentTimeMillis());
                 Net.postLoc(l.getLatitude(), l.getLongitude(), l.getAccuracy(), l.getTime());
                 if (Core.engine.locIntervalMs() != curIv) request();      // p-kids53: 움직임이 바뀌면(3분 ↔ 5분) 주기를 새로 건다

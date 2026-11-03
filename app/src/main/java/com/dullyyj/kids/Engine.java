@@ -99,6 +99,8 @@ final class Engine {
     private boolean dirty = false;
     private String lastSig = "";
     private boolean loc = false;
+    private volatile int battPct = -1;                      // s392: 폰 배터리 %(모르면 -1) · 충전 중 — 위치와 함께 서버에 보낸다(서버가 '배터리 낮음' 알림을 판단)
+    private volatile boolean battChg = false;
     private long lastFixT = 0L;
     private double mvLa = Double.NaN, mvLo = Double.NaN;      // 움직임 판단용 바로 앞 위치
     private float mvAcc = 0f;
@@ -333,6 +335,30 @@ final class Engine {
 
     synchronized boolean locOn() {
         return loc && consented();
+    }
+
+    /** 위치 서비스가 읽은 배터리 값을 받아 둔다(판단은 서버). */
+    void setBattery(int pct, boolean charging) {
+        battPct = pct;
+        battChg = charging;
+    }
+
+    /** 위치 공유를 켜고 껐다는 사실을 서버에 알린다(서버가 부모에게 알리고, 끈 동안은 '위치 끊김' 알림을 멈춘다). */
+    private void shareTell(final boolean on) {
+        if (!consented()) return;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (!ensureReg()) return;
+                    JSONObject o = new JSONObject();
+                    o.put("on", on ? 1 : 0);
+                    Kid.call("POST", "/c/share", o.toString(), cid, csec);
+                } catch (Exception e) {
+                    // 다음에 다시 알린다
+                }
+            }
+        });
     }
 
     synchronized void setLoc(boolean on) {
@@ -1077,6 +1103,10 @@ final class Engine {
         put(o, "lo", lo);
         put(o, "acc", (double) acc);
         put(o, "dn", dongFull.isEmpty() ? dong : dongFull);
+        if (battPct >= 0) {
+            put(o, "bt", battPct);
+            put(o, "ch", battChg ? 1 : 0);
+        }
         Wire.EX.execute(new Runnable() {
             @Override
             public void run() {
@@ -1587,9 +1617,11 @@ final class Engine {
             res = cmd("loc.stop");
         } else if (v.equals("loc.toggle") && mg == 4) {
             loc = !loc;
+            shareTell(loc);
             res = loc ? cmd("perm") : cmd("loc.stop");
         } else if (v.equals("loc.denied")) {
             loc = false;
+            shareTell(false);
         } else if (v.equals("pair.new") && mg == 4) {
             kidPair();
         } else if (v.equals("pair.unlink") && mg == 4) {
