@@ -470,20 +470,23 @@ final class KidsActs {
     }
     static void btnUp(SceneCore S) {
         int b = btnDown; btnDown = -1;
-        if (b >= 0 && S.t - btnT0 < 1.5) { S.haptic("release"); Poke.call(B_ACT[b]); }
+        if (b >= 0 && S.t - btnT0 < 1.5) {
+            if (!Poke.callOk()) { Poke.call("off"); return; }                    // 연결된 부모님이 없다 — 회색 단추는 아무것도 보내지 않는다(안내만)
+            S.haptic("release"); Poke.call(B_ACT[b]);
+        }
     }
     static void drawBtns(SceneCore S, SceneCv c) {
         double u = 1 / S.k;
         for (int i = 0; i < 2; i++) {
             double[] r = btnRect(S, i);
-            boolean on = btnDown == i;
+            boolean ok = Poke.callOk(), on = ok && btnDown == i;
             c.save();
-            c.globalAlpha(on ? .8 : .95);
+            c.globalAlpha(!ok ? .85 : on ? .8 : .95);
             c.fillStyle(rgba(0, 0, 0, .2)); rr(c, r[0], r[1] + 2 * u, r[2], r[3], r[3] / 2); c.fill();
-            c.fillStyle(on ? rgba(235, 235, 238, .98) : rgba(255, 255, 255, .97)); rr(c, r[0], r[1], r[2], r[3], r[3] / 2); c.fill();
-            c.strokeStyle(B_COL[i]); c.lineWidth(2 * u); rr(c, r[0], r[1], r[2], r[3], r[3] / 2); c.stroke();
+            c.fillStyle(!ok ? rgba(214, 217, 221, .97) : on ? rgba(235, 235, 238, .98) : rgba(255, 255, 255, .97)); rr(c, r[0], r[1], r[2], r[3], r[3] / 2); c.fill();
+            c.strokeStyle(ok ? B_COL[i] : 0xFF9AA0A6); c.lineWidth(2 * u); rr(c, r[0], r[1], r[2], r[3], r[3] / 2); c.stroke();
             c.font(13 * u);
-            c.fillStyle(B_COL[i]);
+            c.fillStyle(ok ? B_COL[i] : 0xFF9AA0A6);
             c.fillTextC(B_ICON[i] + " " + B_LABEL[i], r[0] + r[2] / 2, r[1] + r[3] / 2 + 1 * u);
             c.globalAlpha(1);
             c.restore();

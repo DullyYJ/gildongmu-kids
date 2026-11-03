@@ -21,6 +21,10 @@ public final class Poke {
     /** 장면 아래 모서리의 호출 버튼("arr" 안전 도착 · "pick" 데리러 와줘)이 눌렸다 — 앱 화면(MainActivity)이 받아 서버에 알린다. */
     public interface Caller { void call(String what); }
     private static volatile Caller caller;
+    private static volatile boolean callOk;
+    /** 연결된 부모님이 있으면 true — 없으면 장면 아래 모서리 호출 단추(안전 도착 · 데리러 와줘)는 회색이고 눌리지 않는다. */
+    public static void setCallOk(boolean ok) { callOk = ok; }
+    public static boolean callOk() { return callOk; }
     public static void setCaller(Caller c) { caller = c; }
     public static void call(String what) { Caller c = caller; if (c != null && what != null) c.call(what); }
     /** 지금 화면에 나와 있는 친구들(장면 그리개가 놓고 엔진이 읽는다) — 형식 ",id,id,". */

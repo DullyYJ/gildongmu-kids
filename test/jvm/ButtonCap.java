@@ -9,6 +9,7 @@ public class HB {
     public static void main(String[] a) throws Exception {
         final List<String> calls = new ArrayList<>();
         com.dullyyj.kids.Poke.setCaller(w -> calls.add(w));
+        com.dullyyj.kids.Poke.setCallOk(true);                                  // 연결된 부모님이 있다
         SceneCore c = HJ.mk(3);
         HJ.adv(c, 2);
         double k = c.k;
@@ -31,6 +32,17 @@ public class HB {
         // 오래 누르면 취소
         c.down(lx, ly); HJ.adv(c, 2); c.up();
         ok(calls.isEmpty(), "1.5초를 넘겨 누르면 보내지 않는다");
+        // 연결된 부모님이 없으면(회색): 눌러도 arr/pick 이 가지 않고 안내("off")만 간다 · 그려도 예외 없음
+        com.dullyyj.kids.Poke.setCallOk(false);
+        calls.clear();
+        ok(c.down(lx, ly), "회색 버튼도 장면이 받는다(뒤의 캐릭터가 눌리지 않게)"); HJ.adv(c, .2); c.up();
+        ok(calls.equals(Arrays.asList("off")), "연결 없음: 왼쪽 버튼 → off(안내만, arr 없음)");
+        calls.clear(); c.down(rx, ry); HJ.adv(c, .2); c.up();
+        ok(calls.equals(Arrays.asList("off")), "연결 없음: 오른쪽 버튼 → off(pick 없음)");
+        BufferedImage gimg = new BufferedImage((int) (c.PW * 1.5), (int) (c.PH * 1.5), BufferedImage.TYPE_INT_ARGB);
+        try { c.render(new AwtCv(gimg.createGraphics())); ok(true, "회색 버튼도 예외 없이 그려진다"); } catch (Throwable t) { t.printStackTrace(); ok(false, "회색 render 예외"); }
+        javax.imageio.ImageIO.write(gimg, "png", new java.io.File("btn_off.png"));
+        com.dullyyj.kids.Poke.setCallOk(true);
         // 버튼 밖은 평소(위쪽 허공)
         ok(KidsActs.btnAt(c, c.W / 2, c.H / 2) < 0, "가운데는 버튼이 아니다");
         // 그리기: 예외 없이

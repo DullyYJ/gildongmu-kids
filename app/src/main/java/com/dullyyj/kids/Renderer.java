@@ -256,7 +256,11 @@ private void swipeBy(int dir) {
 
     // ───────── 처음 켰을 때 홈 위로 올라오는 동의 창 ─────────
     /** 동의 창 내용(블록 목록 JSON)을 보여 준다. 빈 글이면 창을 내린다. */
+    /** 처음 동의 창(닫을 수 없는 창)은 카드 사이 · 안쪽 여백을 줄여 한 화면에 다 들어오게 한다. */
+    private boolean snug;
+
     void consent(String json, boolean dismissible) {
+        snug = !dismissible;
         if (json == null || json.isEmpty()) {
             closeConsent();
             return;
@@ -298,7 +302,7 @@ private void swipeBy(int dir) {
             float r = Ui.dpi(ctx, 24);
             g.setCornerRadius(r);
             box.setBackground(g);
-            final int capPx = Math.round(ctx.getResources().getDisplayMetrics().heightPixels * (dismissible ? 0.8f : 0.78f));
+            final int capPx = Math.round(ctx.getResources().getDisplayMetrics().heightPixels * (dismissible ? 0.8f : 0.92f));
             sheetScroll = new ScrollView(ctx) {
                 @Override
                 protected void onMeasure(int wSpec, int hSpec) {
@@ -309,7 +313,7 @@ private void swipeBy(int dir) {
             sheetCol = new LinearLayout(ctx);
             sheetCol.setOrientation(LinearLayout.VERTICAL);
             int pad = Ui.dpi(ctx, 16);
-            sheetCol.setPadding(pad, Ui.dpi(ctx, 16), pad, Ui.dpi(ctx, 20));
+            sheetCol.setPadding(pad, Ui.dpi(ctx, dismissible ? 16 : 12), pad, Ui.dpi(ctx, dismissible ? 20 : 14));
             sheetScroll.addView(sheetCol, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             box.addView(sheetScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             d.setContentView(box);
@@ -555,7 +559,7 @@ if ("chips".equals(t)) return chips(b);
         if ("qr".equals(t)) return qrBlock(b);
         if ("gap".equals(t)) {
             View v = new View(ctx);
-            v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dpi(ctx, (float) b.optDouble("h", 8)), 0));
+            v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dpi(ctx, snug ? Math.min(4f, (float) b.optDouble("h", 8)) : (float) b.optDouble("h", 8)), 0));
             return v;
         }
         return null;
@@ -632,7 +636,7 @@ if ("chips".equals(t)) return chips(b);
         if (big) v.setGravity(Gravity.CENTER);
         boolean tight = "1".equals(b.optString("tight"));
         if (tight) v.setIncludeFontPadding(false);
-        v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, tight ? 4 : 8));
+        v.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, tight ? 4 : (snug ? 6 : 8)));
         return v;
     }
 
@@ -640,7 +644,7 @@ if ("chips".equals(t)) return chips(b);
         LinearLayout r = new LinearLayout(ctx);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dpi(ctx, 12);
+        int pad = Ui.dpi(ctx, snug ? 9 : 12);
         r.setPadding(pad, pad, pad, pad);
         r.setBackground(Ui.box(ctx, Pal.c(Pal.CARD), 16, Pal.c(Pal.BORDER)));
         String thumb = b.optString("thumb");
@@ -656,10 +660,10 @@ if ("chips".equals(t)) return chips(b);
         tc.addView(Ui.text(ctx, b.optString("title"), 13f, Pal.c(Pal.TEXT), true));
         TextView sub = Ui.text(ctx, b.optString("text"), 11f, tone ? Pal.c(Pal.ORANGE) : Pal.c(Pal.SUB), tone);
         LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        sl.topMargin = Ui.dpi(ctx, 2);
+        sl.topMargin = Ui.dpi(ctx, snug ? 1 : 2);
         tc.addView(sub, sl);
         r.addView(tc, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8));
+        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, snug ? 5 : 8));
         final String act = b.optString("act");
         if (!act.isEmpty()) {
             r.setOnClickListener(new View.OnClickListener() {
@@ -830,7 +834,7 @@ lp2.height = Math.max(1, bt - t - 2 * inset);
         LinearLayout r = new LinearLayout(ctx);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Ui.dpi(ctx, 14);
+        int pad = Ui.dpi(ctx, snug ? 10 : 14);
         r.setPadding(pad, pad, pad, pad);
         r.setBackground(Ui.box(ctx, Pal.c(Pal.CARD), 16, Pal.c(Pal.BORDER)));
         TextView lb = Ui.text(ctx, b.optString("label"), 13f, Pal.c(Pal.TEXT), false);
@@ -838,7 +842,7 @@ lp2.height = Math.max(1, bt - t - 2 * inset);
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(Ui.dpi(ctx, 48), Ui.dpi(ctx, 28));
         tl.leftMargin = Ui.dpi(ctx, 12);
         r.addView(new Toggle(ctx, "1".equals(b.optString("on"))), tl);
-        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8));
+        r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, snug ? 5 : 8));
         final String act = b.optString("act");
         r.setOnClickListener(new View.OnClickListener() {
             @Override

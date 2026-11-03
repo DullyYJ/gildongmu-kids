@@ -33,7 +33,7 @@ for (const d of DRAW) {
 }
 for (const k of Object.keys(ALLOW)) { const [d, r] = k.split(':'); ok((code(d + '.java').match(RULES[r].re) || []).length > 0, `예외 ${k} 가 아직 쓰인다`); }
 
-const PURE = ['Engine', 'Wardrobe', 'Art', 'Dress', 'Poke', 'Wander', 'Kid', 'Pal', 'Wire', 'Net'];
+const PURE = ['Engine', 'Wardrobe', 'Art', 'Dress', 'Poke', 'Wander', 'Kid', 'Pal', 'Wire', 'Net', 'TapGate'];
 const bad = PURE.filter(c => !all.includes(c + '.java') || /^import (android|androidx)\./m.test(code(c + '.java')) || /\b(Handler|Looper|Context|SharedPreferences)\b/.test(code(c + '.java').replace(/^import .*$/gm, '')));
 ok(bad.length === 0, `엔진/계산 클래스 ${PURE.length}개는 android·Handler·Looper·Context·SharedPreferences 를 모른다` + (bad.length ? ' ← ' + bad.join(', ') : ''));
 

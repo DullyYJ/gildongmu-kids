@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.widget.Toast;
@@ -26,6 +27,23 @@ public final class Calls {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private Calls() {
+    }
+
+    // ───────── 과다 터치 방지: 1초에 3번 이상 누르면 알림은 한 번만 ─────────
+    private static final TapGate GATE = new TapGate(1000L, 3);
+
+    /** 누를 때마다 부른다. 1초 안에 3번 이상 누르면 첫 번째만 보내고 나머지는 무시한다(true = 이 누름은 무시). */
+    static boolean burst() {
+        return GATE.burst(SystemClock.uptimeMillis());
+    }
+
+    /** 연결된 부모님이 없으면 누를 수 없다(단추는 회색) — 마지막으로 서버에서 받은 연결 수로 정한다. */
+    static boolean linkedOk() {
+        return Core.engine != null && Core.engine.hasParent();
+    }
+
+    static void noParentToast(Activity a) {
+        if (a != null && !a.isFinishing() && !a.isDestroyed()) Toast.makeText(a, "부모님과 연결하면 쓸 수 있어요", Toast.LENGTH_SHORT).show();
     }
 
     private static void buzz(Activity a, long ms) {
@@ -63,7 +81,7 @@ public final class Calls {
 
     /** sec 초를 세고 보낸다(홈 화면을 5초 눌러 부를 때는 이미 5초를 꾹 눌렀으니 5초만 센다). */
     public static void sos(final Activity a, final int sec) {
-        if (!ready(a)) return;
+        if (burst() || !ready(a)) return;
         final int[] left = {sec};
         final boolean[] stop = {false};
         final AlertDialog d = new AlertDialog.Builder(a, android.R.style.Theme_Material_Light_Dialog_Alert)
@@ -221,7 +239,8 @@ public final class Calls {
 
     /** 화면 단추용: 실수로 눌러도 부모님께 거짓 안심을 드리지 않게 한 번 물어본 뒤 알린다. */
     public static void arrivedAsk(final Activity a) {
-        if (!ready(a)) return;
+        if (burst() || !ready(a)) return;
+        if (!linkedOk()) { noParentToast(a); return; }
         new AlertDialog.Builder(a, android.R.style.Theme_Material_Light_Dialog_Alert)
                 .setTitle("안전 도착")
                 .setMessage("안전하게 도착했다고 부모님께 알릴까요?")
@@ -237,7 +256,7 @@ public final class Calls {
 
     /** 눌러서 바로 "안전하게 도착했어요" 를 알린다(서버가 장소 이름을 붙이고, 2분 안의 되풀이는 알림을 또 보내지 않는다). */
     public static void arrived(final Activity a) {
-        if (!ready(a)) return;
+        if (burst() || !ready(a)) return;
         Core.engine.callSend("arr", false, new Engine.CallCb() {
             @Override
             public void done(final boolean ok, final int linked, final boolean dup) {
@@ -257,7 +276,8 @@ public final class Calls {
 
     /** "데리러 와 달라고 부모님께 알릴까요?" 를 물어보고 보낸다. */
     public static void pickup(final Activity a) {
-        if (!ready(a)) return;
+        if (burst() || !ready(a)) return;
+        if (!linkedOk()) { noParentToast(a); return; }
         new AlertDialog.Builder(a, android.R.style.Theme_Material_Light_Dialog_Alert)
                 .setTitle("데리러 와 주세요")
                 .setMessage("부모님께 데리러 와 달라고 알릴까요?")

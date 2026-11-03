@@ -129,7 +129,8 @@ public class MainActivity extends Activity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if ("arr".equals(what)) Calls.arrivedAsk(MainActivity.this);
+                        if ("off".equals(what)) Calls.noParentToast(MainActivity.this);
+                        else if ("arr".equals(what)) Calls.arrivedAsk(MainActivity.this);
                         else if ("pick".equals(what)) Calls.pickup(MainActivity.this);
                     }
                 });
