@@ -338,6 +338,9 @@
 
 ## s406 (2026-11-03) — 테마 팝업 · 호출 단추 이동 · 놀기 박스 (키즈 앱)
 - 새 `Pop.java`: 앱 테마(둥근 카드 · 알약 단추 · 앱 글꼴)의 안내 창. `Calls` 의 안전 도착 · 데리러 와 주세요 · 긴급 호출(카운트다운) · 상태 · 실패 · 연결 없음 창을 시스템 `AlertDialog` 에서 `Pop` 으로 바꿈(단추: MAIN 금색 · PLAIN 테두리 · ALERT 주황 119).
-- 홈: 제목 "길동무 길거리" → "길동무 친구들". 안전 도착 · 데리러 와줘 단추를 장면 위(KidsActs `BTNS=false` 로 꺼 둠)에서 "길동무 친구들과 놀기" 박스 안쪽 맨 아래 한 줄(`Engine.callButtons`, act `kid.arr`/`kid.pick` → `MainActivity.act` 가 `Calls.arrivedAsk/pickup` 호출)로 옮김. 부모님 연결이 없으면 회색(눌러도 안내만).
+- 홈: 제목 "길동무 길거리" → "길동무 친구들". 안전 도착 · 데리러 와줘 단추를 장면 위(KidsActs `BTNS=false` 로 꺼 둠)에서 "길동무 친구들과 놀기" 박스 안쪽 맨 아래 한 줄(s407 에서 다시 박스 밖 바로 아래 한 줄로 뺌 · `Engine.callButtons`, act `kid.arr`/`kid.pick` → `MainActivity.act` 가 `Calls.arrivedAsk/pickup` 호출)로 옮김. 부모님 연결이 없으면 회색(눌러도 안내만).
 - 놀기 박스: `fillRest` 를 꺼서 남는 빈 칸을 없애고 안쪽 여백을 줄임(장면 높이 `viewDp-339`). 밥 · 응가 · 공부 · 잠 같은 상태는 문장을 보태지 않고 이름 옆 이모티콘만(쉬는 중 목록에도 적용).
 - 시험: JVM `ButtonCap`(모서리 눌러도 호출 없음) · `HelloCap` · GateCap · boundary 통과. 안드로이드 화면(Pop · 홈 레이아웃)은 CI 컴파일만 확인 — **기기 미확인**.
+
+## s407 (2026-11-03) — 호출 단추를 놀기 박스 밖으로
+- `Engine.homeScreen`: `callButtons()` 행을 놀기 박스(panel) 안이 아니라 박스 바로 아래 따로 둠. 박스는 안쪽 아래 여백 6dp 로 줄였고 장면 높이는 `viewDp-355`(단추 줄만큼 조금 낮춤). 단추 동작 · 회색 규칙은 s406 과 같다. **기기 미확인.**
