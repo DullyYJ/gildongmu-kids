@@ -51,6 +51,7 @@ await req('POST', '/reg', null, { id: CID, sec: CS, role: 'c' });
 await req('POST', '/reg', null, { id: PID, sec: PS, role: 'p' });
 const pr = await req('POST', '/c/pair', 'c', {});
 await req('POST', '/p/join', 'p', { code: pr.code, nm: '쭈르' });
+await req('POST', '/p/act', 'p', { v: 'kg.ok', cid: CID });
 await req('POST', '/c/ft', 'c', { tk: CTK });
 await req('POST', '/p/ft', 'p', { tk: PTK });
 let la = 37.5, lo = 126.84;

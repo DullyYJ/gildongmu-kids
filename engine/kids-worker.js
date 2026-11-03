@@ -260,9 +260,31 @@ async function notifyChild(env, DB, cid, data) {
   const d = await DB.prepare("SELECT id,ft FROM devices WHERE id=? AND ft<>''").bind(cid).first();
   if (d) await pushRows(env, DB, [{ id: d.id, ft: d.ft, data: Object.assign({ cid }, data) }]);
 }
+// ───────── 법정대리인 확인 · 위치 제공 기록(s394) ─────────
+const GD_VER = 1, LBS_KEEP = 200 * 86400000;      // 6개월(약 183일)보다 길게
+async function gdOk(DB, pid) { const r = await DB.prepare('SELECT v FROM gd WHERE pid=?').bind(pid).first(); return !!r && r.v >= GD_VER; }
+/** 이용 · 제공 사실 한 줄(같은 부모 · 자녀 · 종류는 gapMs 안에는 한 번만) */
+async function lbsLog(DB, cid, pid, k, now, gapMs) {
+  await DB.prepare('INSERT INTO lbs(t,cid,pid,k) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM lbs WHERE cid=? AND pid=? AND k=? AND t>?)').bind(now, cid, pid, k, cid, pid, k, now - (gapMs || 0)).run();
+}
+function gdScreen(nm) {
+  return scr('kidgd', [], [
+    tx('보호자 확인', { size: 16, bold: true, pad: [16, 24, 16, 6] }),
+    tx(nm + '의 위치를 보기 전에 아래를 확인해 주세요.', { size: 12.5, color: 'sub', pad: [16, 0, 16, 8] }),
+    panel([tx('• 저는 이 자녀의 법정대리인(친권자 · 후견인)이에요', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('• 자녀는 만 9세 이상이에요', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('• 자녀에게 위치를 확인한다는 것을 알리고, 자녀도 동의했어요 (자녀 앱에서 동의해야 위치가 와요)', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('• 자녀의 안전을 지키는 데에만 쓰고, 다른 사람의 위치를 몰래 확인하는 데 쓰지 않아요', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('• 사실과 다르면 이용이 제한될 수 있고 법적 책임은 제게 있어요', { size: 13, pad: [0, 4, 0, 4] })], { pad: [12, 4, 12, 0], ip: [14, 10, 14, 10] }),
+    tx('이 확인을 한 시각이 기록돼요. 자세한 내용은 개인정보 처리방침과 위치기반서비스 이용약관에 있어요.', { size: 11, color: 'sub', pad: [16, 10, 16, 6] }),
+    { t: 'row', gap: 8, pad: [12, 12, 12, 16], kids: [btn('모두 확인했어요', call('kg.ok'), gold)] },
+  ]);
+}
 /** 연결된 부모마다(자녀 이름은 부모가 정한 이름) 글을 따로 만들어 보낸다. mk(nm) => data */
 async function notifyParents(env, DB, cid, mk) {
-  const rs = (await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.ft<>''").bind(cid).all()).results || [];
+  const rs = (await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>''").bind(GD_VER, cid).all()).results || [];
+  const now = Date.now();
+  if (rs.length) await DB.batch(rs.map((r) => DB.prepare("INSERT INTO lbs(t,cid,pid,k) VALUES(?,?,?,'n')").bind(now, cid, r.id)));
   await pushRows(env, DB, rs.map((r) => ({ id: r.id, ft: r.ft, data: Object.assign({ cid }, mk(r.nm || '')) })));
 }
 const who = (nm) => (nm ? ga(nm) : '자녀가');
@@ -329,7 +351,7 @@ let prunedOldAt = 0;
 async function pruneOld(DB, now) {
   if (now - prunedOldAt < 10 * 60000) return;
   prunedOldAt = now;
-  await DB.batch([DB.prepare('DELETE FROM routes WHERE t1<?').bind(now - RT_MAX_AGE), DB.prepare('DELETE FROM stops WHERE t<?').bind(now - STRANGE_KEEP), DB.prepare('DELETE FROM zt WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM drafts WHERE t<?').bind(now - DAY)]);          // 쓰다 만 장소 등록 · 고치기 임시본(주소 검색어 포함)은 하루 뒤 지운다
+  await DB.batch([DB.prepare('DELETE FROM routes WHERE t1<?').bind(now - RT_MAX_AGE), DB.prepare('DELETE FROM stops WHERE t<?').bind(now - STRANGE_KEEP), DB.prepare('DELETE FROM zt WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM drafts WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM lbs WHERE t<?').bind(now - LBS_KEEP), DB.prepare('DELETE FROM cons WHERE t<?').bind(now - 2 * LBS_KEEP)]);          // 쓰다 만 장소 등록 · 고치기 임시본(주소 검색어 포함)은 하루 뒤 지운다
 }
 async function cron(env) {
   const DB = env.DB, now = Date.now();
@@ -389,6 +411,10 @@ async function init(DB) {
     DB.prepare('CREATE INDEX IF NOT EXISTS routes_c ON routes(cid, id)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS cst(cid TEXT PRIMARY KEY, sh INTEGER NOT NULL DEFAULT 1, stl INTEGER NOT NULL DEFAULT 0, lb INTEGER NOT NULL DEFAULT 0, wx TEXT NOT NULL DEFAULT \'\')'),      // 안전 알림 상태: 위치 공유(1 켬 · 0 끔) · 끊김 알림을 보냈나 · 배터리 알림 시각 · 날씨 알림을 보낸 날
     DB.prepare('CREATE TABLE IF NOT EXISTS zt(k TEXT PRIMARY KEY, t INTEGER NOT NULL)'),      // 장소 도착/출발 알림을 마지막으로 보낸 시각(자녀:장소:종류 → 5분에 한 번 — 워커가 바뀌어도 유지)
+    DB.prepare('CREATE TABLE IF NOT EXISTS gd(pid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 법정대리인 확인 동의(부모 기기별 · 버전 · 시각) — 이 동의가 있어야 자녀 위치가 보인다
+    DB.prepare('CREATE TABLE IF NOT EXISTS lbs(id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, cid TEXT NOT NULL, pid TEXT NOT NULL, k TEXT NOT NULL)'),      // 위치정보법 제16조 이용·제공사실 확인자료: 언제 · 누가 · 누구의 위치를 받았나(좌표는 없다) · 6개월 넘게 보관
+    DB.prepare('CREATE INDEX IF NOT EXISTS lbs_c ON lbs(cid, pid, k, t)'),
+    DB.prepare('CREATE TABLE IF NOT EXISTS cons(cid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 자녀 앱에서 보호자 · 본인 동의를 마친 기록(동의 증빙)
     DB.prepare('CREATE TABLE IF NOT EXISTS stops(id INTEGER PRIMARY KEY AUTOINCREMENT, cid TEXT NOT NULL, la REAL NOT NULL, lo REAL NOT NULL, t INTEGER NOT NULL, d INTEGER NOT NULL)'),      // 30분 넘게 머문 곳 기록(낯선 곳 판정용 · 30일)
     DB.prepare('CREATE INDEX IF NOT EXISTS stops_c ON stops(cid, id)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS rtst(cid TEXT PRIMARY KEY, dla REAL NOT NULL, dlo REAL NOT NULL, dt INTEGER NOT NULL, cl INTEGER NOT NULL DEFAULT 0, rte INTEGER NOT NULL DEFAULT 0, rsa REAL, rso REAL, sn TEXT NOT NULL DEFAULT \'\', en TEXT NOT NULL DEFAULT \'\')'),      // 정지 판정 상태
@@ -788,6 +814,7 @@ async function hubScreen(DB, pid, cid, now) {
   if (!cur) return scr('kids', [], [b('text', { t: 'text' })].slice(0, 0).concat([tx('연결된 자녀가 없어요', { size: 15, bold: true, pad: [16, 24, 16, 6] }), tx('길동무 키즈의 시크릿 키나 QR 로 연결해 주세요', { color: 'sub', pad: [16, 0, 16, 0] })]));
   cid = cur.cid;
   const nm = nmOf(cur);
+  if (!(await gdOk(DB, pid))) return gdScreen(nm);                 // 법정대리인 확인 전에는 자녀 위치를 보여 주지 않는다
   await tripsSync(DB, cid, now);
   const loc = await DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch,hd,hdt,mt FROM loc WHERE cid=?').bind(cid).first();
   const watching = !!(await watchOf(DB, cid, now));
@@ -1153,6 +1180,12 @@ async function handle(req, env, url) {
       await DB.batch([DB.prepare('DELETE FROM codes WHERE cid=?').bind(cid), DB.prepare('INSERT INTO codes(code,cid,exp) VALUES(?,?,?)').bind(code, cid, now + PAIR_TTL)]);
       return J({ ok: true, code, exp: now + PAIR_TTL });
     }
+    if (p === '/c/consent' && m === 'POST') {       // 자녀 앱에서 보호자 · 본인 동의를 마쳤다(증빙으로 버전과 시각만 남긴다)
+      const cv = Math.round(+body.v) || 0;
+      if (cv < 1 || cv > 99) return bad('잘못된 요청이에요');
+      await DB.prepare('INSERT INTO cons(cid,v,t) VALUES(?,?,?) ON CONFLICT(cid) DO UPDATE SET v=excluded.v,t=excluded.t').bind(cid, cv, now).run();
+      return J({ ok: true });
+    }
     if (p === '/c/loc' && m === 'POST') {         // 위치는 연결된 부모가 있을 때만, 가장 최근 한 건만 저장(바로 앞 위치도 하나 둔다: 가는 중인지 보려고)
       const la = +body.la, lo = +body.lo, acc = +body.acc || 0;
       if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180) || (la === 0 && lo === 0)) return bad('위치가 맞지 않아요');
@@ -1325,6 +1358,7 @@ async function handle(req, env, url) {
     if (p === '/p/ft' && m === 'POST') return J(await saveFt(DB, pid, body.tk, now));
     if (p === '/p/children' && m === 'GET') {
       const rows = (await DB.prepare('SELECT l.cid cid, l.nm nm, o.la la, o.lo lo, o.acc acc, o.t t, COALESCE(s.n,0) stars FROM links l LEFT JOIN loc o ON o.cid=l.cid LEFT JOIN stars s ON s.cid=l.cid WHERE l.pid=?').bind(pid).all()).results || [];
+      if (!(await gdOk(DB, pid))) rows.forEach((r) => { r.la = null; r.lo = null; r.acc = null; r.t = null; });          // 법정대리인 확인 전에는 위치를 주지 않는다
       return J({ ok: true, children: rows });
     }
     if (p === '/p/setrow' && m === 'GET') return J({ ok: true, nodes: await settingsRow(DB, pid), start: await startPref(DB, pid), tab: KIDS_TAB });     // 설정 탭에 끼울 한 줄(연결 없으면 null)
@@ -1339,7 +1373,7 @@ async function handle(req, env, url) {
       if (v === 'chat') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await chatSheet(DB, pid, cid, now) });
       if (v === 'fam') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await famScreen(DB, pid, cid, now) });
       if (v === 'quest') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await questSheet(DB, pid, cid, url.searchParams.get('qt')) });
-      if (v === 'hub') { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); }                // 보는 중 표시(+ 새로 보기 시작하면 자녀 폰에 watch 푸시) · 위치가 없거나 오래됐으면 자녀 폰에 한 번 요청
+      if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                // 보는 중 표시(+ 새로 보기 시작하면 자녀 폰에 watch 푸시) · 위치가 없거나 오래됐으면 자녀 폰에 한 번 요청
       return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await hubScreen(DB, pid, cid, now) });
     }
     if (p === '/p/wait' && m === 'GET') {         // 바뀔 때까지 붙들어 두었다가 그 화면을 새로 준다(부모 앱이 보는 화면마다 건다)
@@ -1348,7 +1382,7 @@ async function handle(req, env, url) {
       const cid = kids0.some((k) => k.cid === cid0) ? cid0 : kids0[0] ? kids0[0].cid : '';
       if (!cid) return J({ ok: true, linked: 0, rev: 0 });
       if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');         // 부모 앱이 키즈 화면을 보는 동안에만 긴 대기를 건다 — 그동안은 자녀 글을 읽는 중
-      if (v === 'hub') await watchTouch(env, DB, pid, cid, now);                          // 실시간 보기(s393): 대기가 이어져 있는 동안 '보는 중'
+      if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // 실시간 보기(s393): 대기가 이어져 있는 동안 '보는 중'
       const rev = await waitRev(DB, cid, since, now);
       const t2 = Date.now(), kids = await childrenOf(DB, pid);
       if (!kids.some((k) => k.cid === cid)) return J({ ok: true, linked: kids.length, rev, gone: true });
@@ -1362,6 +1396,14 @@ async function handle(req, env, url) {
       const cid1 = typeof body.cid === 'string' ? body.cid : '';
       const cid = kids.some((k) => k.cid === (id || cid1)) && v.startsWith('kl.') ? id : kids.some((k) => k.cid === cid1) ? cid1 : kids[0] ? kids[0].cid : '';
       const R = (o) => J(Object.assign({ ok: true }, o));
+      // 법정대리인 확인(s394): 하기 전에는 위치와 관련된 동작을 받지 않는다
+      if (v === 'kg.ok') {
+        if (!cid) return R({ close: true });
+        await DB.prepare('INSERT INTO gd(pid,v,t) VALUES(?,?,?) ON CONFLICT(pid) DO UPDATE SET v=excluded.v,t=excluded.t').bind(pid, GD_VER, now).run();
+        await bump(DB, cid);
+        return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
+      }
+      if (/^k(r|pg|p|pl|d)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
       // 연결 관리
       if (v === 'kl.open') return R({ screen: await linkSheet(DB, pid, '') });
       if (v === 'kl.close') return R({ close: true });
@@ -1583,7 +1625,9 @@ async function handle(req, env, url) {
     const cid = body.cid || url.searchParams.get('cid');
     if (!okId(cid) || !(await isLinked(DB, cid, pid))) return bad('연결되지 않은 자녀예요', 403);
     if (p === '/p/loc' && m === 'GET') {
+      if (!(await gdOk(DB, pid))) return J({ ok: true, loc: null });
       const r = await DB.prepare('SELECT la,lo,acc,t FROM loc WHERE cid=?').bind(cid).first();
+      if (r) await lbsLog(DB, cid, pid, 'v', now, 60000);
       return J({ ok: true, loc: r || null });
     }
     if (p === '/p/chat' && m === 'GET') {

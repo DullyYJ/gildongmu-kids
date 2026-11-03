@@ -86,6 +86,7 @@ await req('POST', '/reg', null, { id: CID, sec: CS, role: 'c' });
 await req('POST', '/reg', null, { id: PID, sec: PS, role: 'p' });
 const pr = await req('POST', '/c/pair', 'c', {});
 const jr = await req('POST', '/p/join', 'p', { code: pr.code, nm: '엄마' });
+await req('POST', '/p/act', 'p', { v: 'kg.ok', cid: CID });
 chk(jr.ok && jr.cid === CID, '연결(자녀 ↔ 부모)');
 
 const rows = (sql, ...a) => DB._db.prepare(sql).all(...a);

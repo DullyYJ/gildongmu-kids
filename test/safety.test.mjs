@@ -91,6 +91,7 @@ await req('POST', '/reg', null, { id: CID, sec: CS, role: 'c' });
 await req('POST', '/reg', null, { id: PID, sec: PS, role: 'p' });
 const pr = await req('POST', '/c/pair', 'c', {});
 const jr = await req('POST', '/p/join', 'p', { code: pr.code, nm: '쭈르' });
+await req('POST', '/p/act', 'p', { v: 'kg.ok', cid: CID });
 chk(jr.ok && jr.cid === CID, '연결(자녀 ↔ 부모)');
 chk((await req('POST', '/p/ft', 'p', { tk: PTK })).ok, '부모 알림 토큰 등록');
 let la = 37.5000, lo = 126.8400;                                 // 집 근처 시작점

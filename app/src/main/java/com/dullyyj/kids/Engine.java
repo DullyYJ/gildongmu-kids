@@ -294,7 +294,7 @@ final class Engine {
     }
 
     synchronized boolean consented() {
-        return "1".equals(store.get("consent", "0"));
+        return "1".equals(store.get("consent2", "0"));
     }
 
     synchronized String tab() {
@@ -338,6 +338,14 @@ final class Engine {
 
     synchronized boolean locOn() {
         return loc && consented();
+    }
+
+    /** 동의를 마쳤다는 사실(버전만)을 서버에 한 번 알린다 — 동의 증빙. 통신이 안 되면 다음 위치 보고 때 다시 시도한다. */
+    private void sendConsent() {
+        if (!"1".equals(store.get("consent2", "0")) || "1".equals(store.get("cons2sent", "0"))) return;
+        if (!ensureReg()) return;
+        String r = Kid.call("POST", "/c/consent", "{\"v\":2}", cid, csec);
+        if (r != null && r.contains("\"ok\":true")) store.put("cons2sent", "1");
     }
 
     /** 부모님이 지금 내 위치를 보고 있나 — 서버가 정한 값(w)을 그대로 따른다. 서버 응답이 90초 넘게 없으면 저절로 꺼진다. */
@@ -679,7 +687,7 @@ final class Engine {
     private String sig() {
         StringBuilder sb = new StringBuilder();
         sb.append(tab).append('|').append(theme()).append('|').append(consented() ? 1 : 0)
-                .append(store.get("cp", "0")).append(store.get("cc", "0")).append(loc ? 1 : 0)
+                .append(store.get("cp2", "0")).append(store.get("cc2", "0")).append(loc ? 1 : 0)
                 .append('|').append(sel).append('|').append(pairCode).append('|').append(chat.length()).append(pairErr).append(linked);
         sb.append('|').append(promptId).append(promptShut ? 1 : 0).append(tripText).append(tripNear ? 1 : 0).append(noticeTxt.isEmpty() || System.currentTimeMillis() > noticeUntil ? 0 : 1).append(cheers.length());
         if ("chat".equals(tab)) sb.append('|').append(remGet("chat").hashCode());
@@ -1140,6 +1148,7 @@ final class Engine {
             @Override
             public void run() {
                 if (ensureReg()) {
+                    sendConsent();
                     String r = Kid.call("POST", "/c/loc", o.toString(), cid, csec);
                     watchFrom(r);
                     remGot(null, r);
@@ -1306,13 +1315,14 @@ final class Engine {
         a.put(b("head", "text", "시작하기 전에 읽어 주세요"));
         a.put(b("text", "text", "길동무 키즈는 부모님께 내 위치를 알려 주는 앱이에요. 길동무 친구들과 놀면서 지내요."));
         a.put(b("card", "title", "알리는 것", "text", "내 휴대폰의 위치와 알린 시각, 배터리 잔량이에요. 평소에는 몇 분마다 알리고, 부모님이 지도를 보는 동안에는 몇 초마다 알려요. 이때는 맨 위 줄과 알림에 '부모님이 지금 내 위치를 보고 있어요'라고 보여요.", "thumb", "", "act", ""));
+        a.put(b("card", "title", "누가 쓸 수 있나요", "text", "만 9살 이상 어린이가 쓸 수 있어요. 부모님(법정대리인)과 함께 읽고 정해요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "누가 보나요", "text", "내가 QR이나 비밀키로 연결한 부모님만 볼 수 있어요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "언제든 끌 수 있어요", "text", "설정에서 위치 공유를 끄거나 동의를 거둘 수 있어요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "보관", "text", "위치 기록은 3일, 지난 길은 7일, 오래 머문 곳은 30일 뒤에 지워져요. 연결을 끊으면 바로 모두 지워져요.", "thumb", "", "act", ""));
         a.put(b("gap", "h", "8"));
-        a.put(b("switch", "label", "보호자(부모님)가 위 내용을 확인하고 동의했어요", "on", store.get("cp", "0"), "act", "consent.parent"));
-        a.put(b("switch", "label", "나도 위 내용을 이해했고 동의해요", "on", store.get("cc", "0"), "act", "consent.child"));
-        boolean ok = "1".equals(store.get("cp", "0")) && "1".equals(store.get("cc", "0"));
+        a.put(b("switch", "label", "보호자(부모님)가 위 내용을 확인하고 동의했어요", "on", store.get("cp2", "0"), "act", "consent.parent"));
+        a.put(b("switch", "label", "나도 위 내용을 이해했고 동의해요", "on", store.get("cc2", "0"), "act", "consent.child"));
+        boolean ok = "1".equals(store.get("cp2", "0")) && "1".equals(store.get("cc2", "0"));
         JSONArray it = new JSONArray();
         it.put(b("i", "label", "시작하기", "act", "consent.ok", "on", ok ? "1" : "0", "off", ok ? "0" : "1"));
         JSONObject bt = b("btns");
@@ -1592,15 +1602,22 @@ final class Engine {
         } else if (v.equals("theme.toggle")) {
             store.put("theme", "dark".equals(theme()) ? "pastel" : "dark");
         } else if (v.equals("consent.parent")) {
-            store.put("cp", "1".equals(store.get("cp", "0")) ? "0" : "1");
+            store.put("cp2", "1".equals(store.get("cp2", "0")) ? "0" : "1");
         } else if (v.equals("consent.child")) {
-            store.put("cc", "1".equals(store.get("cc", "0")) ? "0" : "1");
+            store.put("cc2", "1".equals(store.get("cc2", "0")) ? "0" : "1");
         } else if (v.equals("consent.ok")) {
-            if ("1".equals(store.get("cp", "0")) && "1".equals(store.get("cc", "0"))) {
-                store.put("consent", "1");
+            if ("1".equals(store.get("cp2", "0")) && "1".equals(store.get("cc2", "0"))) {
+                store.put("consent2", "1");
+                store.put("cons2sent", "0");
                 loc = true;
                 tab = "home";
                 res = cmd("perm");
+                Wire.EX.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        sendConsent();
+                    }
+                });
             }
         } else if (v.equals("mg.open")) {
             mg = store.get("mgpw", "").isEmpty() ? 1 : 3;
@@ -1642,9 +1659,10 @@ final class Engine {
             mgErr = "";
             store.put("mgpw", "");
             kidUnlink();
-            store.put("consent", "0");
-            store.put("cp", "0");
-            store.put("cc", "0");
+            store.put("consent2", "0");
+            store.put("cons2sent", "0");
+            store.put("cp2", "0");
+            store.put("cc2", "0");
             loc = false;
             tab = "home";
             res = cmd("loc.stop");
