@@ -23,6 +23,8 @@ const MISS_AFTER = 5 * 60000;
 let CTX = null;
 function later(p) { const q = Promise.resolve(p).catch(() => {}); if (CTX && CTX.waitUntil) CTX.waitUntil(q); return q; }
 const locBumpAt = new Map();
+const locHold = new Map();                      // 튄 것으로 보고 보류한 위치(cid → {la,lo,t}) — 곧바로 같은 곳에서 또 오면 진짜로 본다
+const LOC_FRESH_MS = 5 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
 // 부모가 처음 열었는데(앱을 새로 깔았거나 막 연결) 자녀 위치가 없거나 오래됐으면, 자녀 폰에 '위치 한 번 올려' 푸시를 보낸다(s390).
 // 앱이 꺼져 있어도 푸시로 깨어나 위치를 한 번 올린다 — 위치 공유가 켜져 있고 자녀 폰이 동의·권한을 준 경우만. 같은 자녀는 3분에 한 번만 묻는다.
 const locAskAt = new Map();
@@ -1289,11 +1291,22 @@ async function handle(req, env, url) {
       const la = +body.la, lo = +body.lo, acc = +body.acc || 0;
       if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180) || (la === 0 && lo === 0)) return bad('위치가 맞지 않아요');
       const n = await linkedCount(DB, cid);
-      const last = n > 0 ? await DB.prepare('SELECT la,lo,t,dn,hp,mva,mvo,mvt,bt,mt,ha,hb,hat FROM loc WHERE cid=?').bind(cid).first() : null;
+      const last = n > 0 ? await DB.prepare('SELECT la,lo,acc,t,dn,hp,mva,mvo,mvt,bt,mt,ha,hb,hat FROM loc WHERE cid=?').bind(cid).first() : null;
       let mtNow = last ? last.mt : 0;
       const wch = n > 0 ? await watchOf(DB, cid, now) : null;                   // 실시간 보기(s393): 보는 중이면 보고를 촘촘히 받고 응답에 주기 종류를 실어 준다
       const bt = Number.isFinite(+body.bt) && +body.bt >= 0 && +body.bt <= 100 ? Math.round(+body.bt) : -1, ch = body.ch ? 1 : 0;
       if (last && now - last.t < (wch ? 1200 : 12000) && hav(last.la, last.lo, la, lo) < (wch ? 2 : 8)) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });     // 거의 같은 자리 · 방금 보냈다 — 쓰지도 알리지도 않는다
+      if (last && now - last.t < LOC_FRESH_MS) {   // 튄 위치 거르기(지도가 갑자기 멀리 갔다 오는 일): ① 방금 받은 것보다 훨씬 부정확한 위치 ② 몇 초 만에 1.5km 넘게 순간이동한 위치는 덮지 않는다(②는 120초 안에 그 근처에서 또 오면 진짜로 본다)
+        const dd = hav(last.la, last.lo, la, lo), gap = Math.max(1, (now - last.t) / 1000);
+        let skip = acc > LOC_POOR_M && acc > 2 * (last.acc || 0);
+        if (!skip && dd > LOC_JUMP_M && dd / gap > LOC_JUMP_MS) {
+          const h = locHold.get(cid);
+          if (h && now - h.t < LOC_CONFIRM_MS && hav(h.la, h.lo, la, lo) < 300) locHold.delete(cid);
+          else { locHold.set(cid, { la, lo, t: now }); skip = true; }
+        }
+        if (skip) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });
+        locHold.delete(cid);                       // 정상 위치가 이어졌다 — 보류해 둔 튄 위치는 잊는다(같은 튐이 되풀이돼도 확인으로 치지 않는다)
+      }
       if (n > 0) {
         await DB.prepare('INSERT INTO loc(cid,la,lo,acc,t,bt,ch) VALUES(?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET bt=excluded.bt,ch=excluded.ch,pla=CASE WHEN excluded.t-loc.t>=20000 THEN loc.la ELSE loc.pla END, plo=CASE WHEN excluded.t-loc.t>=20000 THEN loc.lo ELSE loc.plo END, plt=CASE WHEN excluded.t-loc.t>=20000 THEN loc.t ELSE loc.plt END, la=excluded.la,lo=excluded.lo,acc=excluded.acc,t=excluded.t').bind(cid, la, lo, acc, now, bt, ch).run();
         if (acc <= 60) {                                                       // 움직임 · 가는 방향: 기준점에서 max(8m, 오차) 넘게 벗어나면 움직이는 중 + 방향 계산(걷는 속도로 2.5초마다 보고해도 잡힌다). 25초 넘게 제자리면 기준점을 새로 잡는다

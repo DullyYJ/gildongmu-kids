@@ -23,6 +23,8 @@ const MISS_AFTER = 5 * 60000;
 let CTX = null;
 function later(p) { const q = Promise.resolve(p).catch(() => {}); if (CTX && CTX.waitUntil) CTX.waitUntil(q); return q; }
 const locBumpAt = new Map();
+const locHold = new Map();                      // \ud284 \uac83\uc73c\ub85c \ubcf4\uace0 \ubcf4\ub958\ud55c \uc704\uce58(cid \u2192 {la,lo,t}) \u2014 \uace7\ubc14\ub85c \uac19\uc740 \uacf3\uc5d0\uc11c \ub610 \uc624\uba74 \uc9c4\uc9dc\ub85c \ubcf8\ub2e4
+const LOC_FRESH_MS = 5 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
 // \ubd80\ubaa8\uac00 \ucc98\uc74c \uc5f4\uc5c8\ub294\ub370(\uc571\uc744 \uc0c8\ub85c \uae54\uc558\uac70\ub098 \ub9c9 \uc5f0\uacb0) \uc790\ub140 \uc704\uce58\uac00 \uc5c6\uac70\ub098 \uc624\ub798\ub410\uc73c\uba74, \uc790\ub140 \ud3f0\uc5d0 '\uc704\uce58 \ud55c \ubc88 \uc62c\ub824' \ud478\uc2dc\ub97c \ubcf4\ub0b8\ub2e4(s390).
 // \uc571\uc774 \uaebc\uc838 \uc788\uc5b4\ub3c4 \ud478\uc2dc\ub85c \uae68\uc5b4\ub098 \uc704\uce58\ub97c \ud55c \ubc88 \uc62c\ub9b0\ub2e4 \u2014 \uc704\uce58 \uacf5\uc720\uac00 \ucf1c\uc838 \uc788\uace0 \uc790\ub140 \ud3f0\uc774 \ub3d9\uc758\u00b7\uad8c\ud55c\uc744 \uc900 \uacbd\uc6b0\ub9cc. \uac19\uc740 \uc790\ub140\ub294 3\ubd84\uc5d0 \ud55c \ubc88\ub9cc \ubb3b\ub294\ub2e4.
 const locAskAt = new Map();
@@ -1289,11 +1291,22 @@ async function handle(req, env, url) {
       const la = +body.la, lo = +body.lo, acc = +body.acc || 0;
       if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180) || (la === 0 && lo === 0)) return bad('\uc704\uce58\uac00 \ub9de\uc9c0 \uc54a\uc544\uc694');
       const n = await linkedCount(DB, cid);
-      const last = n > 0 ? await DB.prepare('SELECT la,lo,t,dn,hp,mva,mvo,mvt,bt,mt,ha,hb,hat FROM loc WHERE cid=?').bind(cid).first() : null;
+      const last = n > 0 ? await DB.prepare('SELECT la,lo,acc,t,dn,hp,mva,mvo,mvt,bt,mt,ha,hb,hat FROM loc WHERE cid=?').bind(cid).first() : null;
       let mtNow = last ? last.mt : 0;
       const wch = n > 0 ? await watchOf(DB, cid, now) : null;                   // \uc2e4\uc2dc\uac04 \ubcf4\uae30(s393): \ubcf4\ub294 \uc911\uc774\uba74 \ubcf4\uace0\ub97c \ucd18\ucd18\ud788 \ubc1b\uace0 \uc751\ub2f5\uc5d0 \uc8fc\uae30 \uc885\ub958\ub97c \uc2e4\uc5b4 \uc900\ub2e4
       const bt = Number.isFinite(+body.bt) && +body.bt >= 0 && +body.bt <= 100 ? Math.round(+body.bt) : -1, ch = body.ch ? 1 : 0;
       if (last && now - last.t < (wch ? 1200 : 12000) && hav(last.la, last.lo, la, lo) < (wch ? 2 : 8)) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });     // \uac70\uc758 \uac19\uc740 \uc790\ub9ac \u00b7 \ubc29\uae08 \ubcf4\ub0c8\ub2e4 \u2014 \uc4f0\uc9c0\ub3c4 \uc54c\ub9ac\uc9c0\ub3c4 \uc54a\ub294\ub2e4
+      if (last && now - last.t < LOC_FRESH_MS) {   // \ud284 \uc704\uce58 \uac70\ub974\uae30(\uc9c0\ub3c4\uac00 \uac11\uc790\uae30 \uba40\ub9ac \uac14\ub2e4 \uc624\ub294 \uc77c): \u2460 \ubc29\uae08 \ubc1b\uc740 \uac83\ubcf4\ub2e4 \ud6e8\uc52c \ubd80\uc815\ud655\ud55c \uc704\uce58 \u2461 \uba87 \ucd08 \ub9cc\uc5d0 1.5km \ub118\uac8c \uc21c\uac04\uc774\ub3d9\ud55c \uc704\uce58\ub294 \ub36e\uc9c0 \uc54a\ub294\ub2e4(\u2461\ub294 120\ucd08 \uc548\uc5d0 \uadf8 \uadfc\ucc98\uc5d0\uc11c \ub610 \uc624\uba74 \uc9c4\uc9dc\ub85c \ubcf8\ub2e4)
+        const dd = hav(last.la, last.lo, la, lo), gap = Math.max(1, (now - last.t) / 1000);
+        let skip = acc > LOC_POOR_M && acc > 2 * (last.acc || 0);
+        if (!skip && dd > LOC_JUMP_M && dd / gap > LOC_JUMP_MS) {
+          const h = locHold.get(cid);
+          if (h && now - h.t < LOC_CONFIRM_MS && hav(h.la, h.lo, la, lo) < 300) locHold.delete(cid);
+          else { locHold.set(cid, { la, lo, t: now }); skip = true; }
+        }
+        if (skip) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });
+        locHold.delete(cid);                       // \uc815\uc0c1 \uc704\uce58\uac00 \uc774\uc5b4\uc84c\ub2e4 \u2014 \ubcf4\ub958\ud574 \ub454 \ud284 \uc704\uce58\ub294 \uc78a\ub294\ub2e4(\uac19\uc740 \ud290\uc774 \ub418\ud480\uc774\ub3fc\ub3c4 \ud655\uc778\uc73c\ub85c \uce58\uc9c0 \uc54a\ub294\ub2e4)
+      }
       if (n > 0) {
         await DB.prepare('INSERT INTO loc(cid,la,lo,acc,t,bt,ch) VALUES(?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET bt=excluded.bt,ch=excluded.ch,pla=CASE WHEN excluded.t-loc.t>=20000 THEN loc.la ELSE loc.pla END, plo=CASE WHEN excluded.t-loc.t>=20000 THEN loc.lo ELSE loc.plo END, plt=CASE WHEN excluded.t-loc.t>=20000 THEN loc.t ELSE loc.plt END, la=excluded.la,lo=excluded.lo,acc=excluded.acc,t=excluded.t').bind(cid, la, lo, acc, now, bt, ch).run();
         if (acc <= 60) {                                                       // \uc6c0\uc9c1\uc784 \u00b7 \uac00\ub294 \ubc29\ud5a5: \uae30\uc900\uc810\uc5d0\uc11c max(8m, \uc624\ucc28) \ub118\uac8c \ubc97\uc5b4\ub098\uba74 \uc6c0\uc9c1\uc774\ub294 \uc911 + \ubc29\ud5a5 \uacc4\uc0b0(\uac77\ub294 \uc18d\ub3c4\ub85c 2.5\ucd08\ub9c8\ub2e4 \ubcf4\uace0\ud574\ub3c4 \uc7a1\ud78c\ub2e4). 25\ucd08 \ub118\uac8c \uc81c\uc790\ub9ac\uba74 \uae30\uc900\uc810\uc744 \uc0c8\ub85c \uc7a1\ub294\ub2e4
