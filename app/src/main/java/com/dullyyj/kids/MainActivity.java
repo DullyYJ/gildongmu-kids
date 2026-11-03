@@ -123,6 +123,18 @@ public class MainActivity extends Activity {
                 act("kid.pick:" + id + ":" + what, "");
             }
         });
+        Poke.setCaller(new Poke.Caller() {                                // 장면 아래 모서리 단추(안전 도착 · 데리러 와줘)
+            @Override
+            public void call(final String what) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if ("arr".equals(what)) Calls.arrivedAsk(MainActivity.this);
+                        else if ("pick".equals(what)) Calls.pickup(MainActivity.this);
+                    }
+                });
+            }
+        });
         tabbar = new TabBar(this);
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -187,6 +199,46 @@ public class MainActivity extends Activity {
         if (b == null) OpenHost.show(this); // 켤 때 오프닝: 길동무와 똑같은 한 갈래(OpenHost) — 시간대 · 날씨 · 친구 · 움직임이 같다
     }
 
+    // ───────── 홈 화면 아무 데나 5초 꾹 누르면 긴급 호출 ─────────
+    // 눌림을 가로채지 않고 지켜보기만 한다(장면 · 카드 · 스크롤은 평소대로). 손가락이 움직이거나 떼어지거나 두 손가락이 되면 취소.
+    private static final long HOLD_MS = 5000L;
+    private final android.os.Handler holdH = new android.os.Handler(android.os.Looper.getMainLooper());
+    private float holdX, holdY;
+    private final Runnable holdFire = new Runnable() {
+        @Override
+        public void run() {
+            if (isFinishing() || isDestroyed() || !running) return;
+            if (Core.engine.consented() && "home".equals(Core.engine.tab())) Calls.sos(MainActivity.this, 5);
+        }
+    };
+
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        try {
+            switch (ev.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    holdH.removeCallbacks(holdFire);
+                    holdX = ev.getRawX();
+                    holdY = ev.getRawY();
+                    if (running && Core.engine != null && Core.engine.consented() && "home".equals(Core.engine.tab())) holdH.postDelayed(holdFire, HOLD_MS);
+                    break;
+                case android.view.MotionEvent.ACTION_MOVE:
+                    if (Math.hypot(ev.getRawX() - holdX, ev.getRawY() - holdY) > 24f * getResources().getDisplayMetrics().density) holdH.removeCallbacks(holdFire);
+                    break;
+                case android.view.MotionEvent.ACTION_POINTER_DOWN:
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    holdH.removeCallbacks(holdFire);
+                    break;
+                default:
+                    break;
+            }
+        } catch (Throwable ignored) {
+            // 지켜보다 실패해도 평소 동작은 그대로
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -220,6 +272,8 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         running = false;
         Poke.setSink(null);
+        Poke.setCaller(null);
+        holdH.removeCallbacks(holdFire);
         if (renderer != null) renderer.destroy();
         if (ht != null) ht.quitSafely();
         super.onDestroy();

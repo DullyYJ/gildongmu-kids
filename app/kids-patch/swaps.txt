@@ -6,7 +6,7 @@ SceneCore.java|||SceneFx.ambient(this, c, t);|||if (!KidsRooms.is(L)) SceneFx.am
 SceneCore.java|||SceneFx.cold(this, c); SceneFx.sun(this, c, t); SceneFx.heat(this, c, t); SceneFx.wind(this, c, t);|||if (!KidsRooms.is(L)) { SceneFx.cold(this, c); SceneFx.sun(this, c, t); SceneFx.heat(this, c, t); SceneFx.wind(this, c, t); }
 SceneCore.java|||double kk = PH < 150 ? Math.max(.55, PH / 150) : clamp(Math.min(PH / 190, PW / 200), 1, 2);|||double kk = KidsActs.ZOOM * (PH < 150 ? Math.max(.55, PH / 150) : clamp(Math.min(PH / 190, PW / 200), 1, 2));
 SceneCore.java|||Actor a = hitActor(xdp / k, ydp / k); if (a == null) return false;|||if (KidsActs.menuDown(this, xdp / k, ydp / k)) return true; Actor a = hitActor(xdp / k, ydp / k); if (a == null) return false; KidsActs.poke(this, a);
-SceneCore.java|||public void up() { PEND = null; if (DRAG != null) release(); }|||public void up() { if (PEND != null) KidsActs.tap(this, PEND.a); PEND = null; if (DRAG != null) release(); }
+SceneCore.java|||public void up() { PEND = null; if (DRAG != null) release(); }|||public void up() { KidsActs.btnUp(this); if (PEND != null) KidsActs.tap(this, PEND.a); PEND = null; if (DRAG != null) release(); }
 SceneCore.java|||a.k = kk; a.w = D.cell * kk; a.x = x;|||a.k = kk * KidsActs.CHAR; a.w = D.cell * kk * KidsActs.CHAR; a.x = x;
 SceneCore.java|||double HH(Actor a) { return TH * zs(a.z) * (a.hero ? 1.12 : 1); }|||double HH(Actor a) { return TH * KidsActs.CHAR * zs(a.z) * (a.hero ? 1.12 : 1); }
 SceneCore.java|||if (PEND != null && t - PEND.t0 >= LONGPRESS) grab();|||KidsActs.tick(this, dt); if (PEND != null && t - PEND.t0 >= LONGPRESS) grab();
@@ -26,3 +26,4 @@ ScreenCore.java|||pn.h = (cy + n.ipB + 1f) - y;|||pn.h = (cy + n.ipB + 1f) - y +
 ScreenCore.java|||if (fit == null || !(viewH > 0f)) return L;|||if (viewH > 0f && sc.fillNode != null) { sc.fillNode.mh = 0f; L = layout0(sc, width, m, openKey); float sl0 = viewH - L.headH - L.footH - L.bodyH; if (sl0 > 1f) { sc.fillNode.mh = sl0; L = layout0(sc, width, m, openKey); } } if (fit == null || !(viewH > 0f)) return L;
 SceneCore.java|||c.drawImage(sheet, sx, sy, 256, 256, dx, dy, D.cell * s, D.cell * s);|||c.drawImage(sheet, sx, sy, 256, 256, dx, dy, D.cell * s, D.cell * s); KidsWear.draw(c, a, ash != null ? 2 : psh != null ? 1 : 0, idx, dx, dy, sc);
 SceneCore.java|||if (!h.leaving && ms >= p.leave) {|||if (!h.leaving && ms >= p.leave) { KidsActs.helloPick(this, h);
+SceneCore.java|||public void move(double xdp, double ydp) {|||public void move(double xdp, double ydp) { KidsActs.btnMove(this, xdp, ydp);

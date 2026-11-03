@@ -251,6 +251,8 @@ final class KidsActs {
     }
     static final double[] M_ANG = {-3 * PI / 4, -PI / 4, PI / 4, 3 * PI / 4};
     static boolean menuDown(SceneCore S, double x, double y) {
+        int bi = btnAt(S, x, y);
+        if (bi >= 0) { closeMenu(); btnDown = bi; btnX0 = x * S.k; btnY0 = y * S.k; btnT0 = S.t; S.haptic("grab"); return true; }          // 아래 모서리 호출 버튼(안전 도착 · 데리러 와줘): 눌러서 떼면 보낸다
         if (menuA == null) return false;
         if (S.t - menuT0 < .25) return true;
         double[] c = menuCenter(S);
@@ -442,7 +444,54 @@ final class KidsActs {
     }
 
     // ───────── 장면 위에 얹는 것: 원형 메뉴 ─────────
+    // ───────── 장면 아래 모서리 호출 버튼: 왼쪽 "안전 도착" · 오른쪽 "데리러 와줘" (s400) ─────────
+    // 크기는 dp 로 정하고 장면 좌표(S.k 로 나눈 값)로 바꿔 그린다. 누른 자리에서 손가락이 14dp 넘게 움직이거나 1.5초를 넘기면 보내지 않는다(스크롤 · 캐릭터 끌기와 안 섞이게).
+    static int btnDown = -1;
+    static double btnX0, btnY0, btnT0;
+    static final String[] B_ICON = {"✅", "🚗"};
+    static final String[] B_LABEL = {"안전 도착", "데리러 와줘"};
+    static final String[] B_ACT = {"arr", "pick"};
+    static final int[] B_COL = {0xFF2F9E44, 0xFFE8590C};
+    static final double B_W = 108, B_H = 36, B_PAD = 10;
+    static double[] btnRect(SceneCore S, int i) {
+        double u = 1 / S.k, w = B_W * u, h = B_H * u, p = B_PAD * u;
+        return new double[] {i == 0 ? p : S.W - p - w, S.H - p - h, w, h};
+    }
+    static int btnAt(SceneCore S, double x, double y) {
+        for (int i = 0; i < 2; i++) {
+            double[] r = btnRect(S, i);
+            double m = 6 / S.k;
+            if (x >= r[0] - m && x <= r[0] + r[2] + m && y >= r[1] - m && y <= r[1] + r[3] + m) return i;
+        }
+        return -1;
+    }
+    static void btnMove(SceneCore S, double xdp, double ydp) {
+        if (btnDown >= 0 && Math.hypot(xdp - btnX0, ydp - btnY0) > 14) btnDown = -1;
+    }
+    static void btnUp(SceneCore S) {
+        int b = btnDown; btnDown = -1;
+        if (b >= 0 && S.t - btnT0 < 1.5) { S.haptic("release"); Poke.call(B_ACT[b]); }
+    }
+    static void drawBtns(SceneCore S, SceneCv c) {
+        double u = 1 / S.k;
+        for (int i = 0; i < 2; i++) {
+            double[] r = btnRect(S, i);
+            boolean on = btnDown == i;
+            c.save();
+            c.globalAlpha(on ? .8 : .95);
+            c.fillStyle(rgba(0, 0, 0, .2)); rr(c, r[0], r[1] + 2 * u, r[2], r[3], r[3] / 2); c.fill();
+            c.fillStyle(on ? rgba(235, 235, 238, .98) : rgba(255, 255, 255, .97)); rr(c, r[0], r[1], r[2], r[3], r[3] / 2); c.fill();
+            c.strokeStyle(B_COL[i]); c.lineWidth(2 * u); rr(c, r[0], r[1], r[2], r[3], r[3] / 2); c.stroke();
+            c.font(13 * u);
+            c.fillStyle(B_COL[i]);
+            c.fillTextC(B_ICON[i] + " " + B_LABEL[i], r[0] + r[2] / 2, r[1] + r[3] / 2 + 1 * u);
+            c.globalAlpha(1);
+            c.restore();
+        }
+    }
+
     static void hud(SceneCore S, SceneCv c) {
+        drawBtns(S, c);
         if (menuA != null) {
             double[] ctr = menuCenter(S);
             double el = S.t - menuT0;
