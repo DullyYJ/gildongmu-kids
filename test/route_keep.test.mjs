@@ -155,6 +155,16 @@ chk(gone.ok && /이미 지워진/.test(JSON.stringify(gone.screen)), '없는 길
 
 if (process.env.DUMP_DIR) { fs.mkdirSync(process.env.DUMP_DIR, { recursive: true }); for (const [k, v] of Object.entries({ hub: hub.screen, sheet: sheet.screen, pick: pick.screen, live: live.screen })) fs.writeFileSync(process.env.DUMP_DIR + '/' + k + '.json', JSON.stringify(v)); }      // 부모 앱 화면 해석기(ScreenCore)로 따로 검증할 때
 
+// ── 7일이 지난 길은 지운다(개인정보) ──
+{
+  const before = rows('SELECT COUNT(*) n FROM routes')[0].n;
+  DB._db.prepare('UPDATE routes SET t1=t1-? WHERE id=(SELECT MIN(id) FROM routes)').run(8 * 24 * 60 * MIN);
+  await mod.scheduled({}, env, ctx);                                      // 크론이 만료된 길을 지운다
+  await new Promise((r) => setTimeout(r, 50));
+  const after = rows('SELECT COUNT(*) n FROM routes')[0].n;
+  chk(after === before - 1, '8일 된 길은 크론이 지운다(' + before + ' → ' + after + ')');
+}
+
 // ── 해제 ──
 await req('POST', '/c/unlink', 'c', {});
 chk(rows('SELECT COUNT(*) n FROM routes')[0].n === 0 && rows('SELECT COUNT(*) n FROM rtst')[0].n === 0, '연결을 끊으면 저장된 길과 정지 상태도 지워진다');

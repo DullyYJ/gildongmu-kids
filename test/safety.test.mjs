@@ -149,6 +149,7 @@ await loc();                                                     // 자녀 위�
   chk(kinds(a).join() === 'zone', '5분 안에 오가며 흔들려도(GPS) 같은 종류 알림은 5분에 한 번만 — 들어옴 1건만 나가고 나머지는 생략');
   NOW += 10 * MIN; la = home.la + 20 * M; a = n0(); await loc();
   chk(kinds(a).join() === 'zone', '5분이 지난 뒤 다시 도착하면 다시 알린다');
+  chk(rows('SELECT COUNT(*) n FROM zt')[0].n >= 2, '도착/출발 알림 시각이 서버 표(zt)에 남는다(워커 인스턴스가 바뀌어도 5분 제한 유지)');
   // 도착 확인(약속)을 눌러 둔 곳은 '왔어요' 푸시를 생략(그쪽 알림이 있다)
   NOW += 10 * MIN; la = home.la + 1000 * M; await loc();
   const pid0 = rows('SELECT id FROM places')[0].id;
