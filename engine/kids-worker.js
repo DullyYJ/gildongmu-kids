@@ -268,7 +268,7 @@ async function lbsLog(DB, cid, pid, k, now, gapMs) {
   await DB.prepare('INSERT INTO lbs(t,cid,pid,k) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM lbs WHERE cid=? AND pid=? AND k=? AND t>?)').bind(now, cid, pid, k, cid, pid, k, now - (gapMs || 0)).run();
 }
 function gdScreen(nm) {
-  return scr('kidgd', [], [
+  return scr('kids', [], [
     tx('보호자 확인', { size: 16, bold: true, pad: [16, 24, 16, 6] }),
     tx(nm + '의 위치를 보기 전에 아래를 확인해 주세요.', { size: 12.5, color: 'sub', pad: [16, 0, 16, 8] }),
     panel([tx('• 저는 이 자녀의 법정대리인(친권자 · 후견인)이에요', { size: 13, pad: [0, 4, 0, 4] }),

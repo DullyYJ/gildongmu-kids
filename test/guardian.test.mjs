@@ -63,7 +63,7 @@ await req('POST', '/c/loc', 'c', { la: 37.5, lo: 126.84, acc: 8 });
 // ── 확인 전 ──
 let a = pushes.length;
 const g1 = await hubOf();
-chk(g1.ok && g1.screen.screen === 'kidgd' && /kg\.ok/.test(JSON.stringify(g1.screen)) && !hasMap(g1), '법정대리인 확인 전에는 확인 화면만 나오고 지도 · 위치가 없다');
+chk(g1.ok && g1.screen.screen === 'kids' && /kg\.ok/.test(JSON.stringify(g1.screen)) && !hasMap(g1), '법정대리인 확인 전에는 확인 화면만 나오고 지도 · 위치가 없다');
 chk(pushes.slice(a).filter((p) => p.data.k === 'watch').length === 0, '확인 전에는 자녀 폰에 "보는 중" 푸시도 보내지 않는다');
 chk(rows('SELECT * FROM lbs').length === 0, '확인 전에는 위치 제공 기록도 없다(제공한 적이 없다)');
 const lc = await req('GET', '/p/loc?cid=' + CID, 'p');
@@ -85,7 +85,7 @@ const ok1 = await req('POST', '/p/act', 'p', { v: 'kg.ok', cid: CID });
 chk(ok1.ok && ok1.hub === 1 && hasMap(ok1) && rows('SELECT * FROM gd').length === 1 && rows('SELECT * FROM gd')[0].pid === PID, '확인하면 허브가 열리고 확인 기록(누가 · 언제)이 남는다');
 a = pushes.length;
 const g2 = await hubOf();
-chk(g2.screen.screen !== 'kidgd' && hasMap(g2), '확인한 뒤에는 지도가 나온다');
+chk(!/kg\.ok/.test(JSON.stringify(g2.screen)) && hasMap(g2), '확인한 뒤에는 지도가 나온다');
 chk(pushes.slice(a).filter((p) => p.data.k === 'watch' && p.token === CTK).length === 1, '확인한 뒤에야 "보는 중" 푸시가 간다');
 const L1 = rows("SELECT * FROM lbs WHERE k='v'");
 chk(L1.length === 1 && L1[0].cid === CID && L1[0].pid === PID, '위치를 보여 준 사실이 1건 기록된다(자녀 · 부모 · 시각)');
