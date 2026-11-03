@@ -44,7 +44,7 @@ const DB = mkD1();
 const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const env = { DB, FCM_SA: JSON.stringify({ client_email: 'x@y.iam', project_id: 'p1', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) }) };
 const pushes = [];                                              // 받은 알림 [{token, data}]
-let wxMode = 'clear', wxCalls = 0, geoDocs = {}, geoFail = false, geo404 = false, osmCalls = 0;
+let wxMode = 'clear', wxCalls = 0, geoDocs = {}, geoFail = false, geo404 = false, osmCalls = 0, geoCalls = 0;
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (u, init) => {
   u = String(u);
@@ -65,6 +65,7 @@ globalThis.fetch = async (u, init) => {
     return new Response(JSON.stringify(q === '대동초등학교' ? [{ name: '대동초등학교', display_name: '대동초등학교, 연수구, 인천, 21999, 대한민국', lat: '37.3900', lon: '126.6400' }] : []), { status: 200 });
   }
   if (u.includes('kakao-local')) {
+    geoCalls++;
     if (geo404) return new Response('error code: 1042', { status: 404 });
     if (geoFail) return new Response('x', { status: 500 });
     const path = decodeURIComponent((u.match(/path=([^&]*)/) || [])[1] || '');
@@ -127,6 +128,23 @@ await loc();                                                     // 자녀 위�
   const pk = await req('POST', '/p/act', 'p', { v: 'kpg.pick', cid: CID, t: '1' });
   const tm2 = pk.screen.body.find((n) => n.t === 'tmap');
   chk(Math.abs(tm2.pts[0].la - 37.521) < 1e-6 && /가양중학교/.test(JSON.stringify(pk.screen)), '고르면 지도가 그곳으로 옮겨가고 이름이 채워진다');
+  // s419: 결과 줄이 좌표를 품고 있고, 앱이 고른 곳을 보내면 다시 찾지 않고 저장만 한다 · 초안이 없어도 팝업을 닫지 않는다 · 등록은 앱이 보낸 좌표를 쓴다
+  const pr = JSON.stringify(f2.screen).match(/"v":"kpg\.pick"[^}]*?"t":"([^"]+)"/);
+  chk(pr && /^-?\d+\.\d+\|-?\d+\.\d+\|.+/.test(pr[1]), '결과 줄의 눌림에 좌표와 이름이 들어 있다 (' + (pr && pr[1]) + ')');
+  const geoBefore = geoCalls;
+  const sv1 = await req('POST', '/p/act', 'p', { v: 'kpg.sv', cid: CID, t: '37.600000|127.100000|가양테스트', f: { kpn: '', kpa: '학교' } });
+  chk(sv1.ok && !sv1.screen && geoCalls === geoBefore, '고른 곳 저장(kpg.sv)은 화면을 돌려주지 않고 외부 검색도 하지 않는다');
+  const dr = rows('SELECT * FROM drafts')[0];
+  chk(dr && Math.abs(dr.la - 37.6) < 1e-6 && Math.abs(dr.lo - 127.1) < 1e-6 && dr.name === '가양테스트' && dr.q === '학교', '초안에 고른 좌표 · 이름 · 검색어가 저장된다');
+  await req('POST', '/p/act', 'p', { v: 'kpg.cancel', cid: CID });
+  const nd = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '가양로 12' } });
+  chk(nd.ok && !nd.close && nd.screen && nd.screen.screen === 'kidreg', '초안이 없을 때 찾아도 팝업이 닫히지 않고 결과가 나온다');
+  await req('POST', '/p/act', 'p', { v: 'kpg.cancel', cid: CID });
+  const ad2 = await req('POST', '/p/act', 'p', { v: 'kpg.add', cid: CID, t: '37.700000,127.200000', f: { kpn: '좌표확인' } });
+  const pl2 = rows("SELECT * FROM places WHERE name='좌표확인'")[0];
+  chk(ad2.ok && ad2.close && pl2 && Math.abs(pl2.la - 37.7) < 1e-6 && Math.abs(pl2.lo - 127.2) < 1e-6, '초안 없이도 앱이 보낸 좌표로 등록된다');
+  DB._db.prepare("DELETE FROM places WHERE name='좌표확인'").run();
+  await req('POST', '/p/act', 'p', { v: 'kpg.open', cid: CID });
   const nn = await req('POST', '/p/act', 'p', { v: 'kpg.add', cid: CID, f: { kpn: '' } });
   chk(/장소 이름을 적어/.test(JSON.stringify(nn.screen)) && rows('SELECT * FROM places').length === 0, '이름 없이 등록 → 막고 안내(등록 안 됨)');
   const nf = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '없는곳xyz' } });

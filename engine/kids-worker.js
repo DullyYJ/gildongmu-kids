@@ -1195,7 +1195,7 @@ function regSheet(d, results, notice) {
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 2, 16, 4] }));
   body.push(panel([{ t: 'field', key: 'kpa', hint: '주소 또는 건물·학교·회사 이름 (예: 대동초등학교 · 가양로 12)', value: d.q || '', maxlen: 60, h: 44 },
     { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('주소 찾기', call('kpg.find'), gold)] }], { pad: [12, 6, 12, 0] }));
-  if (results && results.length > 1) body.push(panel(results.map((r, i) => ({ t: 'navrow', title: r.n, sub: r.a, act: call('kpg.pick', '', String(i)), size: 13, vp: 8 })), { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
+  if (results && results.length > 1) body.push(panel(results.map((r, i) => ({ t: 'navrow', title: r.n, sub: r.a, act: call('kpg.pick', '', (+r.la).toFixed(6) + '|' + (+r.lo).toFixed(6) + '|' + String(r.n || '').replace(/\|/g, ' ').slice(0, 20)), size: 13, vp: 8 })), { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
   body.push({ t: 'tmap', h: 190, r: 14, pad: [12, 8, 12, 0], pts: [{ la: d.la, lo: d.lo, k: 's', n: '', l: d.name || '여기' }], foc: 0, fz: 17 });          // 고정 지도(live 아님): 팝업에 MapLibre 를 올리면 열 때마다 버벅인다 · 위치는 찾기로 정한다
   body.push(panel([{ t: 'field', key: 'kpn', hint: '장소 이름 (예: 우리집 · 00학교)', value: d.name || '', maxlen: 20, h: 44 },
     tx('위치 ' + (+d.la).toFixed(4) + ', ' + (+d.lo).toFixed(4) + ' · 시각 알림은 등록 뒤 장소를 눌러 정할 수 있어요', { size: 10.5, color: 'sub', pad: [0, 8, 0, 0] })], { pad: [12, 8, 12, 0] }));
@@ -1697,25 +1697,38 @@ async function handle(req, env, url) {
       if (v === 'kps.open') return R({ screen: await placesSheet(DB, cid), cid, sheet: 'ev' });
       // 장소 등록(s392)
       if (v === 'kpg.open') {
-        if (((await DB.prepare('SELECT COUNT(*) n FROM places WHERE cid=?').bind(cid).first()) || { n: 0 }).n >= MAX_PLACES) return R({ notice: '장소는 ' + MAX_PLACES + '곳까지 등록할 수 있어요' });
-        const l0 = await DB.prepare('SELECT la,lo FROM loc WHERE cid=?').bind(cid).first();
+        const [cn0, l0] = await Promise.all([DB.prepare('SELECT COUNT(*) n FROM places WHERE cid=?').bind(cid).first(), DB.prepare('SELECT la,lo FROM loc WHERE cid=?').bind(cid).first()]);      // s419: 두 조회를 함께
+        if (((cn0) || { n: 0 }).n >= MAX_PLACES) return R({ close: true, notice: '장소는 ' + MAX_PLACES + '곳까지 등록할 수 있어요' });
         const la0 = l0 ? l0.la : 37.5665, lo0 = l0 ? l0.lo : 126.978;
         await saveDraft(DB, pid, cid, la0, lo0, '', '', now);
         return R({ screen: regSheet({ la: la0, lo: lo0, name: '', q: '' }, null, l0 ? '' : '자녀 위치를 아직 몰라요. 주소를 찾아 주세요'), cid, sheet: 'ev' });
       }
       if (v.startsWith('kpg.')) {
-        const d = await readDraft(DB, pid);
-        if (!d) return R({ close: true });
-        const name = typeof f.kpn === 'string' ? f.kpn.replace(/\s+/g, ' ').trim().slice(0, 20) : d.name;
+        // s419: 초안이 없어도(열기 답이 늦어 아직 못 만들었어도) 팝업을 닫지 않고 그 자리에서 만든다
         if (v === 'kpg.cancel') { await DB.prepare('DELETE FROM drafts WHERE pid=?').bind(pid).run(); return R({ close: true }); }
+        let d = await readDraft(DB, pid);
+        if (!d) {
+          const l1 = await DB.prepare('SELECT la,lo FROM loc WHERE cid=?').bind(cid).first();
+          d = { la: l1 ? l1.la : 37.5665, lo: l1 ? l1.lo : 126.978, name: '', q: '' };
+          await saveDraft(DB, pid, cid, d.la, d.lo, '', '', now);
+        }
+        const name = typeof f.kpn === 'string' ? f.kpn.replace(/\s+/g, ' ').trim().slice(0, 20) : d.name;
+        const xy = /^(-?\d{1,3}(?:\.\d+)?)\|(-?\d{1,3}(?:\.\d+)?)\|/.exec(String(t || ''));       // 앱이 결과에서 고른 곳을 직접 알려 준다(다시 찾지 않는다)
+        if (xy && (v === 'kpg.pick' || v === 'kpg.sv')) {
+          const la9 = +xy[1], lo9 = +xy[2];
+          if (!(Math.abs(la9) <= 85 && Math.abs(lo9) <= 180)) return R({});
+          const q9 = typeof f.kpa === 'string' ? f.kpa.replace(/\s+/g, ' ').trim().slice(0, 60) : (d.q || '');
+          await saveDraft(DB, pid, cid, la9, lo9, name || String(t).split('|').slice(2).join(' ').slice(0, 20), q9, now);
+          return R({});                                   // 화면은 앱이 이미 고쳤다 — 저장만 하고 답은 비워 둔다
+        }
         if (v === 'kpg.find') {
           const q = typeof f.kpa === 'string' ? f.kpa.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
           if (!q) { await saveDraft(DB, pid, cid, d.la, d.lo, name, '', now); return R({ screen: regSheet({ la: d.la, lo: d.lo, name, q: '' }, null, '찾을 주소나 장소를 적어 주세요'), cid, sheet: 'ev' }); }
           const res = await geoFind(q, [d.la, d.lo], env);
           if (!res.length) { await saveDraft(DB, pid, cid, d.la, d.lo, name, q, now); return R({ screen: regSheet({ la: d.la, lo: d.lo, name, q }, null, (res.err ? '검색 서버가 응답하지 않아요 (' + res.err + '). 잠시 뒤 다시 눌러 보세요' : '찾지 못했어요. 다른 말로 적어 보세요 (예: 시·구·동 + 건물 이름)')), cid, sheet: 'ev' }); }
-          await saveDraft(DB, pid, cid, res[0].la, res[0].lo, name || (res.length === 1 ? res[0].n.slice(0, 20) : ''), q, now);
-          const d2 = await readDraft(DB, pid);
-          return R({ screen: regSheet(d2, res, res.length > 1 ? '여러 곳이 나왔어요. 아래에서 고르세요' : ''), cid, sheet: 'ev' });
+          const nm2 = name || (res.length === 1 ? res[0].n.slice(0, 20) : '');
+          await saveDraft(DB, pid, cid, res[0].la, res[0].lo, nm2, q, now);
+          return R({ screen: regSheet({ la: res[0].la, lo: res[0].lo, name: nm2, q }, res, res.length > 1 ? '여러 곳이 나왔어요. 아래에서 고르세요' : ''), cid, sheet: 'ev' });
         }
         if (v === 'kpg.pick') {
           const res = d.q ? await geoFind(d.q, [d.la, d.lo], env) : [], i = Math.round(Number(t)), r = res[i];
@@ -1726,7 +1739,8 @@ async function handle(req, env, url) {
         if (v === 'kpg.add') {
           if (!name) { await saveDraft(DB, pid, cid, d.la, d.lo, '', d.q || '', now); return R({ screen: regSheet(Object.assign({}, d, { name: '' }), null, '장소 이름을 적어 주세요'), cid, sheet: 'ev' }); }
           if (((await DB.prepare('SELECT COUNT(*) n FROM places WHERE cid=?').bind(cid).first()) || { n: 0 }).n >= MAX_PLACES) return R({ close: true, notice: '장소는 ' + MAX_PLACES + '곳까지 등록할 수 있어요' });
-          await DB.batch([DB.prepare('INSERT INTO places(id,cid,name,la,lo,hh,mm,days,t) VALUES(?,?,?,?,?,0,0,0,?)').bind(rid(), cid, name, d.la, d.lo, now), DB.prepare('DELETE FROM drafts WHERE pid=?').bind(pid)]);
+          const xa = /^(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)$/.exec(String(t || '')), la8 = xa && Math.abs(+xa[1]) <= 85 && Math.abs(+xa[2]) <= 180 ? +xa[1] : d.la, lo8 = xa && Math.abs(+xa[1]) <= 85 && Math.abs(+xa[2]) <= 180 ? +xa[2] : d.lo;      // 앱이 팝업에 보이는 지도 좌표를 같이 보낸다(초안 저장이 늦어도 어긋나지 않게)
+          await DB.batch([DB.prepare('INSERT INTO places(id,cid,name,la,lo,hh,mm,days,t) VALUES(?,?,?,?,?,0,0,0,?)').bind(rid(), cid, name, la8, lo8, now), DB.prepare('DELETE FROM drafts WHERE pid=?').bind(pid)]);
           plCache.delete(cid);
           await bump(DB, cid);
           return R({ close: true, hub: 1, notice: name + ' 등록했어요 · 도착하거나 벗어나면 알려 드려요' });

@@ -1195,7 +1195,7 @@ function regSheet(d, results, notice) {
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 2, 16, 4] }));
   body.push(panel([{ t: 'field', key: 'kpa', hint: '\uc8fc\uc18c \ub610\ub294 \uac74\ubb3c\u00b7\ud559\uad50\u00b7\ud68c\uc0ac \uc774\ub984 (\uc608: \ub300\ub3d9\ucd08\ub4f1\ud559\uad50 \u00b7 \uac00\uc591\ub85c 12)', value: d.q || '', maxlen: 60, h: 44 },
     { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('\uc8fc\uc18c \ucc3e\uae30', call('kpg.find'), gold)] }], { pad: [12, 6, 12, 0] }));
-  if (results && results.length > 1) body.push(panel(results.map((r, i) => ({ t: 'navrow', title: r.n, sub: r.a, act: call('kpg.pick', '', String(i)), size: 13, vp: 8 })), { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
+  if (results && results.length > 1) body.push(panel(results.map((r, i) => ({ t: 'navrow', title: r.n, sub: r.a, act: call('kpg.pick', '', (+r.la).toFixed(6) + '|' + (+r.lo).toFixed(6) + '|' + String(r.n || '').replace(/\|/g, ' ').slice(0, 20)), size: 13, vp: 8 })), { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
   body.push({ t: 'tmap', h: 190, r: 14, pad: [12, 8, 12, 0], pts: [{ la: d.la, lo: d.lo, k: 's', n: '', l: d.name || '\uc5ec\uae30' }], foc: 0, fz: 17 });          // \uace0\uc815 \uc9c0\ub3c4(live \uc544\ub2d8): \ud31d\uc5c5\uc5d0 MapLibre \ub97c \uc62c\ub9ac\uba74 \uc5f4 \ub54c\ub9c8\ub2e4 \ubc84\ubc85\uc778\ub2e4 \u00b7 \uc704\uce58\ub294 \ucc3e\uae30\ub85c \uc815\ud55c\ub2e4
   body.push(panel([{ t: 'field', key: 'kpn', hint: '\uc7a5\uc18c \uc774\ub984 (\uc608: \uc6b0\ub9ac\uc9d1 \u00b7 00\ud559\uad50)', value: d.name || '', maxlen: 20, h: 44 },
     tx('\uc704\uce58 ' + (+d.la).toFixed(4) + ', ' + (+d.lo).toFixed(4) + ' \u00b7 \uc2dc\uac01 \uc54c\ub9bc\uc740 \ub4f1\ub85d \ub4a4 \uc7a5\uc18c\ub97c \ub20c\ub7ec \uc815\ud560 \uc218 \uc788\uc5b4\uc694', { size: 10.5, color: 'sub', pad: [0, 8, 0, 0] })], { pad: [12, 8, 12, 0] }));
@@ -1697,25 +1697,38 @@ async function handle(req, env, url) {
       if (v === 'kps.open') return R({ screen: await placesSheet(DB, cid), cid, sheet: 'ev' });
       // \uc7a5\uc18c \ub4f1\ub85d(s392)
       if (v === 'kpg.open') {
-        if (((await DB.prepare('SELECT COUNT(*) n FROM places WHERE cid=?').bind(cid).first()) || { n: 0 }).n >= MAX_PLACES) return R({ notice: '\uc7a5\uc18c\ub294 ' + MAX_PLACES + '\uacf3\uae4c\uc9c0 \ub4f1\ub85d\ud560 \uc218 \uc788\uc5b4\uc694' });
-        const l0 = await DB.prepare('SELECT la,lo FROM loc WHERE cid=?').bind(cid).first();
+        const [cn0, l0] = await Promise.all([DB.prepare('SELECT COUNT(*) n FROM places WHERE cid=?').bind(cid).first(), DB.prepare('SELECT la,lo FROM loc WHERE cid=?').bind(cid).first()]);      // s419: \ub450 \uc870\ud68c\ub97c \ud568\uaed8
+        if (((cn0) || { n: 0 }).n >= MAX_PLACES) return R({ close: true, notice: '\uc7a5\uc18c\ub294 ' + MAX_PLACES + '\uacf3\uae4c\uc9c0 \ub4f1\ub85d\ud560 \uc218 \uc788\uc5b4\uc694' });
         const la0 = l0 ? l0.la : 37.5665, lo0 = l0 ? l0.lo : 126.978;
         await saveDraft(DB, pid, cid, la0, lo0, '', '', now);
         return R({ screen: regSheet({ la: la0, lo: lo0, name: '', q: '' }, null, l0 ? '' : '\uc790\ub140 \uc704\uce58\ub97c \uc544\uc9c1 \ubab0\ub77c\uc694. \uc8fc\uc18c\ub97c \ucc3e\uc544 \uc8fc\uc138\uc694'), cid, sheet: 'ev' });
       }
       if (v.startsWith('kpg.')) {
-        const d = await readDraft(DB, pid);
-        if (!d) return R({ close: true });
-        const name = typeof f.kpn === 'string' ? f.kpn.replace(/\s+/g, ' ').trim().slice(0, 20) : d.name;
+        // s419: \ucd08\uc548\uc774 \uc5c6\uc5b4\ub3c4(\uc5f4\uae30 \ub2f5\uc774 \ub2a6\uc5b4 \uc544\uc9c1 \ubabb \ub9cc\ub4e4\uc5c8\uc5b4\ub3c4) \ud31d\uc5c5\uc744 \ub2eb\uc9c0 \uc54a\uace0 \uadf8 \uc790\ub9ac\uc5d0\uc11c \ub9cc\ub4e0\ub2e4
         if (v === 'kpg.cancel') { await DB.prepare('DELETE FROM drafts WHERE pid=?').bind(pid).run(); return R({ close: true }); }
+        let d = await readDraft(DB, pid);
+        if (!d) {
+          const l1 = await DB.prepare('SELECT la,lo FROM loc WHERE cid=?').bind(cid).first();
+          d = { la: l1 ? l1.la : 37.5665, lo: l1 ? l1.lo : 126.978, name: '', q: '' };
+          await saveDraft(DB, pid, cid, d.la, d.lo, '', '', now);
+        }
+        const name = typeof f.kpn === 'string' ? f.kpn.replace(/\s+/g, ' ').trim().slice(0, 20) : d.name;
+        const xy = /^(-?\d{1,3}(?:\.\d+)?)\|(-?\d{1,3}(?:\.\d+)?)\|/.exec(String(t || ''));       // \uc571\uc774 \uacb0\uacfc\uc5d0\uc11c \uace0\ub978 \uacf3\uc744 \uc9c1\uc811 \uc54c\ub824 \uc900\ub2e4(\ub2e4\uc2dc \ucc3e\uc9c0 \uc54a\ub294\ub2e4)
+        if (xy && (v === 'kpg.pick' || v === 'kpg.sv')) {
+          const la9 = +xy[1], lo9 = +xy[2];
+          if (!(Math.abs(la9) <= 85 && Math.abs(lo9) <= 180)) return R({});
+          const q9 = typeof f.kpa === 'string' ? f.kpa.replace(/\s+/g, ' ').trim().slice(0, 60) : (d.q || '');
+          await saveDraft(DB, pid, cid, la9, lo9, name || String(t).split('|').slice(2).join(' ').slice(0, 20), q9, now);
+          return R({});                                   // \ud654\uba74\uc740 \uc571\uc774 \uc774\ubbf8 \uace0\ucce4\ub2e4 \u2014 \uc800\uc7a5\ub9cc \ud558\uace0 \ub2f5\uc740 \ube44\uc6cc \ub454\ub2e4
+        }
         if (v === 'kpg.find') {
           const q = typeof f.kpa === 'string' ? f.kpa.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
           if (!q) { await saveDraft(DB, pid, cid, d.la, d.lo, name, '', now); return R({ screen: regSheet({ la: d.la, lo: d.lo, name, q: '' }, null, '\ucc3e\uc744 \uc8fc\uc18c\ub098 \uc7a5\uc18c\ub97c \uc801\uc5b4 \uc8fc\uc138\uc694'), cid, sheet: 'ev' }); }
           const res = await geoFind(q, [d.la, d.lo], env);
           if (!res.length) { await saveDraft(DB, pid, cid, d.la, d.lo, name, q, now); return R({ screen: regSheet({ la: d.la, lo: d.lo, name, q }, null, (res.err ? '\uac80\uc0c9 \uc11c\ubc84\uac00 \uc751\ub2f5\ud558\uc9c0 \uc54a\uc544\uc694 (' + res.err + '). \uc7a0\uc2dc \ub4a4 \ub2e4\uc2dc \ub20c\ub7ec \ubcf4\uc138\uc694' : '\ucc3e\uc9c0 \ubabb\ud588\uc5b4\uc694. \ub2e4\ub978 \ub9d0\ub85c \uc801\uc5b4 \ubcf4\uc138\uc694 (\uc608: \uc2dc\u00b7\uad6c\u00b7\ub3d9 + \uac74\ubb3c \uc774\ub984)')), cid, sheet: 'ev' }); }
-          await saveDraft(DB, pid, cid, res[0].la, res[0].lo, name || (res.length === 1 ? res[0].n.slice(0, 20) : ''), q, now);
-          const d2 = await readDraft(DB, pid);
-          return R({ screen: regSheet(d2, res, res.length > 1 ? '\uc5ec\ub7ec \uacf3\uc774 \ub098\uc654\uc5b4\uc694. \uc544\ub798\uc5d0\uc11c \uace0\ub974\uc138\uc694' : ''), cid, sheet: 'ev' });
+          const nm2 = name || (res.length === 1 ? res[0].n.slice(0, 20) : '');
+          await saveDraft(DB, pid, cid, res[0].la, res[0].lo, nm2, q, now);
+          return R({ screen: regSheet({ la: res[0].la, lo: res[0].lo, name: nm2, q }, res, res.length > 1 ? '\uc5ec\ub7ec \uacf3\uc774 \ub098\uc654\uc5b4\uc694. \uc544\ub798\uc5d0\uc11c \uace0\ub974\uc138\uc694' : ''), cid, sheet: 'ev' });
         }
         if (v === 'kpg.pick') {
           const res = d.q ? await geoFind(d.q, [d.la, d.lo], env) : [], i = Math.round(Number(t)), r = res[i];
@@ -1726,7 +1739,8 @@ async function handle(req, env, url) {
         if (v === 'kpg.add') {
           if (!name) { await saveDraft(DB, pid, cid, d.la, d.lo, '', d.q || '', now); return R({ screen: regSheet(Object.assign({}, d, { name: '' }), null, '\uc7a5\uc18c \uc774\ub984\uc744 \uc801\uc5b4 \uc8fc\uc138\uc694'), cid, sheet: 'ev' }); }
           if (((await DB.prepare('SELECT COUNT(*) n FROM places WHERE cid=?').bind(cid).first()) || { n: 0 }).n >= MAX_PLACES) return R({ close: true, notice: '\uc7a5\uc18c\ub294 ' + MAX_PLACES + '\uacf3\uae4c\uc9c0 \ub4f1\ub85d\ud560 \uc218 \uc788\uc5b4\uc694' });
-          await DB.batch([DB.prepare('INSERT INTO places(id,cid,name,la,lo,hh,mm,days,t) VALUES(?,?,?,?,?,0,0,0,?)').bind(rid(), cid, name, d.la, d.lo, now), DB.prepare('DELETE FROM drafts WHERE pid=?').bind(pid)]);
+          const xa = /^(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)$/.exec(String(t || '')), la8 = xa && Math.abs(+xa[1]) <= 85 && Math.abs(+xa[2]) <= 180 ? +xa[1] : d.la, lo8 = xa && Math.abs(+xa[1]) <= 85 && Math.abs(+xa[2]) <= 180 ? +xa[2] : d.lo;      // \uc571\uc774 \ud31d\uc5c5\uc5d0 \ubcf4\uc774\ub294 \uc9c0\ub3c4 \uc88c\ud45c\ub97c \uac19\uc774 \ubcf4\ub0b8\ub2e4(\ucd08\uc548 \uc800\uc7a5\uc774 \ub2a6\uc5b4\ub3c4 \uc5b4\uae0b\ub098\uc9c0 \uc54a\uac8c)
+          await DB.batch([DB.prepare('INSERT INTO places(id,cid,name,la,lo,hh,mm,days,t) VALUES(?,?,?,?,?,0,0,0,?)').bind(rid(), cid, name, la8, lo8, now), DB.prepare('DELETE FROM drafts WHERE pid=?').bind(pid)]);
           plCache.delete(cid);
           await bump(DB, cid);
           return R({ close: true, hub: 1, notice: name + ' \ub4f1\ub85d\ud588\uc5b4\uc694 \u00b7 \ub3c4\ucc29\ud558\uac70\ub098 \ubc97\uc5b4\ub098\uba74 \uc54c\ub824 \ub4dc\ub824\uc694' });
