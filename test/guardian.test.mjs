@@ -63,7 +63,7 @@ await req('POST', '/c/loc', 'c', { la: 37.5, lo: 126.84, acc: 8 });
 // ── 확인 전 ──
 let a = pushes.length;
 const g1 = await hubOf();
-chk(g1.ok && g1.screen.screen === 'kids' && /kg\.ok/.test(JSON.stringify(g1.screen)) && !hasMap(g1), '법정대리인 확인 전에는 확인 화면만 나오고 지도 · 위치가 없다');
+chk(g1.ok && g1.screen.screen === 'kidgd' && g1.screen.dlg && g1.screen.dlg.w === 460 && /kg\.ok/.test(JSON.stringify(g1.screen)) && !hasMap(g1), '법정대리인 확인 전에는 확인 팝업(가운데)만 나오고 지도 · 위치가 없다(s415)');
 chk(pushes.slice(a).filter((p) => p.data.k === 'watch').length === 0, '확인 전에는 자녀 폰에 "보는 중" 푸시도 보내지 않는다');
 chk(rows('SELECT * FROM lbs').length === 0, '확인 전에는 위치 제공 기록도 없다(제공한 적이 없다)');
 const lc = await req('GET', '/p/loc?cid=' + CID, 'p');

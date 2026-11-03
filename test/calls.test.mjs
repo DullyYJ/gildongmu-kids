@@ -77,7 +77,8 @@ await req('POST', '/p/act', 'p', { v: 'kg.ok', cid: CID });
 
 // ── 확인 뒤: 카드 + 지도 핀 ──
 const h1 = await hubOf(), t1 = JSON.stringify(h1.screen);
-chk(/긴급 호출/.test(t1) && /kx\.ack/.test(t1), '부모 화면 맨 위에 긴급 호출 카드와 "확인했어요" 버튼이 나온다');
+chk(/긴급 호출/.test(t1) && /kx\.open/.test(t1), '부모 화면 맨 위에 긴급 호출 줄(누르면 팝업)이 나온다');
+chk(h1.pop && h1.pop.k === 'sos' && h1.pop.ka === 'kx.ack' && h1.pop.bt === '확인했어요' && h1.pop.au === 1 && /긴급 호출/.test(h1.pop.pt), '엔진이 호출 팝업(제목 · 단추 · 저절로 뜸)을 응답에 실어 준다(s415)');
 const tm = h1.screen.head.find((n) => n.t === 'tmap');
 const sosPin = tm.pts.findIndex((q) => q.n === '!');
 chk(sosPin >= 0 && Math.abs(tm.pts[sosPin].la - 37.5) < 1e-6 && tm.foc === sosPin, '지도에 긴급 위치가 찍히고 거기로 맞춰진다');
@@ -96,14 +97,19 @@ chk(s2.id === s0.id && pk('sos', a).length === 1 && rows("SELECT * FROM calls WH
 // ── 부모 확인 → 자녀에게 알림 ──
 a = pushes.length;
 const ack = await req('POST', '/p/act', 'p', { v: 'kx.ack', cid: CID, t: s2.id });
-chk(ack.ok && ack.hub === 1 && /kx\.done/.test(JSON.stringify(ack.screen)), '확인했어요 → 카드가 "상황이 끝났어요" 로 바뀐다');
+const h2 = await hubOf();
+chk(ack.ok && ack.hub === 1 && h2.pop && h2.pop.ka === 'kx.done' && h2.pop.bt === '상황이 끝났어요' && h2.pop.au === 0, '확인했어요 → 팝업이 "상황이 끝났어요" 로 바뀌고 저절로는 안 뜬다(s415)');
 const cp = pushes.slice(a).filter((p) => p.data.k === 'callack' && p.token === CTK);
 chk(cp.length === 1 && /확인했어요/.test(cp[0].data.body), '자녀 폰에 "부모님이 확인했어요" 가 간다');
 const cs = await req('GET', '/c/state', 'c');
 chk(cs.call && cs.call.k === 'sos' && cs.call.st === 1 && /확인했어요/.test(cs.call.text), '자녀 상태에 부모가 확인했다는 글이 있다');
 const ack2 = await req('POST', '/p/act', 'p', { v: 'kx.ack', cid: CID, t: s2.id });
 chk(ack2.ok && pushes.slice(a).filter((p) => p.data.k === 'callack').length === 1, '이미 확인한 것을 또 눌러도 자녀에게 또 가지 않는다');
-await req('POST', '/p/act', 'p', { v: 'kx.done', cid: CID, t: s2.id });
+a = pushes.length;
+const dn = await req('POST', '/p/act', 'p', { v: 'kx.done', cid: CID, t: s2.id });
+chk(dn.ok && dn.hub === 1 && !dn.screen, '만났어요/끝났어요는 화면을 다시 짜지 않고 바로 답한다(앱이 누르자마자 팝업을 닫는다, s415)');
+const dp = pushes.slice(a).filter((p) => p.data.k === 'calldone' && p.token === CTK);
+chk(dp.length === 1 && /끝났다고/.test(dp[0].data.body), '끝났어요 → 자녀 폰에도 알림이 간다(s415)');
 const after = await hubTxt();
 chk(!/kx\.done|kx\.ack/.test(after), '끝났어요 하면 그 호출 카드가 사라진다');
 chk(rows("SELECT st FROM calls WHERE id=?", s2.id)[0].st === 3, '기록은 끝남(3)으로 바뀐다');
@@ -129,7 +135,8 @@ const pc = await req('POST', '/c/call', 'c', { k: 'pick', la: 37.5, lo: 126.84 }
 const pp = pk('pick', a);
 chk(pc.ok && pp.length === 1 && /데리러/.test(pp[0].data.body) && /학원 근처/.test(pp[0].data.body), '데리러 와줘: 등록한 장소 이름이 알림에 들어간다(서버가 계산)');
 const hp = await hubOf(); const tp = JSON.stringify(hp.screen);
-chk(/데리러 와 달라고/.test(tp) && /지금 가요/.test(tp), '부모 카드: "데리러 와 달라고 해요" + "지금 가요"');
+chk(/데리러 와 달라고/.test(tp) && hp.pop && /데리러 와 달라고/.test(hp.pop.pt) && hp.pop.bt === '지금 가요' && hp.pop.ka === 'kx.ack', '부모 줄 + 팝업: "데리러 와 달라고 해요" + "지금 가요"');
+chk(pp[0].data.ka === 'kx.ack' && pp[0].data.ci === pc.id && pp[0].data.bt === '지금 가요' && /데리러/.test(pp[0].data.pt) && pp[0].data.pk.startsWith(pc.id + ':0:'), '푸시에도 같은 팝업 값이 실려 키즈 탭 밖에서도 팝업이 뜬다(s415)');
 a = pushes.length;
 await req('POST', '/p/act', 'p', { v: 'kx.ack', cid: CID, t: pc.id });
 const pcs = pushes.slice(a).filter((p) => p.data.k === 'callack');
@@ -137,6 +144,7 @@ chk(pcs.length === 1 && /데리러 가고 있어요/.test(pcs[0].data.body), '"�
 a = pushes.length;
 const ar = await req('POST', '/c/call', 'c', { k: 'arr', la: 37.5, lo: 126.84 });
 const ap = pk('arr', a);
+chk(ap.length === 1 && ap[0].data.ka === '' && ap[0].data.bt === '확인' && /안전하게 도착/.test(ap[0].data.pt), '안전 도착 푸시에도 팝업 값(확인 단추만)이 실린다(s415)');
 chk(ar.ok && ap.length === 1 && /안전하게 도착/.test(ap[0].data.body) && /학원/.test(ap[0].data.body), '안전하게 도착: 부모에게 알림(장소 이름 포함)');
 chk(rows("SELECT la,lo FROM calls WHERE id=?", ar.id)[0].la === 0 && rows("SELECT la,lo FROM calls WHERE id=?", ar.id)[0].lo === 0, '도착 기록에는 좌표를 남기지 않는다');
 chk(!/안전하게 도착/.test(JSON.stringify((await hubOf()).screen.head)), '도착 알림은 맨 위 카드가 되지 않는다(활동 줄에만 남는다)');

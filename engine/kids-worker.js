@@ -270,7 +270,7 @@ async function lbsLog(DB, cid, pid, k, now, gapMs) {
   await DB.prepare('INSERT INTO lbs(t,cid,pid,k) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM lbs WHERE cid=? AND pid=? AND k=? AND t>?)').bind(now, cid, pid, k, cid, pid, k, now - (gapMs || 0)).run();
 }
 function gdScreen(nm) {
-  return scr('kids', [], [
+  return scr('kidgd', [], [
     tx('보호자 확인', { size: 16, bold: true, pad: [16, 24, 16, 6] }),
     tx(nm + '의 위치를 보기 전에 아래를 확인해 주세요.', { size: 12.5, color: 'sub', pad: [16, 0, 16, 8] }),
     panel([tx('• 저는 이 자녀의 법정대리인(친권자 · 후견인)이에요', { size: 13, pad: [0, 4, 0, 4] }),
@@ -280,7 +280,7 @@ function gdScreen(nm) {
       tx('• 사실과 다르면 이용이 제한될 수 있고 법적 책임은 제게 있어요', { size: 13, pad: [0, 4, 0, 4] })], { pad: [12, 4, 12, 0], ip: [14, 10, 14, 10] }),
     tx('이 확인을 한 시각이 기록돼요. 자세한 내용은 개인정보 처리방침과 위치기반서비스 이용약관에 있어요.', { size: 11, color: 'sub', pad: [16, 10, 16, 6] }),
     { t: 'row', gap: 8, pad: [12, 12, 12, 16], kids: [btn('모두 확인했어요', call('kg.ok'), gold)] },
-  ]);
+  ], { dlg: dlg() });          // s415: 키즈 화면 위 가운데 팝업(앱이 '키즈 화면'이 아니라 팝업으로 띄운다)
 }
 /** 연결된 부모마다(자녀 이름은 부모가 정한 이름) 글을 따로 만들어 보낸다. mk(nm) => data */
 async function notifyParents(env, DB, cid, mk, all) {      // all: 법정대리인 확인 전인 부모에게도 보낸다(긴급 호출 — 알림에는 위치가 없고, 위치는 확인을 마쳐야 보인다)
@@ -309,7 +309,26 @@ async function nearPlaceName(DB, cid, la, lo) {
   for (const p of ps) { const d = hav(la, lo, p.la, p.lo); if (d < bd) { bd = d; best = p.name; } }
   return best || '';
 }
+/** s415: 호출 팝업(가운데)에 뭐라고 쓰고 · 어떤 단추가 있고 · 저절로 뜰지는 엔진이 정한다. 앱은 이 값으로 그리기만 한다(푸시에도 같은 값이 실려 키즈 탭 밖에서도 같은 팝업이 뜬다).
+ *  c: {id,k,t,la,lo,pl,st}  st 0 = 아직 확인 전(저절로 뜬다) · 1 = 확인함(허브 줄을 눌러 '만났어요') */
+function callPopData(c, nm) {
+  const sos = c.k === 'sos', arr = c.k === 'arr';
+  const sub = clock(c.t) + (c.pl ? ' · ' + c.pl + ' 근처' : '') + (arr ? '' : c.st === 1 ? ' · 부모님 중 한 분이 확인했어요' : '') + (arr ? '' : (c.la || c.lo) ? ' · 지도에 표시했어요' : ' · 위치를 아직 못 받았어요');
+  const pt = arr ? '✅ ' + nm + ' 안전하게 도착했어요' : sos ? '🚨 ' + nm + ' 긴급 호출' : '🚗 ' + nm + ' 데리러 와 달라고 해요';
+  const st = c.st || 0;
+  return { pk: c.id + ':' + st + ':' + c.t, ci: c.id || '', pt, ps: sub, bt: arr ? '확인' : st === 0 ? (sos ? '확인했어요' : '지금 가요') : (sos ? '상황이 끝났어요' : '만났어요'), ka: arr ? '' : st === 0 ? 'kx.ack' : 'kx.done', au: st === 0 ? 1 : 0, k: c.k };
+}
+/** 허브 응답에 실리는 호출 팝업(가장 급한 하나 — 긴급 우선, 아니면 최근). 열린 호출이 없거나 법정대리인 확인 전이면 null */
+async function popOf(DB, pid, cid, now) {
+  if (!(await gdOk(DB, pid))) return null;
+  const calls = (await DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS).all()).results || [];
+  const c = calls.find((x) => x.k === 'sos') || calls[0];
+  if (!c) return null;
+  const cur = (await childrenOf(DB, pid)).find((k) => k.cid === cid);
+  return callPopData(c, nmOf(cur));
+}
 const callAck = (k) => (k === 'sos' ? '부모님이 확인했어요' : '부모님이 데리러 가고 있어요');
+const callDone = (k) => (k === 'sos' ? '부모님이 상황이 끝났다고 했어요' : '부모님을 만났어요 😊');
 async function callRequest(env, DB, cid, body, now) {
   const k = String(body.k || '');
   if (!CALL_GAP[k]) return { err: '형식이 맞지 않아요' };
@@ -343,10 +362,11 @@ async function callRequest(env, DB, cid, body, now) {
   }
   await ev(DB, cid, k, place, now);
   const near = place ? ' · ' + place + ' 근처' : '';
-  later(notifyParents(env, DB, cid, (nm) => (k === 'sos'
+  const pc = { id, k, t: now, la: keep ? la : 0, lo: keep ? lo : 0, pl: place, st: 0 };
+  later(notifyParents(env, DB, cid, (nm) => Object.assign(callPopData(pc, nm || '자녀'), (k === 'sos'
     ? { k: 'sos', title: '🚨 긴급 호출', body: who(nm) + ' 긴급 호출을 했어요. 지금 길동무를 열어 확인해 주세요', tag: 'sos' }
     : k === 'pick' ? { k: 'pick', title: '길동무', body: who(nm) + ' 데리러 와 달라고 해요' + near, tag: 'pick' }
-      : { k: 'arr', title: '길동무', body: who(nm) + ' 안전하게 도착했다고 알렸어요' + near + ' · ' + clock(now), tag: 'arr' }), k === 'sos'));
+      : { k: 'arr', title: '길동무', body: who(nm) + ' 안전하게 도착했다고 알렸어요' + near + ' · ' + clock(now), tag: 'arr' })), k === 'sos'));
   return { ok: true, id, linked, np };
 }
 /** 같은 일을 두 번 보내지 않는다(비트가 처음 켜질 때만 true) */
@@ -862,7 +882,7 @@ function alertLines(nm, pls, trips, loc, now) {
   return out;
 }
 
-const HUB_CARD_H = 112;                                              // 허브 위에 얹히는 긴급 호출 · 데리러 와줘 카드 한 장의 높이(dp, 어림) — 지도를 이만큼 줄인다
+const HUB_CARD_H = 46;                                              // 허브 위에 얹히는 긴급 호출 · 데리러 와줘 카드 한 장의 높이(dp, 어림) — 지도를 이만큼 줄인다
 const EV_SHOW = 50, EV_VIS = 4, HUB_CHAT = 40, CHAT_BOX = 230;     // 허브 아래 3칸은 글 수와 상관없이 크기 고정: 활동 칸 = 상태 2줄 + 활동 EV_VIS 줄 · 퀘스트 칸 = 단추·길동무포인트·바로가기 · 대화 칸 = 글 영역 CHAT_BOX(dp). 넘치는 글은 칸 안에서만 위아래로 민다                    
 const KIDS_TAB = { label: '키즈', icon: 'M12 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM6.8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17.2 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM12 12.5c-3.9 0-7 2-7 4.5V22h14v-5c0-2.5-3.1-4.5-7-4.5z' };      // 키즈 모드의 아래 탭(홈 칸을 바꿔 그린다): 어린이 모양 + 글자 — 앱은 이대로 그린다
 const evWhen = (t, now) => { if (kstParts(t).ds === kstParts(now).ds) return clock(t); const d = new Date(t + KST); return d.getUTCMonth() + 1 + '/' + d.getUTCDate() + ' ' + clock(t); };
@@ -939,11 +959,9 @@ async function hubScreen(DB, pid, cid, now) {
     viewing ? { t: 'lth', s: nm + ' 지난 경로', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '자녀 위치', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
     { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: mapH, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '자녀 위치를 아직 받지 못했어요' : follow ? '실시간으로 따라가는 중 · 지도를 밀면 잠시 멈춰요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
-  for (const c of topCall ? [topCall] : []) head.unshift(panel([
-    tx((c.k === 'sos' ? '🚨 ' + nm + ' 긴급 호출' : '🚗 ' + nm + ' 데리러 와 달라고 해요'), { size: 15, bold: true, color: 'orange', lines: 1, align: 'center' }),
-    tx(clock(c.t) + (c.pl ? ' · ' + c.pl + ' 근처' : '') + (c.st === 1 ? ' · 부모님 중 한 분이 확인했어요' : '') + ((c.la || c.lo) ? ' · 지도에 표시했어요' : ' · 위치를 아직 못 받았어요'), { size: 11.5, color: 'sub', lines: 2, align: 'center', pad: [0, 3, 0, 8] }),
-    { t: 'row', gap: 8, kids: [c.st === 0 ? btn(c.k === 'sos' ? '확인했어요' : '지금 가요', call('kx.ack', '', c.id), gold) : btn(c.k === 'sos' ? '상황이 끝났어요' : '만났어요', call('kx.done', '', c.id), gold)] },
-  ], { pad: [12, 8, 12, 0], ip: [14, 12, 14, 12] }));
+  for (const c of topCall ? [topCall] : []) head.unshift(panel([          // s415: 호출 내용은 가운데 팝업으로 뜬다 — 허브에는 한 줄만 남겨 눌러서 다시 열 수 있게
+    tx((c.k === 'sos' ? '🚨 ' + nm + ' 긴급 호출' : '🚗 ' + nm + ' 데리러 와 달라고 해요') + (c.st === 1 ? ' · 확인함' : '') + '  ›', { size: 13.5, bold: true, color: 'orange', lines: 1, align: 'center' }),
+  ], { pad: [12, 8, 12, 0], ip: [14, 11, 14, 11], act: call('kx.open', '', c.id) }));
   const body = [];
   if (viewing) body.push(panel([
     tx(rtTitle(rview, now), { size: 13, bold: true, lines: 1 }),
@@ -1534,7 +1552,7 @@ async function handle(req, env, url) {
       if (v === 'fam') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await famScreen(DB, pid, cid, now) });
       if (v === 'quest') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await questSheet(DB, pid, cid, url.searchParams.get('qt')) });
       if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                // 보는 중 표시(+ 새로 보기 시작하면 자녀 폰에 watch 푸시) · 위치가 없거나 오래됐으면 자녀 폰에 한 번 요청
-      return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await hubScreen(DB, pid, cid, now) });
+      return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await hubScreen(DB, pid, cid, now), pop: v === 'hub' ? await popOf(DB, pid, cid, now) : null });
     }
     if (p === '/p/wait' && m === 'GET') {         // 바뀔 때까지 붙들어 두었다가 그 화면을 새로 준다(부모 앱이 보는 화면마다 건다)
       const v = url.searchParams.get('v') || 'hub', cid0 = url.searchParams.get('cid') || '', since = +url.searchParams.get('since') || 0;
@@ -1547,7 +1565,7 @@ async function handle(req, env, url) {
       const t2 = Date.now(), kids = await childrenOf(DB, pid);
       if (!kids.some((k) => k.cid === cid)) return J({ ok: true, linked: kids.length, rev, gone: true });
       const screen = v === 'cheer' ? await cheerSheet(DB, pid, cid, '') : v === 'chat' ? await chatSheet(DB, pid, cid, t2) : v === 'fam' ? await famScreen(DB, pid, cid, t2) : v === 'quest' ? await questSheet(DB, pid, cid, url.searchParams.get('qt')) : await hubScreen(DB, pid, cid, t2);
-      return J({ ok: true, linked: kids.length, rev, cid, screen });
+      return J({ ok: true, linked: kids.length, rev, cid, screen, pop: v === 'hub' ? await popOf(DB, pid, cid, t2) : null });
     }
     if (p === '/p/act' && m === 'POST') {         // 부모가 누른 것 · 보낸 것. 화면은 엔진이 다시 짜서 돌려준다
       const v = typeof body.v === 'string' ? body.v : '', id = typeof body.id === 'string' ? body.id : '', t = typeof body.t === 'string' ? body.t : '';
@@ -1564,16 +1582,22 @@ async function handle(req, env, url) {
         return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
       }
       if (/^k(r|pg|p|pl|ps|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
-      if (v === 'kx.ack' || v === 'kx.done') {          // 부모가 긴급 호출 · 데리러 와줘 를 확인했다 / 끝났다
+      if (v === 'kx.open') {                          // s415: 허브의 호출 줄을 눌렀다 — 그 호출의 팝업(앱이 그림)
+        const pop = await popOf(DB, pid, cid, now);
+        return R(pop ? { pop, cid } : { hub: 1 });
+      }
+      if (v === 'kx.ack' || v === 'kx.done') {          // 부모가 긴급 호출 · 데리러 와줘 를 확인했다 / 끝났다 — s415: 앱은 누르자마자 팝업을 닫는다. 여기서는 최소한만 하고 자녀에게 바로 알린다(화면은 앱이 따로 받는다)
         if (!cid || !t) return R({ hub: 1 });
         const ack = v === 'kx.ack';
-        const r = await DB.prepare('UPDATE calls SET st=?,at=? WHERE id=? AND cid=? AND st=?').bind(ack ? 1 : 3, now, String(t), cid, ack ? 0 : 1).run();
+        const [r, c] = await Promise.all([
+          DB.prepare('UPDATE calls SET st=?,at=? WHERE id=? AND cid=? AND st=?').bind(ack ? 1 : 3, now, String(t), cid, ack ? 0 : 1).run(),
+          DB.prepare('SELECT k FROM calls WHERE id=?').bind(String(t)).first(),
+        ]);
         if (r && r.meta && r.meta.changes > 0) {
-          const c = await DB.prepare('SELECT k FROM calls WHERE id=?').bind(String(t)).first();
+          if (c) later(notifyChild(env, DB, cid, ack ? { k: 'callack', title: '길동무 키즈', body: callAck(c.k), tag: 'callack' } : { k: 'calldone', title: '길동무 키즈', body: callDone(c.k), tag: 'calldone' }));
           await bump(DB, cid);
-          if (ack && c) later(notifyChild(env, DB, cid, { k: 'callack', title: '길동무 키즈', body: callAck(c.k), tag: 'callack' }));
         }
-        return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
+        return R({ hub: 1, cid });
       }
       // 연결 관리
       if (v === 'kl.open') return R({ screen: await linkSheet(DB, pid, '') });
@@ -1835,6 +1859,7 @@ async function handle(req, env, url) {
   return bad('없는 길이에요', 404);
 }
 
+export { gdScreen };          // s415: 부모 앱이 첫 화면(보호자 확인 팝업)을 통신 없이 바로 띄우려고 이 모양을 복사해 간다 — 시험이 같은지 확인한다
 export default {
   async scheduled(event, env, ctx) {
     CTX = ctx;

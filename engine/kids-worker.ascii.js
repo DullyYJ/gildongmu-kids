@@ -270,7 +270,7 @@ async function lbsLog(DB, cid, pid, k, now, gapMs) {
   await DB.prepare('INSERT INTO lbs(t,cid,pid,k) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM lbs WHERE cid=? AND pid=? AND k=? AND t>?)').bind(now, cid, pid, k, cid, pid, k, now - (gapMs || 0)).run();
 }
 function gdScreen(nm) {
-  return scr('kids', [], [
+  return scr('kidgd', [], [
     tx('\ubcf4\ud638\uc790 \ud655\uc778', { size: 16, bold: true, pad: [16, 24, 16, 6] }),
     tx(nm + '\uc758 \uc704\uce58\ub97c \ubcf4\uae30 \uc804\uc5d0 \uc544\ub798\ub97c \ud655\uc778\ud574 \uc8fc\uc138\uc694.', { size: 12.5, color: 'sub', pad: [16, 0, 16, 8] }),
     panel([tx('\u2022 \uc800\ub294 \uc774 \uc790\ub140\uc758 \ubc95\uc815\ub300\ub9ac\uc778(\uce5c\uad8c\uc790 \u00b7 \ud6c4\uacac\uc778)\uc774\uc5d0\uc694', { size: 13, pad: [0, 4, 0, 4] }),
@@ -280,7 +280,7 @@ function gdScreen(nm) {
       tx('\u2022 \uc0ac\uc2e4\uacfc \ub2e4\ub974\uba74 \uc774\uc6a9\uc774 \uc81c\ud55c\ub420 \uc218 \uc788\uace0 \ubc95\uc801 \ucc45\uc784\uc740 \uc81c\uac8c \uc788\uc5b4\uc694', { size: 13, pad: [0, 4, 0, 4] })], { pad: [12, 4, 12, 0], ip: [14, 10, 14, 10] }),
     tx('\uc774 \ud655\uc778\uc744 \ud55c \uc2dc\uac01\uc774 \uae30\ub85d\ub3fc\uc694. \uc790\uc138\ud55c \ub0b4\uc6a9\uc740 \uac1c\uc778\uc815\ubcf4 \ucc98\ub9ac\ubc29\uce68\uacfc \uc704\uce58\uae30\ubc18\uc11c\ube44\uc2a4 \uc774\uc6a9\uc57d\uad00\uc5d0 \uc788\uc5b4\uc694.', { size: 11, color: 'sub', pad: [16, 10, 16, 6] }),
     { t: 'row', gap: 8, pad: [12, 12, 12, 16], kids: [btn('\ubaa8\ub450 \ud655\uc778\ud588\uc5b4\uc694', call('kg.ok'), gold)] },
-  ]);
+  ], { dlg: dlg() });          // s415: \ud0a4\uc988 \ud654\uba74 \uc704 \uac00\uc6b4\ub370 \ud31d\uc5c5(\uc571\uc774 '\ud0a4\uc988 \ud654\uba74'\uc774 \uc544\ub2c8\ub77c \ud31d\uc5c5\uc73c\ub85c \ub744\uc6b4\ub2e4)
 }
 /** \uc5f0\uacb0\ub41c \ubd80\ubaa8\ub9c8\ub2e4(\uc790\ub140 \uc774\ub984\uc740 \ubd80\ubaa8\uac00 \uc815\ud55c \uc774\ub984) \uae00\uc744 \ub530\ub85c \ub9cc\ub4e4\uc5b4 \ubcf4\ub0b8\ub2e4. mk(nm) => data */
 async function notifyParents(env, DB, cid, mk, all) {      // all: \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc778 \ubd80\ubaa8\uc5d0\uac8c\ub3c4 \ubcf4\ub0b8\ub2e4(\uae34\uae09 \ud638\ucd9c \u2014 \uc54c\ub9bc\uc5d0\ub294 \uc704\uce58\uac00 \uc5c6\uace0, \uc704\uce58\ub294 \ud655\uc778\uc744 \ub9c8\uccd0\uc57c \ubcf4\uc778\ub2e4)
@@ -309,7 +309,26 @@ async function nearPlaceName(DB, cid, la, lo) {
   for (const p of ps) { const d = hav(la, lo, p.la, p.lo); if (d < bd) { bd = d; best = p.name; } }
   return best || '';
 }
+/** s415: \ud638\ucd9c \ud31d\uc5c5(\uac00\uc6b4\ub370)\uc5d0 \ubb50\ub77c\uace0 \uc4f0\uace0 \u00b7 \uc5b4\ub5a4 \ub2e8\ucd94\uac00 \uc788\uace0 \u00b7 \uc800\uc808\ub85c \ub730\uc9c0\ub294 \uc5d4\uc9c4\uc774 \uc815\ud55c\ub2e4. \uc571\uc740 \uc774 \uac12\uc73c\ub85c \uadf8\ub9ac\uae30\ub9cc \ud55c\ub2e4(\ud478\uc2dc\uc5d0\ub3c4 \uac19\uc740 \uac12\uc774 \uc2e4\ub824 \ud0a4\uc988 \ud0ed \ubc16\uc5d0\uc11c\ub3c4 \uac19\uc740 \ud31d\uc5c5\uc774 \ub72c\ub2e4).
+ *  c: {id,k,t,la,lo,pl,st}  st 0 = \uc544\uc9c1 \ud655\uc778 \uc804(\uc800\uc808\ub85c \ub72c\ub2e4) \u00b7 1 = \ud655\uc778\ud568(\ud5c8\ube0c \uc904\uc744 \ub20c\ub7ec '\ub9cc\ub0ac\uc5b4\uc694') */
+function callPopData(c, nm) {
+  const sos = c.k === 'sos', arr = c.k === 'arr';
+  const sub = clock(c.t) + (c.pl ? ' \u00b7 ' + c.pl + ' \uadfc\ucc98' : '') + (arr ? '' : c.st === 1 ? ' \u00b7 \ubd80\ubaa8\ub2d8 \uc911 \ud55c \ubd84\uc774 \ud655\uc778\ud588\uc5b4\uc694' : '') + (arr ? '' : (c.la || c.lo) ? ' \u00b7 \uc9c0\ub3c4\uc5d0 \ud45c\uc2dc\ud588\uc5b4\uc694' : ' \u00b7 \uc704\uce58\ub97c \uc544\uc9c1 \ubabb \ubc1b\uc558\uc5b4\uc694');
+  const pt = arr ? '\u2705 ' + nm + ' \uc548\uc804\ud558\uac8c \ub3c4\ucc29\ud588\uc5b4\uc694' : sos ? '\ud83d\udea8 ' + nm + ' \uae34\uae09 \ud638\ucd9c' : '\ud83d\ude97 ' + nm + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694';
+  const st = c.st || 0;
+  return { pk: c.id + ':' + st + ':' + c.t, ci: c.id || '', pt, ps: sub, bt: arr ? '\ud655\uc778' : st === 0 ? (sos ? '\ud655\uc778\ud588\uc5b4\uc694' : '\uc9c0\uae08 \uac00\uc694') : (sos ? '\uc0c1\ud669\uc774 \ub05d\ub0ac\uc5b4\uc694' : '\ub9cc\ub0ac\uc5b4\uc694'), ka: arr ? '' : st === 0 ? 'kx.ack' : 'kx.done', au: st === 0 ? 1 : 0, k: c.k };
+}
+/** \ud5c8\ube0c \uc751\ub2f5\uc5d0 \uc2e4\ub9ac\ub294 \ud638\ucd9c \ud31d\uc5c5(\uac00\uc7a5 \uae09\ud55c \ud558\ub098 \u2014 \uae34\uae09 \uc6b0\uc120, \uc544\ub2c8\uba74 \ucd5c\uadfc). \uc5f4\ub9b0 \ud638\ucd9c\uc774 \uc5c6\uac70\ub098 \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc774\uba74 null */
+async function popOf(DB, pid, cid, now) {
+  if (!(await gdOk(DB, pid))) return null;
+  const calls = (await DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS).all()).results || [];
+  const c = calls.find((x) => x.k === 'sos') || calls[0];
+  if (!c) return null;
+  const cur = (await childrenOf(DB, pid)).find((k) => k.cid === cid);
+  return callPopData(c, nmOf(cur));
+}
 const callAck = (k) => (k === 'sos' ? '\ubd80\ubaa8\ub2d8\uc774 \ud655\uc778\ud588\uc5b4\uc694' : '\ubd80\ubaa8\ub2d8\uc774 \ub370\ub9ac\ub7ec \uac00\uace0 \uc788\uc5b4\uc694');
+const callDone = (k) => (k === 'sos' ? '\ubd80\ubaa8\ub2d8\uc774 \uc0c1\ud669\uc774 \ub05d\ub0ac\ub2e4\uace0 \ud588\uc5b4\uc694' : '\ubd80\ubaa8\ub2d8\uc744 \ub9cc\ub0ac\uc5b4\uc694 \ud83d\ude0a');
 async function callRequest(env, DB, cid, body, now) {
   const k = String(body.k || '');
   if (!CALL_GAP[k]) return { err: '\ud615\uc2dd\uc774 \ub9de\uc9c0 \uc54a\uc544\uc694' };
@@ -343,10 +362,11 @@ async function callRequest(env, DB, cid, body, now) {
   }
   await ev(DB, cid, k, place, now);
   const near = place ? ' \u00b7 ' + place + ' \uadfc\ucc98' : '';
-  later(notifyParents(env, DB, cid, (nm) => (k === 'sos'
+  const pc = { id, k, t: now, la: keep ? la : 0, lo: keep ? lo : 0, pl: place, st: 0 };
+  later(notifyParents(env, DB, cid, (nm) => Object.assign(callPopData(pc, nm || '\uc790\ub140'), (k === 'sos'
     ? { k: 'sos', title: '\ud83d\udea8 \uae34\uae09 \ud638\ucd9c', body: who(nm) + ' \uae34\uae09 \ud638\ucd9c\uc744 \ud588\uc5b4\uc694. \uc9c0\uae08 \uae38\ub3d9\ubb34\ub97c \uc5f4\uc5b4 \ud655\uc778\ud574 \uc8fc\uc138\uc694', tag: 'sos' }
     : k === 'pick' ? { k: 'pick', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694' + near, tag: 'pick' }
-      : { k: 'arr', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' \uc548\uc804\ud558\uac8c \ub3c4\ucc29\ud588\ub2e4\uace0 \uc54c\ub838\uc5b4\uc694' + near + ' \u00b7 ' + clock(now), tag: 'arr' }), k === 'sos'));
+      : { k: 'arr', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' \uc548\uc804\ud558\uac8c \ub3c4\ucc29\ud588\ub2e4\uace0 \uc54c\ub838\uc5b4\uc694' + near + ' \u00b7 ' + clock(now), tag: 'arr' })), k === 'sos'));
   return { ok: true, id, linked, np };
 }
 /** \uac19\uc740 \uc77c\uc744 \ub450 \ubc88 \ubcf4\ub0b4\uc9c0 \uc54a\ub294\ub2e4(\ube44\ud2b8\uac00 \ucc98\uc74c \ucf1c\uc9c8 \ub54c\ub9cc true) */
@@ -862,7 +882,7 @@ function alertLines(nm, pls, trips, loc, now) {
   return out;
 }
 
-const HUB_CARD_H = 112;                                              // \ud5c8\ube0c \uc704\uc5d0 \uc5b9\ud788\ub294 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \uce74\ub4dc \ud55c \uc7a5\uc758 \ub192\uc774(dp, \uc5b4\ub9bc) \u2014 \uc9c0\ub3c4\ub97c \uc774\ub9cc\ud07c \uc904\uc778\ub2e4
+const HUB_CARD_H = 46;                                              // \ud5c8\ube0c \uc704\uc5d0 \uc5b9\ud788\ub294 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \uce74\ub4dc \ud55c \uc7a5\uc758 \ub192\uc774(dp, \uc5b4\ub9bc) \u2014 \uc9c0\ub3c4\ub97c \uc774\ub9cc\ud07c \uc904\uc778\ub2e4
 const EV_SHOW = 50, EV_VIS = 4, HUB_CHAT = 40, CHAT_BOX = 230;     // \ud5c8\ube0c \uc544\ub798 3\uce78\uc740 \uae00 \uc218\uc640 \uc0c1\uad00\uc5c6\uc774 \ud06c\uae30 \uace0\uc815: \ud65c\ub3d9 \uce78 = \uc0c1\ud0dc 2\uc904 + \ud65c\ub3d9 EV_VIS \uc904 \u00b7 \ud018\uc2a4\ud2b8 \uce78 = \ub2e8\ucd94\u00b7\uae38\ub3d9\ubb34\ud3ec\uc778\ud2b8\u00b7\ubc14\ub85c\uac00\uae30 \u00b7 \ub300\ud654 \uce78 = \uae00 \uc601\uc5ed CHAT_BOX(dp). \ub118\uce58\ub294 \uae00\uc740 \uce78 \uc548\uc5d0\uc11c\ub9cc \uc704\uc544\ub798\ub85c \ubbfc\ub2e4                    
 const KIDS_TAB = { label: '\ud0a4\uc988', icon: 'M12 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM6.8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17.2 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM12 12.5c-3.9 0-7 2-7 4.5V22h14v-5c0-2.5-3.1-4.5-7-4.5z' };      // \ud0a4\uc988 \ubaa8\ub4dc\uc758 \uc544\ub798 \ud0ed(\ud648 \uce78\uc744 \ubc14\uafd4 \uadf8\ub9b0\ub2e4): \uc5b4\ub9b0\uc774 \ubaa8\uc591 + \uae00\uc790 \u2014 \uc571\uc740 \uc774\ub300\ub85c \uadf8\ub9b0\ub2e4
 const evWhen = (t, now) => { if (kstParts(t).ds === kstParts(now).ds) return clock(t); const d = new Date(t + KST); return d.getUTCMonth() + 1 + '/' + d.getUTCDate() + ' ' + clock(t); };
@@ -939,11 +959,9 @@ async function hubScreen(DB, pid, cid, now) {
     viewing ? { t: 'lth', s: nm + ' \uc9c0\ub09c \uacbd\ub85c', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '\uc790\ub140 \uc704\uce58', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
     { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: mapH, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '\uc9c0\ub09c \uacbd\ub85c \u00b7 \uc544\ub798 \ub2e8\ucd94\ub85c \uc2e4\uc2dc\uac04\uc73c\ub85c \ub3cc\uc544\uac00\uc694' : noLoc ? '\uc790\ub140 \uc704\uce58\ub97c \uc544\uc9c1 \ubc1b\uc9c0 \ubabb\ud588\uc5b4\uc694' : follow ? '\uc2e4\uc2dc\uac04\uc73c\ub85c \ub530\ub77c\uac00\ub294 \uc911 \u00b7 \uc9c0\ub3c4\ub97c \ubc00\uba74 \uc7a0\uc2dc \uba48\ucdb0\uc694' : '\uc9c0\ub3c4\ub97c 3\ucd08 \ub204\ub974\uba74 \uc7a5\uc18c\ub97c \ub4f1\ub85d\ud574\uc694', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
-  for (const c of topCall ? [topCall] : []) head.unshift(panel([
-    tx((c.k === 'sos' ? '\ud83d\udea8 ' + nm + ' \uae34\uae09 \ud638\ucd9c' : '\ud83d\ude97 ' + nm + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694'), { size: 15, bold: true, color: 'orange', lines: 1, align: 'center' }),
-    tx(clock(c.t) + (c.pl ? ' \u00b7 ' + c.pl + ' \uadfc\ucc98' : '') + (c.st === 1 ? ' \u00b7 \ubd80\ubaa8\ub2d8 \uc911 \ud55c \ubd84\uc774 \ud655\uc778\ud588\uc5b4\uc694' : '') + ((c.la || c.lo) ? ' \u00b7 \uc9c0\ub3c4\uc5d0 \ud45c\uc2dc\ud588\uc5b4\uc694' : ' \u00b7 \uc704\uce58\ub97c \uc544\uc9c1 \ubabb \ubc1b\uc558\uc5b4\uc694'), { size: 11.5, color: 'sub', lines: 2, align: 'center', pad: [0, 3, 0, 8] }),
-    { t: 'row', gap: 8, kids: [c.st === 0 ? btn(c.k === 'sos' ? '\ud655\uc778\ud588\uc5b4\uc694' : '\uc9c0\uae08 \uac00\uc694', call('kx.ack', '', c.id), gold) : btn(c.k === 'sos' ? '\uc0c1\ud669\uc774 \ub05d\ub0ac\uc5b4\uc694' : '\ub9cc\ub0ac\uc5b4\uc694', call('kx.done', '', c.id), gold)] },
-  ], { pad: [12, 8, 12, 0], ip: [14, 12, 14, 12] }));
+  for (const c of topCall ? [topCall] : []) head.unshift(panel([          // s415: \ud638\ucd9c \ub0b4\uc6a9\uc740 \uac00\uc6b4\ub370 \ud31d\uc5c5\uc73c\ub85c \ub72c\ub2e4 \u2014 \ud5c8\ube0c\uc5d0\ub294 \ud55c \uc904\ub9cc \ub0a8\uaca8 \ub20c\ub7ec\uc11c \ub2e4\uc2dc \uc5f4 \uc218 \uc788\uac8c
+    tx((c.k === 'sos' ? '\ud83d\udea8 ' + nm + ' \uae34\uae09 \ud638\ucd9c' : '\ud83d\ude97 ' + nm + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694') + (c.st === 1 ? ' \u00b7 \ud655\uc778\ud568' : '') + '  \u203a', { size: 13.5, bold: true, color: 'orange', lines: 1, align: 'center' }),
+  ], { pad: [12, 8, 12, 0], ip: [14, 11, 14, 11], act: call('kx.open', '', c.id) }));
   const body = [];
   if (viewing) body.push(panel([
     tx(rtTitle(rview, now), { size: 13, bold: true, lines: 1 }),
@@ -1534,7 +1552,7 @@ async function handle(req, env, url) {
       if (v === 'fam') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await famScreen(DB, pid, cid, now) });
       if (v === 'quest') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await questSheet(DB, pid, cid, url.searchParams.get('qt')) });
       if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                // \ubcf4\ub294 \uc911 \ud45c\uc2dc(+ \uc0c8\ub85c \ubcf4\uae30 \uc2dc\uc791\ud558\uba74 \uc790\ub140 \ud3f0\uc5d0 watch \ud478\uc2dc) \u00b7 \uc704\uce58\uac00 \uc5c6\uac70\ub098 \uc624\ub798\ub410\uc73c\uba74 \uc790\ub140 \ud3f0\uc5d0 \ud55c \ubc88 \uc694\uccad
-      return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await hubScreen(DB, pid, cid, now) });
+      return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await hubScreen(DB, pid, cid, now), pop: v === 'hub' ? await popOf(DB, pid, cid, now) : null });
     }
     if (p === '/p/wait' && m === 'GET') {         // \ubc14\ub014 \ub54c\uae4c\uc9c0 \ubd99\ub4e4\uc5b4 \ub450\uc5c8\ub2e4\uac00 \uadf8 \ud654\uba74\uc744 \uc0c8\ub85c \uc900\ub2e4(\ubd80\ubaa8 \uc571\uc774 \ubcf4\ub294 \ud654\uba74\ub9c8\ub2e4 \uac74\ub2e4)
       const v = url.searchParams.get('v') || 'hub', cid0 = url.searchParams.get('cid') || '', since = +url.searchParams.get('since') || 0;
@@ -1547,7 +1565,7 @@ async function handle(req, env, url) {
       const t2 = Date.now(), kids = await childrenOf(DB, pid);
       if (!kids.some((k) => k.cid === cid)) return J({ ok: true, linked: kids.length, rev, gone: true });
       const screen = v === 'cheer' ? await cheerSheet(DB, pid, cid, '') : v === 'chat' ? await chatSheet(DB, pid, cid, t2) : v === 'fam' ? await famScreen(DB, pid, cid, t2) : v === 'quest' ? await questSheet(DB, pid, cid, url.searchParams.get('qt')) : await hubScreen(DB, pid, cid, t2);
-      return J({ ok: true, linked: kids.length, rev, cid, screen });
+      return J({ ok: true, linked: kids.length, rev, cid, screen, pop: v === 'hub' ? await popOf(DB, pid, cid, t2) : null });
     }
     if (p === '/p/act' && m === 'POST') {         // \ubd80\ubaa8\uac00 \ub204\ub978 \uac83 \u00b7 \ubcf4\ub0b8 \uac83. \ud654\uba74\uc740 \uc5d4\uc9c4\uc774 \ub2e4\uc2dc \uc9dc\uc11c \ub3cc\ub824\uc900\ub2e4
       const v = typeof body.v === 'string' ? body.v : '', id = typeof body.id === 'string' ? body.id : '', t = typeof body.t === 'string' ? body.t : '';
@@ -1564,16 +1582,22 @@ async function handle(req, env, url) {
         return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
       }
       if (/^k(r|pg|p|pl|ps|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
-      if (v === 'kx.ack' || v === 'kx.done') {          // \ubd80\ubaa8\uac00 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \ub97c \ud655\uc778\ud588\ub2e4 / \ub05d\ub0ac\ub2e4
+      if (v === 'kx.open') {                          // s415: \ud5c8\ube0c\uc758 \ud638\ucd9c \uc904\uc744 \ub20c\ub800\ub2e4 \u2014 \uadf8 \ud638\ucd9c\uc758 \ud31d\uc5c5(\uc571\uc774 \uadf8\ub9bc)
+        const pop = await popOf(DB, pid, cid, now);
+        return R(pop ? { pop, cid } : { hub: 1 });
+      }
+      if (v === 'kx.ack' || v === 'kx.done') {          // \ubd80\ubaa8\uac00 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \ub97c \ud655\uc778\ud588\ub2e4 / \ub05d\ub0ac\ub2e4 \u2014 s415: \uc571\uc740 \ub204\ub974\uc790\ub9c8\uc790 \ud31d\uc5c5\uc744 \ub2eb\ub294\ub2e4. \uc5ec\uae30\uc11c\ub294 \ucd5c\uc18c\ud55c\ub9cc \ud558\uace0 \uc790\ub140\uc5d0\uac8c \ubc14\ub85c \uc54c\ub9b0\ub2e4(\ud654\uba74\uc740 \uc571\uc774 \ub530\ub85c \ubc1b\ub294\ub2e4)
         if (!cid || !t) return R({ hub: 1 });
         const ack = v === 'kx.ack';
-        const r = await DB.prepare('UPDATE calls SET st=?,at=? WHERE id=? AND cid=? AND st=?').bind(ack ? 1 : 3, now, String(t), cid, ack ? 0 : 1).run();
+        const [r, c] = await Promise.all([
+          DB.prepare('UPDATE calls SET st=?,at=? WHERE id=? AND cid=? AND st=?').bind(ack ? 1 : 3, now, String(t), cid, ack ? 0 : 1).run(),
+          DB.prepare('SELECT k FROM calls WHERE id=?').bind(String(t)).first(),
+        ]);
         if (r && r.meta && r.meta.changes > 0) {
-          const c = await DB.prepare('SELECT k FROM calls WHERE id=?').bind(String(t)).first();
+          if (c) later(notifyChild(env, DB, cid, ack ? { k: 'callack', title: '\uae38\ub3d9\ubb34 \ud0a4\uc988', body: callAck(c.k), tag: 'callack' } : { k: 'calldone', title: '\uae38\ub3d9\ubb34 \ud0a4\uc988', body: callDone(c.k), tag: 'calldone' }));
           await bump(DB, cid);
-          if (ack && c) later(notifyChild(env, DB, cid, { k: 'callack', title: '\uae38\ub3d9\ubb34 \ud0a4\uc988', body: callAck(c.k), tag: 'callack' }));
         }
-        return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
+        return R({ hub: 1, cid });
       }
       // \uc5f0\uacb0 \uad00\ub9ac
       if (v === 'kl.open') return R({ screen: await linkSheet(DB, pid, '') });
@@ -1835,6 +1859,7 @@ async function handle(req, env, url) {
   return bad('\uc5c6\ub294 \uae38\uc774\uc5d0\uc694', 404);
 }
 
+export { gdScreen };          // s415: \ubd80\ubaa8 \uc571\uc774 \uccab \ud654\uba74(\ubcf4\ud638\uc790 \ud655\uc778 \ud31d\uc5c5)\uc744 \ud1b5\uc2e0 \uc5c6\uc774 \ubc14\ub85c \ub744\uc6b0\ub824\uace0 \uc774 \ubaa8\uc591\uc744 \ubcf5\uc0ac\ud574 \uac04\ub2e4 \u2014 \uc2dc\ud5d8\uc774 \uac19\uc740\uc9c0 \ud655\uc778\ud55c\ub2e4
 export default {
   async scheduled(event, env, ctx) {
     CTX = ctx;
