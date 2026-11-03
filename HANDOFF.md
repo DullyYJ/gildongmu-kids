@@ -380,3 +380,9 @@
 - **자녀 호출 팝업**: 허브 맨 위 큰 카드를 없애고 한 줄(`kx.open`, 눌러서 팝업)로 — `HUB_CARD_H` 112→46(지도 250→204). 팝업에 쓸 값(제목 `pt` · 글 `ps` · 단추 `bt`/`ka`/`ci` · 저절로 뜰지 `au` · 키 `pk`)은 엔진 `callPopData` 가 정한다. 허브 응답(`/p/screen`·`/p/wait`)에 `pop` 으로, **푸시(sos·pick·arr)에도 같은 값**이 실린다 → 앱이 앞에 있으면 키즈 탭 밖(어느 탭)에서도 가운데 팝업(긴급은 알람 알림도 함께), 알림을 누르면 팝업이 바로 뜬다. 자녀가 취소(`callx`)하면 떠 있는 팝업이 닫힌다. st 0(확인 전)만 저절로 뜨고 st 1(확인함)은 허브 줄을 눌러서(`kx.open`).
 - **응답 속도**: `kx.ack`/`kx.done` 은 화면을 다시 짜지 않고(`{hub:1}`) UPDATE·SELECT 를 동시에 하고 곧바로 자녀 푸시(`callack` · 새로 `calldone` = "부모님이 상황이 끝났다고 했어요"/"부모님을 만났어요 😊"). 앱은 누르자마자 팝업을 닫는다. `kx.open` 은 `pop` 을 준다.
 - 시험: callnp 15 · calls 36 · guardian 23 · gdseed 3 + safety 70 · watch 21 · route_keep 41 · loc_request 5 · locjump 10 · arrive50 9 · boundary 42. **워커 배포 필요(kids-worker.ascii.js), 기기 미확인.**
+
+## s416 (2026-11-03) — 설정 > 길동무 키즈 팝업 · 마커 변경 (앱은 subway-app s406)
+- `GET /p/setrow?kn=1`(새 앱) → "길동무 키즈" 줄 하나(`kn.open`), kn 없으면(옛 앱) 예전 줄(연동 · 시작 화면 스위치 · 응원문구) 그대로.
+- `kn.open` → `kidMenuSheet`(가운데 팝업 `kidmenu`): 키즈 화면으로 시작 알약(`kidsHome`, 앱이 `kl.start` 로 저장) · 자녀 응원문구 · **마커 변경**(`km.open`) · 연동 관리(`kl.open`) · 닫기. `km.open` → `kidMarkerSheet`(`kidmk`): 자녀마다 [사진 고르기 `km.pick`][기본으로 `km.clr`] (id=자녀 열쇠) — 두 행동은 **앱이 이 폰 안에서만 처리**(사진은 서버에 올리지 않는다). 응원문구 팝업에 [‹ 뒤로] 추가.
+- 허브 지도의 자녀 핀(`k:'m'`)에 `g: 'kid.' + markerKey(cid)` — 앱이 이 열쇠로 저장된 동그란 사진을 찾아 마커로 그린다(`markerKey` = 영문·숫자·_·- 외 '_' · 34자, 앱 `MarkerCropCore.key` 와 같은 규칙).
+- 시험: `test/kidmenu.test.mjs` 11 + 기존 callnp 15 · calls 36 · guardian 23 · gdseed 3 · safety 70 · watch 21 · route_keep 41 · loc_request 5 · locjump 10 · arrive50 9 · boundary 42. 팝업 JSON 은 앱 ScreenCore 검증기 통과(건너뛴 노드 0). **워커 배포 필요(kids-worker.ascii.js), 기기 미확인.**

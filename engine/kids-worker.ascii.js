@@ -928,7 +928,7 @@ async function hubScreen(DB, pid, cid, now) {
   const trips = await todayTrips(DB, cid, now);
   const pins = [];
   const heading = loc && watching && loc.hd >= 0 && now - loc.mt < MOVE_REC_MS && now - loc.hdt < 90000 ? loc.hd : -1;       // \uc6c0\uc9c1\uc774\ub294 \uc911\uc77c \ub54c\ub9cc \uac00\ub294 \ubc29\ud5a5(\uc571\uc740 \ud654\uc0b4\ud45c\ub9cc \ub3cc\ub9b0\ub2e4)
-  if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, ...(heading >= 0 ? { h: heading } : {}) });
+  if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, g: 'kid.' + markerKey(cid), ...(heading >= 0 ? { h: heading } : {}) });
   pls.slice(0, 9).forEach((p, i) => pins.push({ la: p.la, lo: p.lo, k: 's', n: String(i + 1), l: p.name, v: 'kp.' + p.id }));
   const calls = (await DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS).all()).results || [];
   let cpin = -1;                                                                  // \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \uac00 \uc788\uc73c\uba74 \uadf8 \uc790\ub9ac\ub97c \uc9c0\ub3c4\uc5d0 \ucc0d\uace0 \uac70\uae30\ub85c \ub9de\ucd98\ub2e4
@@ -1236,7 +1236,7 @@ async function cheerSheet(DB, pid, cid, notice) {
   if (rows.length) body.push(panel(rows.map((r) => ({ t: 'row', gap: 8, pad: [0, 4, 0, 4], kids: [tx(r.x, { size: 13, pad: [0, 8, 0, 0], flex: 1 }), btn('\uc0ad\uc81c', call('kh.cd', cur.cid, String(r.id)), { fill: 'card2', tc: 'orange', line: 'border', h: 32, size: 12 })] })), { pad: [12, 6, 12, 0] }));
   if (rows.length < MAX_CHEER) body.push(panel([{ t: 'field', key: 'kch', hint: '\uc751\uc6d0\ubb38\uad6c (\ucd5c\ub300 ' + CHEER_LEN + '\uc790)', maxlen: CHEER_LEN, h: 44 },
     { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('\ucd94\uac00', call('kh.ca', cur.cid), gold)] }], { pad: [12, 8, 12, 0] }));
-  body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('\ub2eb\uae30', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
+  body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('\u2039 \ub4a4\ub85c', call('kn.open'), { fill: 'card2', tc: 'text', line: 'border' }), btn('\ub2eb\uae30', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
   return scr('kidcheer', [], body, { dlg: dlg() });
 }
 
@@ -1260,10 +1260,14 @@ async function linkSheet(DB, pid, notice) {
 }
 
 /** \uc124\uc815 \ud0ed \ub9e8 \uc704\uc5d0 \ub07c\uc6b8 \ud55c \uc904(\uc5f0\uacb0\ub418\uc5c8\uc744 \ub54c\ub9cc). \uc5f0\uacb0\uc774 \uc5c6\uc73c\uba74 null \u2014 \uae38\ub3d9\ubb34\ub294 \uc544\ubb34\uac83\ub3c4 \ubcf4\uc774\uc9c0 \uc54a\ub294\ub2e4. */
-async function settingsRow(DB, pid) {          // \uc124\uc815 \ub9e8 \uc704\uc5d0 \ub07c\uc6b8 \ub178\ub4dc\ub4e4(\uc5f0\uacb0\ub41c \ubd80\ubaa8\uc5d0\uac8c\ub9cc). \uc544\ubb34\ub3c4 \uc5f0\uacb0 \uc548 \ud588\uc73c\uba74 null
+async function settingsRow(DB, pid, kn) {          // \uc124\uc815 \ub9e8 \uc704\uc5d0 \ub07c\uc6b8 \ub178\ub4dc\ub4e4(\uc5f0\uacb0\ub41c \ubd80\ubaa8\uc5d0\uac8c\ub9cc). \uc544\ubb34\ub3c4 \uc5f0\uacb0 \uc548 \ud588\uc73c\uba74 null. kn: \uc0c8 \uc571(\uae38\ub3d9\ubb34 \ud0a4\uc988 \ud0ed \ud558\ub098 \u2192 \ud31d\uc5c5\uc5d0\uc11c \uc124\uc815)
   const kids = await childrenOf(DB, pid);
   if (!kids.length) return null;
   const names = kids.map(nmOf).join(', ');
+  if (kn) return [
+    { t: 'panel', pad: [16, 12, 16, 0], ip: [16, 6, 16, 6], fill: 'card', line: 'border', r: 14, kids: [
+      { t: 'navrow', title: '\uae38\ub3d9\ubb34 \ud0a4\uc988', sub: '\uc5f0\ub3d9\ub418\uc5c8\uc2b5\ub2c8\ub2e4 \u00b7 ' + names, act: call('kn.open'), size: 14, top: true }] },
+  ];
   const kh = (await DB.prepare('SELECT kh FROM devices WHERE id=?').bind(pid).first())?.kh ? true : false;
   const nc = (await DB.prepare('SELECT COUNT(*) n FROM cheers WHERE cid=?').bind(kids[0].cid).first())?.n || 0;
   return [
@@ -1274,6 +1278,33 @@ async function settingsRow(DB, pid) {          // \uc124\uc815 \ub9e8 \uc704\uc5
       { t: 'toggle', key: 'kidsHome', title: '\ud0a4\uc988 \ud654\uba74\uc73c\ub85c \uc2dc\uc791', sub: '\ucf1c\uba74 \uc571\uc744 \uc5f4 \ub54c \ud0a4\uc988 \uac10\uc2dc \ud654\uba74\uc774 \uba3c\uc800 \ub098\uc640\uc694. \ub044\uba74 \uae38\ub3d9\ubb34 \ud648\uc73c\ub85c \uc2dc\uc791\ud574\uc694.', on: kh, top: false, vp: 9, size: 14, ssize: 11, onc: 'gold' },
       { t: 'navrow', title: '\uc790\ub140 \uc751\uc6d0\ubb38\uad6c \ub9cc\ub4e4\uae30', sub: kids.length > 1 ? '\uc790\ub140\ub9c8\ub2e4 \ucd5c\ub300 ' + MAX_CHEER + '\uac1c' : nc + '/' + MAX_CHEER + '\uac1c', act: call('kh.cheer'), size: 14, top: true }] },
   ];
+}
+/** \uc790\ub140 \ub9c8\ucee4 \uc0ac\uc9c4\uc758 \uc5f4\uc1e0 \u2014 \uc9c0\ub3c4 \ud540(g)\uacfc \uc571 \uc800\uc7a5\uc18c\uac00 \uac19\uc740 \uae00\uc744 \uc4f4\ub2e4(\uc571 KidsHub.markerKey \uc640 \uac19\uc740 \uaddc\uce59) */
+const markerKey = (cid) => String(cid || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 34);
+async function kidMenuSheet(DB, pid) {          // \uc124\uc815 > \uae38\ub3d9\ubb34 \ud0a4\uc988 \ud31d\uc5c5: \uc5f0\ub3d9 \u00b7 \uc2dc\uc791 \ud654\uba74 \u00b7 \uc751\uc6d0\ubb38\uad6c \u00b7 \ub9c8\ucee4 \ubcc0\uacbd
+  const kids = await childrenOf(DB, pid);
+  if (!kids.length) return scr('kidmenu', [], [tx('\uc5f0\uacb0\ub41c \uc790\ub140\uac00 \uc5c6\uc5b4\uc694', { size: 15, bold: true, pad: [16, 20, 16, 12] })], { dlg: dlg() });
+  const kh = (await DB.prepare('SELECT kh FROM devices WHERE id=?').bind(pid).first())?.kh ? true : false;
+  const nc = (await DB.prepare('SELECT COUNT(*) n FROM cheers WHERE cid=?').bind(kids[0].cid).first())?.n || 0;
+  const body = [tx('\uae38\ub3d9\ubb34 \ud0a4\uc988', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
+    tx('\uae38\ub3d9\ubb34 \ud0a4\uc988\uc640 \uc5f0\ub3d9\ub418\uc5c8\uc2b5\ub2c8\ub2e4 \u00b7 ' + kids.map(nmOf).join(', '), { size: 11, color: 'sub', pad: [16, 0, 16, 6] }),
+    panel([{ t: 'toggle', key: 'kidsHome', title: '\ud0a4\uc988 \ud654\uba74\uc73c\ub85c \uc2dc\uc791', sub: '\ucf1c\uba74 \uc571\uc744 \uc5f4 \ub54c \ud0a4\uc988 \uac10\uc2dc \ud654\uba74\uc774 \uba3c\uc800 \ub098\uc640\uc694. \ub044\uba74 \uae38\ub3d9\ubb34 \ud648\uc73c\ub85c \uc2dc\uc791\ud574\uc694.', on: kh, top: false, vp: 9, size: 14, ssize: 11, onc: 'gold' }], { ip: [14, 6, 14, 6] }),
+    panel([
+      { t: 'navrow', title: '\uc790\ub140 \uc751\uc6d0\ubb38\uad6c \ub9cc\ub4e4\uae30', sub: kids.length > 1 ? '\uc790\ub140\ub9c8\ub2e4 \ucd5c\ub300 ' + MAX_CHEER + '\uac1c' : nc + '/' + MAX_CHEER + '\uac1c', act: call('kh.cheer'), size: 14, top: true },
+      { t: 'navrow', title: '\ub9c8\ucee4 \ubcc0\uacbd', sub: '\uc9c0\ub3c4\uc5d0 \ubcf4\uc774\ub294 \uc790\ub140 \ub9c8\ucee4\ub97c \uc0ac\uc9c4\uc73c\ub85c \ubc14\uafd4\uc694', act: call('km.open'), size: 14, top: true },
+      { t: 'navrow', title: '\uc5f0\ub3d9 \uad00\ub9ac', sub: '\uc790\ub140 \ucd94\uac00 \u00b7 \uc5f0\uacb0 \ub04a\uae30', act: call('kl.open'), size: 14, top: true }], { ip: [14, 6, 14, 6] }),
+    { t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('\ub2eb\uae30', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] }];
+  return scr('kidmenu', [], body, { dlg: dlg() });
+}
+async function kidMarkerSheet(DB, pid) {          // \ub9c8\ucee4 \ubcc0\uacbd \ud31d\uc5c5: \uc790\ub140\ub9c8\ub2e4 [\uc0ac\uc9c4 \uace0\ub974\uae30] [\uae30\ubcf8\uc73c\ub85c] \u2014 \uc0ac\uc9c4\uc740 \uc774 \uae30\uae30\uc5d0\ub9cc \uc800\uc7a5\ub3fc\uc694(\uc571\uc774 \ucc98\ub9ac, \uc11c\ubc84\ub294 \ubaa8\ub978\ub2e4)
+  const kids = await childrenOf(DB, pid);
+  const body = [tx('\ub9c8\ucee4 \ubcc0\uacbd', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
+    tx('\uc0ac\uc9c4\uc744 \uace0\ub978 \ub4a4 \ub3d9\uadf8\ub77c\ubbf8 \uc548\uc5d0 \ub4e4\uc5b4\uc624\uac8c \uc62e\uae30\uace0 \ud655\ub300\ud558\uba74, \uc9c0\ub3c4\uc758 \uc790\ub140 \ub9c8\ucee4\uac00 \uadf8 \uc0ac\uc9c4\uc73c\ub85c \ubc14\ub00c\uc5b4\uc694. \uc0ac\uc9c4\uc740 \uc774 \ud3f0\uc5d0\ub9cc \uc800\uc7a5\ub3fc\uc694.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
+  if (!kids.length) body.push(tx('\uc5f0\uacb0\ub41c \uc790\ub140\uac00 \uc5c6\uc5b4\uc694', { size: 13, pad: [16, 8, 16, 8] }));
+  else body.push(panel(kids.map((k) => ({ t: 'row', gap: 8, pad: [0, 4, 0, 4], kids: [tx(nmOf(k), { size: 14, bold: true, pad: [0, 10, 0, 0], flex: 1 }),
+    btn('\uc0ac\uc9c4 \uace0\ub974\uae30', call('km.pick', k.cid), Object.assign({ h: 34, size: 12 }, gold)), btn('\uae30\ubcf8\uc73c\ub85c', call('km.clr', k.cid), { fill: 'card2', tc: 'text', line: 'border', h: 34, size: 12 })] })), { ip: [14, 8, 14, 8] }));
+  body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('\u2039 \ub4a4\ub85c', call('kn.open'), { fill: 'card2', tc: 'text', line: 'border' }), btn('\ub2eb\uae30', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
+  return scr('kidmk', [], body, { dlg: dlg() });
 }
 async function startPref(DB, pid) {          // \uc571\uc774 \ucf1c\uc9c8 \ub54c \uba3c\uc800 \ubcfc \ud654\uba74(\uc5f0\uacb0\uc774 \uc788\uace0 \uc124\uc815\uc774 \ucf1c\uc84c\uc744 \ub54c\ub9cc 1)
   const kids = await childrenOf(DB, pid);
@@ -1539,7 +1570,7 @@ async function handle(req, env, url) {
       if (!(await gdOk(DB, pid))) rows.forEach((r) => { r.la = null; r.lo = null; r.acc = null; r.t = null; });          // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc5d0\ub294 \uc704\uce58\ub97c \uc8fc\uc9c0 \uc54a\ub294\ub2e4
       return J({ ok: true, children: rows });
     }
-    if (p === '/p/setrow' && m === 'GET') return J({ ok: true, nodes: await settingsRow(DB, pid), start: await startPref(DB, pid), tab: KIDS_TAB });     // \uc124\uc815 \ud0ed\uc5d0 \ub07c\uc6b8 \ud55c \uc904(\uc5f0\uacb0 \uc5c6\uc73c\uba74 null)
+    if (p === '/p/setrow' && m === 'GET') return J({ ok: true, nodes: await settingsRow(DB, pid, url.searchParams.get('kn') === '1'), start: await startPref(DB, pid), tab: KIDS_TAB });     // \uc124\uc815 \ud0ed\uc5d0 \ub07c\uc6b8 \ud55c \uc904(\uc5f0\uacb0 \uc5c6\uc73c\uba74 null)
     if (p === '/p/screen' && m === 'GET') {       // \ubd80\ubaa8 \ud654\uba74 \ubb36\uc74c: v = hub \u00b7 chat \u00b7 quest \u00b7 link
       const v = url.searchParams.get('v') || 'hub', cid0 = url.searchParams.get('cid') || '';
       if (v === 'link') return J({ ok: true, screen: await linkSheet(DB, pid, '') });
@@ -1645,6 +1676,8 @@ async function handle(req, env, url) {
       }
       if (!cid) return bad('\uc5f0\uacb0\ub41c \uc790\ub140\uac00 \uc5c6\uc5b4\uc694', 403);
       // \uac00\uc871 \ub300\ud654
+      if (v === 'kn.open') return R({ screen: await kidMenuSheet(DB, pid) });                  // \uc124\uc815 > \uae38\ub3d9\ubb34 \ud0a4\uc988 \ud31d\uc5c5
+      if (v === 'km.open') return R({ screen: await kidMarkerSheet(DB, pid) });                // \ub9c8\ucee4 \ubcc0\uacbd \ud31d\uc5c5 (\uc0ac\uc9c4 \uace0\ub974\uae30 \u00b7 \uae30\ubcf8\uc73c\ub85c\ub294 \uc571\uc774 \uc774 \ud3f0 \uc548\uc5d0\uc11c \ucc98\ub9ac)
       if (v === 'kh.cheer') return R({ screen: await cheerSheet(DB, pid, kids.some((k) => k.cid === id) ? id : cid, ''), cid: kids.some((k) => k.cid === id) ? id : cid, sheet: 'cheer' });
       if (v === 'kh.ca' || v === 'kh.cd') {
         const c2 = kids.some((k) => k.cid === id) ? id : cid;

@@ -928,7 +928,7 @@ async function hubScreen(DB, pid, cid, now) {
   const trips = await todayTrips(DB, cid, now);
   const pins = [];
   const heading = loc && watching && loc.hd >= 0 && now - loc.mt < MOVE_REC_MS && now - loc.hdt < 90000 ? loc.hd : -1;       // 움직이는 중일 때만 가는 방향(앱은 화살표만 돌린다)
-  if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, ...(heading >= 0 ? { h: heading } : {}) });
+  if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, g: 'kid.' + markerKey(cid), ...(heading >= 0 ? { h: heading } : {}) });
   pls.slice(0, 9).forEach((p, i) => pins.push({ la: p.la, lo: p.lo, k: 's', n: String(i + 1), l: p.name, v: 'kp.' + p.id }));
   const calls = (await DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS).all()).results || [];
   let cpin = -1;                                                                  // 긴급 호출 · 데리러 와줘 가 있으면 그 자리를 지도에 찍고 거기로 맞춘다
@@ -1236,7 +1236,7 @@ async function cheerSheet(DB, pid, cid, notice) {
   if (rows.length) body.push(panel(rows.map((r) => ({ t: 'row', gap: 8, pad: [0, 4, 0, 4], kids: [tx(r.x, { size: 13, pad: [0, 8, 0, 0], flex: 1 }), btn('삭제', call('kh.cd', cur.cid, String(r.id)), { fill: 'card2', tc: 'orange', line: 'border', h: 32, size: 12 })] })), { pad: [12, 6, 12, 0] }));
   if (rows.length < MAX_CHEER) body.push(panel([{ t: 'field', key: 'kch', hint: '응원문구 (최대 ' + CHEER_LEN + '자)', maxlen: CHEER_LEN, h: 44 },
     { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('추가', call('kh.ca', cur.cid), gold)] }], { pad: [12, 8, 12, 0] }));
-  body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
+  body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('‹ 뒤로', call('kn.open'), { fill: 'card2', tc: 'text', line: 'border' }), btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
   return scr('kidcheer', [], body, { dlg: dlg() });
 }
 
@@ -1260,10 +1260,14 @@ async function linkSheet(DB, pid, notice) {
 }
 
 /** 설정 탭 맨 위에 끼울 한 줄(연결되었을 때만). 연결이 없으면 null — 길동무는 아무것도 보이지 않는다. */
-async function settingsRow(DB, pid) {          // 설정 맨 위에 끼울 노드들(연결된 부모에게만). 아무도 연결 안 했으면 null
+async function settingsRow(DB, pid, kn) {          // 설정 맨 위에 끼울 노드들(연결된 부모에게만). 아무도 연결 안 했으면 null. kn: 새 앱(길동무 키즈 탭 하나 → 팝업에서 설정)
   const kids = await childrenOf(DB, pid);
   if (!kids.length) return null;
   const names = kids.map(nmOf).join(', ');
+  if (kn) return [
+    { t: 'panel', pad: [16, 12, 16, 0], ip: [16, 6, 16, 6], fill: 'card', line: 'border', r: 14, kids: [
+      { t: 'navrow', title: '길동무 키즈', sub: '연동되었습니다 · ' + names, act: call('kn.open'), size: 14, top: true }] },
+  ];
   const kh = (await DB.prepare('SELECT kh FROM devices WHERE id=?').bind(pid).first())?.kh ? true : false;
   const nc = (await DB.prepare('SELECT COUNT(*) n FROM cheers WHERE cid=?').bind(kids[0].cid).first())?.n || 0;
   return [
@@ -1274,6 +1278,33 @@ async function settingsRow(DB, pid) {          // 설정 맨 위에 끼울 노�
       { t: 'toggle', key: 'kidsHome', title: '키즈 화면으로 시작', sub: '켜면 앱을 열 때 키즈 감시 화면이 먼저 나와요. 끄면 길동무 홈으로 시작해요.', on: kh, top: false, vp: 9, size: 14, ssize: 11, onc: 'gold' },
       { t: 'navrow', title: '자녀 응원문구 만들기', sub: kids.length > 1 ? '자녀마다 최대 ' + MAX_CHEER + '개' : nc + '/' + MAX_CHEER + '개', act: call('kh.cheer'), size: 14, top: true }] },
   ];
+}
+/** 자녀 마커 사진의 열쇠 — 지도 핀(g)과 앱 저장소가 같은 글을 쓴다(앱 KidsHub.markerKey 와 같은 규칙) */
+const markerKey = (cid) => String(cid || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 34);
+async function kidMenuSheet(DB, pid) {          // 설정 > 길동무 키즈 팝업: 연동 · 시작 화면 · 응원문구 · 마커 변경
+  const kids = await childrenOf(DB, pid);
+  if (!kids.length) return scr('kidmenu', [], [tx('연결된 자녀가 없어요', { size: 15, bold: true, pad: [16, 20, 16, 12] })], { dlg: dlg() });
+  const kh = (await DB.prepare('SELECT kh FROM devices WHERE id=?').bind(pid).first())?.kh ? true : false;
+  const nc = (await DB.prepare('SELECT COUNT(*) n FROM cheers WHERE cid=?').bind(kids[0].cid).first())?.n || 0;
+  const body = [tx('길동무 키즈', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
+    tx('길동무 키즈와 연동되었습니다 · ' + kids.map(nmOf).join(', '), { size: 11, color: 'sub', pad: [16, 0, 16, 6] }),
+    panel([{ t: 'toggle', key: 'kidsHome', title: '키즈 화면으로 시작', sub: '켜면 앱을 열 때 키즈 감시 화면이 먼저 나와요. 끄면 길동무 홈으로 시작해요.', on: kh, top: false, vp: 9, size: 14, ssize: 11, onc: 'gold' }], { ip: [14, 6, 14, 6] }),
+    panel([
+      { t: 'navrow', title: '자녀 응원문구 만들기', sub: kids.length > 1 ? '자녀마다 최대 ' + MAX_CHEER + '개' : nc + '/' + MAX_CHEER + '개', act: call('kh.cheer'), size: 14, top: true },
+      { t: 'navrow', title: '마커 변경', sub: '지도에 보이는 자녀 마커를 사진으로 바꿔요', act: call('km.open'), size: 14, top: true },
+      { t: 'navrow', title: '연동 관리', sub: '자녀 추가 · 연결 끊기', act: call('kl.open'), size: 14, top: true }], { ip: [14, 6, 14, 6] }),
+    { t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] }];
+  return scr('kidmenu', [], body, { dlg: dlg() });
+}
+async function kidMarkerSheet(DB, pid) {          // 마커 변경 팝업: 자녀마다 [사진 고르기] [기본으로] — 사진은 이 기기에만 저장돼요(앱이 처리, 서버는 모른다)
+  const kids = await childrenOf(DB, pid);
+  const body = [tx('마커 변경', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
+    tx('사진을 고른 뒤 동그라미 안에 들어오게 옮기고 확대하면, 지도의 자녀 마커가 그 사진으로 바뀌어요. 사진은 이 폰에만 저장돼요.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
+  if (!kids.length) body.push(tx('연결된 자녀가 없어요', { size: 13, pad: [16, 8, 16, 8] }));
+  else body.push(panel(kids.map((k) => ({ t: 'row', gap: 8, pad: [0, 4, 0, 4], kids: [tx(nmOf(k), { size: 14, bold: true, pad: [0, 10, 0, 0], flex: 1 }),
+    btn('사진 고르기', call('km.pick', k.cid), Object.assign({ h: 34, size: 12 }, gold)), btn('기본으로', call('km.clr', k.cid), { fill: 'card2', tc: 'text', line: 'border', h: 34, size: 12 })] })), { ip: [14, 8, 14, 8] }));
+  body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('‹ 뒤로', call('kn.open'), { fill: 'card2', tc: 'text', line: 'border' }), btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
+  return scr('kidmk', [], body, { dlg: dlg() });
 }
 async function startPref(DB, pid) {          // 앱이 켜질 때 먼저 볼 화면(연결이 있고 설정이 켜졌을 때만 1)
   const kids = await childrenOf(DB, pid);
@@ -1539,7 +1570,7 @@ async function handle(req, env, url) {
       if (!(await gdOk(DB, pid))) rows.forEach((r) => { r.la = null; r.lo = null; r.acc = null; r.t = null; });          // 법정대리인 확인 전에는 위치를 주지 않는다
       return J({ ok: true, children: rows });
     }
-    if (p === '/p/setrow' && m === 'GET') return J({ ok: true, nodes: await settingsRow(DB, pid), start: await startPref(DB, pid), tab: KIDS_TAB });     // 설정 탭에 끼울 한 줄(연결 없으면 null)
+    if (p === '/p/setrow' && m === 'GET') return J({ ok: true, nodes: await settingsRow(DB, pid, url.searchParams.get('kn') === '1'), start: await startPref(DB, pid), tab: KIDS_TAB });     // 설정 탭에 끼울 한 줄(연결 없으면 null)
     if (p === '/p/screen' && m === 'GET') {       // 부모 화면 묶음: v = hub · chat · quest · link
       const v = url.searchParams.get('v') || 'hub', cid0 = url.searchParams.get('cid') || '';
       if (v === 'link') return J({ ok: true, screen: await linkSheet(DB, pid, '') });
@@ -1645,6 +1676,8 @@ async function handle(req, env, url) {
       }
       if (!cid) return bad('연결된 자녀가 없어요', 403);
       // 가족 대화
+      if (v === 'kn.open') return R({ screen: await kidMenuSheet(DB, pid) });                  // 설정 > 길동무 키즈 팝업
+      if (v === 'km.open') return R({ screen: await kidMarkerSheet(DB, pid) });                // 마커 변경 팝업 (사진 고르기 · 기본으로는 앱이 이 폰 안에서 처리)
       if (v === 'kh.cheer') return R({ screen: await cheerSheet(DB, pid, kids.some((k) => k.cid === id) ? id : cid, ''), cid: kids.some((k) => k.cid === id) ? id : cid, sheet: 'cheer' });
       if (v === 'kh.ca' || v === 'kh.cd') {
         const c2 = kids.some((k) => k.cid === id) ? id : cid;
