@@ -278,3 +278,4 @@
 - **제16조 제공 기록**: `lbs`(t,cid,pid,k: v 화면 보기 1분 1건 · n 알림) 좌표 없음, 200일, 연결 해제로 지우지 않는다. `cons`: 자녀 동의 기록(`/c/consent`, 자녀 앱이 `sendConsent`).
 - **재동의**: 자녀 앱 키를 `consent2/cp2/cc2` 로 바꿔 업데이트 뒤 모두 다시 동의해야 한다. 동의 창에 '만 9살 이상' 카드 추가.
 - 시험: `test/guardian.test.mjs`(23). 다른 시험은 join 뒤 `kg.ok` 를 먼저 한다.
+- 대시보드에 붙여넣는 ASCII 판: `python3 tools/to-ascii.py` → `engine/kids-worker.ascii.js` (kids-worker.js 를 고치면 다시 만든다).
