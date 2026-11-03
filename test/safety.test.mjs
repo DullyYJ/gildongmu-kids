@@ -44,7 +44,7 @@ const DB = mkD1();
 const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const env = { DB, FCM_SA: JSON.stringify({ client_email: 'x@y.iam', project_id: 'p1', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) }) };
 const pushes = [];                                              // 받은 알림 [{token, data}]
-let wxMode = 'clear', wxCalls = 0, geoDocs = {}, geoFail = false;
+let wxMode = 'clear', wxCalls = 0, geoDocs = {}, geoFail = false, geo404 = false, osmCalls = 0;
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (u, init) => {
   u = String(u);
@@ -58,7 +58,14 @@ globalThis.fetch = async (u, init) => {
     return new Response(JSON.stringify({ hourly: { time: t, precipitation_probability: t.map(() => (rain ? 90 : 0)), precipitation: t.map(() => (rain ? 2 : 0)), snowfall: t.map(() => 0), apparent_temperature: t.map(() => 15) } }), { status: 200 });
   }
   if (u.includes('air-quality-api')) return new Response(JSON.stringify({ hourly: { time: Array.from({ length: 24 }, (_, i) => '2026-11-03T' + String(i).padStart(2, '0') + ':00'), pm10: new Array(24).fill(20), pm2_5: new Array(24).fill(10) } }), { status: 200 });
+  if (u.includes('nominatim.openstreetmap.org')) {
+    osmCalls++;
+    if (geoFail) return new Response('x', { status: 500 });
+    const q = decodeURIComponent((u.match(/[?&]q=([^&]*)/) || [])[1] || '');
+    return new Response(JSON.stringify(q === '대동초등학교' ? [{ name: '대동초등학교', display_name: '대동초등학교, 연수구, 인천, 21999, 대한민국', lat: '37.3900', lon: '126.6400' }] : []), { status: 200 });
+  }
   if (u.includes('kakao-local')) {
+    if (geo404) return new Response('error code: 1042', { status: 404 });
     if (geoFail) return new Response('x', { status: 500 });
     const path = decodeURIComponent((u.match(/path=([^&]*)/) || [])[1] || '');
     const q = decodeURIComponent(decodeURIComponent((u.match(/qs=([^&]*)/) || [])[1] || '').replace(/^query=/, '').split('&')[0]);
@@ -126,6 +133,17 @@ await loc();                                                     // 자녀 위�
   chk(/찾지 못했어요/.test(JSON.stringify(nf.screen)), '못 찾으면 안내');
   geoFail = true; const gf = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '가양로 12' } }); geoFail = false;
   chk(gf.ok && /검색 서버가 응답하지 않아요 \(응답 500\)/.test(JSON.stringify(gf.screen)), '주소 서버가 실패하면 "없음"이 아니라 서버 문제라고 알린다(원인 표시)');
+  geo404 = true; osmCalls = 0;
+  const g4 = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '대동초등학교' } });
+  const g4m = g4.screen.body.find((n) => n.t === 'tmap');
+  chk(osmCalls >= 1 && g4m && Math.abs(g4m.pts[0].la - 37.39) < 1e-6 && Math.abs(g4m.pts[0].lo - 126.64) < 1e-6 && /대동초등학교/.test(JSON.stringify(g4.screen)), '카카오 중계가 404 여도 OpenStreetMap 으로 학교 이름을 찾아 지도가 옮겨간다');
+  const g5 = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '없는곳xyz' } }); geo404 = false;
+  chk(/응답 404/.test(JSON.stringify(g5.screen)), '카카오가 계속 막히고 대체 검색에서도 없으면 서버 문제로 알린다(원인 표시)');
+  const bindCalls = []; const env0 = env.GEO;
+  env.GEO = { fetch: async (x) => { bindCalls.push(String(x.url || x)); return new Response(JSON.stringify({ documents: [{ address_name: '서울 강서구 가양동 12', x: '126.8600', y: '37.5300' }] }), { status: 200 }); } };
+  geo404 = true; const g6 = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '아무주소' } }); geo404 = false;
+  if (env0 === undefined) delete env.GEO; else env.GEO = env0;
+  chk(bindCalls.length >= 1 && Math.abs(g6.screen.body.find((n) => n.t === 'tmap').pts[0].la - 37.53) < 1e-6, '서비스 바인딩 GEO 가 있으면 그것으로 카카오를 묻는다');
   chk(!JSON.stringify(f1.screen.body.find((n) => n.t === 'tmap')).includes('"live"'), '팝업 지도는 고정 지도다(끌 수 있는 지도를 올리면 버벅인다)');
   await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '가양로 12' } });
   const ad = await req('POST', '/p/act', 'p', { v: 'kpg.add', cid: CID, f: { kpn: '학원' } });

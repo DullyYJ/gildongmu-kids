@@ -1023,24 +1023,53 @@ async function readDraft(DB, pid) { return DB.prepare('SELECT * FROM drafts WHER
 // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \uc7a5\uc18c \ub4f1\ub85d(s392): \uc8fc\uc18c(\ub610\ub294 \uc7a5\uc18c \uc774\ub984)\ub97c \uc801\uc5b4 \ucc3e\uc73c\uba74 \uc9c0\ub3c4\uac00 \uadf8\ucabd\uc73c\ub85c \uc62e\uaca8\uac00\uace0, \uc774\ub984\uc744 \uc801\uc5b4 \ub4f1\ub85d\ud558\uba74 \ub3c4\ucc29 \u00b7 \ucd9c\ubc1c\uc744 \ubd80\ubaa8\uc5d0\uac8c \uc54c\ub9b0\ub2e4 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 const GEO_BASE = 'https://gentle-lab-7e47subway-api.phg0643.workers.dev/kakao-local';
 /** \uc8fc\uc18c \u00b7 \uc7a5\uc18c \uc774\ub984 \ucc3e\uae30(\uce74\uce74\uc624 \ub85c\uceec\uc744 \uae38\ub3d9\ubb34 \ud504\ub85d\uc2dc\ub85c) \u2014 \uc8fc\uc18c\ub85c \uba3c\uc800, \uc5c6\uc73c\uba74 \uc7a5\uc18c \uc774\ub984\uc73c\ub85c. \ub3cc\ub824\uc8fc\ub294 \uac12: [{n \uc774\ub984, a \uc8fc\uc18c, la, lo}] \ucd5c\ub300 5\uac1c */
-async function geoFind(q, near) {
+async function geoFind(q, near, env) {
   let err = '';
+  const T = () => (AbortSignal && AbortSignal.timeout ? { signal: AbortSignal.timeout(4500) } : undefined);
+  const fail = (e) => { err = err || (e && e.name === 'TimeoutError' ? '\uc2dc\uac04 \ucd08\uacfc' : '\uc5f0\uacb0 \uc2e4\ud328'); };
+  // \uce74\uce74\uc624 \uac80\uc0c9 \u2014 1) \uc11c\ube44\uc2a4 \ubc14\uc778\ub529 GEO(\uc6cc\ucee4\ub07c\ub9ac \uc9c1\uc811 \uc5f0\uacb0, \uac00\uc7a5 \ud655\uc2e4) 2) \uc911\uacc4 \uc6cc\ucee4 \uc8fc\uc18c 3) \ube44\ubc00\ud0a4 KAKAO_REST_KEY \ub85c \uc9c1\uc811
   const get = async (path, qs) => {
-    try {
-      const r = await fetch(GEO_BASE + '?path=' + encodeURIComponent(path) + '&qs=' + encodeURIComponent(qs), AbortSignal && AbortSignal.timeout ? { signal: AbortSignal.timeout(4500) } : undefined);
-      if (!r.ok) { err = err || ('\uc751\ub2f5 ' + r.status); return []; }
-      const j = await r.json();
-      return (j && Array.isArray(j.documents)) ? j.documents : [];
-    } catch (e) { err = err || (e && e.name === 'TimeoutError' ? '\uc2dc\uac04 \ucd08\uacfc' : '\uc5f0\uacb0 \uc2e4\ud328'); return []; }
+    const tries = [];
+    const px = GEO_BASE + '?path=' + encodeURIComponent(path) + '&qs=' + encodeURIComponent(qs);
+    if (env && env.GEO && typeof env.GEO.fetch === 'function') tries.push(() => env.GEO.fetch(px));
+    tries.push(() => fetch(px, T()));
+    if (env && env.KAKAO_REST_KEY) tries.push(() => fetch('https://dapi.kakao.com/v2/local/' + path + '?' + qs, Object.assign({ headers: { Authorization: 'KakaoAK ' + env.KAKAO_REST_KEY } }, T())));
+    for (const f of tries) {
+      try {
+        const r = await f();
+        if (!r.ok) { err = err || ('\uc751\ub2f5 ' + r.status); continue; }
+        const j = await r.json();
+        if (j && Array.isArray(j.documents)) { err = ''; return j.documents; }
+      } catch (e) { fail(e); }
+    }
+    return [];
   };
   const ok = (d) => Number.isFinite(+d.x) && Number.isFinite(+d.y) && Math.abs(+d.y) <= 85 && Math.abs(+d.x) <= 180 && (+d.x || +d.y);
-  // \uc8fc\uc18c \ucc3e\uae30\uc640 \uc7a5\uc18c \uc774\ub984 \ucc3e\uae30\ub97c \ub3d9\uc2dc\uc5d0 \ubb3b\ub294\ub2e4(\ucc28\ub840\ub85c \ubb3b\ub358 \ub54c\ubcf4\ub2e4 \ucd5c\ub300 \uc808\ubc18) \u2014 \uc8fc\uc18c \uacb0\uacfc\ub97c \uba3c\uc800, \uc5c6\uc73c\uba74 \uc7a5\uc18c \uc774\ub984 \uacb0\uacfc
+  // \uc8fc\uc18c \ucc3e\uae30\uc640 \uc7a5\uc18c \uc774\ub984 \ucc3e\uae30\ub97c \ub3d9\uc2dc\uc5d0 \ubb3b\ub294\ub2e4 \u2014 \uc8fc\uc18c \uacb0\uacfc\ub97c \uba3c\uc800, \uc5c6\uc73c\uba74 \uc7a5\uc18c \uc774\ub984 \uacb0\uacfc
   const [ad, kw] = await Promise.all([
     get('search/address.json', 'query=' + encodeURIComponent(q) + '&size=5'),
     get('search/keyword.json', 'query=' + encodeURIComponent(q) + '&size=5' + (near ? '&x=' + near[1].toFixed(5) + '&y=' + near[0].toFixed(5) : '')),
   ]);
   let out = ad.filter(ok).map((d) => ({ n: (d.road_address && d.road_address.building_name) || d.address_name || q, a: d.address_name || '', la: +d.y, lo: +d.x }));
   if (!out.length) out = kw.filter(ok).map((d) => ({ n: d.place_name || d.address_name || q, a: d.road_address_name || d.address_name || '', la: +d.y, lo: +d.x }));
+  // \uce74\uce74\uc624\uac00 \ub9c9\ud614\uac70\ub098 \ubabb \ucc3e\uc73c\uba74 OpenStreetMap(Nominatim) \uc73c\ub85c \ud55c \ubc88 \ub354 \u2014 \uc8fc\uc18c\uc640 \ud559\uad50\u00b7\uac74\ubb3c \uc774\ub984 \ubaa8\ub450 \ubc1b\ub294\ub2e4
+  if (!out.length) {
+    try {
+      const vb = near ? '&viewbox=' + [near[1] - 0.6, near[0] + 0.6, near[1] + 0.6, near[0] - 0.6].map((x) => x.toFixed(4)).join(',') : '';
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=kr&accept-language=ko&q=' + encodeURIComponent(q) + vb,
+        Object.assign({ headers: { 'User-Agent': 'gildongmu-kids/1.0 (place search)', Accept: 'application/json' } }, T()));
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j)) {
+          out = j.filter((d) => ok({ x: d.lon, y: d.lat })).map((d) => {
+            const parts = String(d.display_name || '').split(',').map((x) => x.trim()).filter(Boolean);
+            return { n: (d.name || parts[0] || q).slice(0, 30), a: parts.slice(d.name ? 1 : 1, 5).reverse().join(' ').slice(0, 60), la: +d.lat, lo: +d.lon };
+          });
+          if (out.length) err = '';
+        }
+      } else err = err || ('\uc751\ub2f5 ' + r.status);
+    } catch (e) { fail(e); }
+  }
   out = out.slice(0, 5);
   if (!out.length && err) out.err = err;                      // \uac80\uc0c9 \uc11c\ubc84 \ubb38\uc81c\uc640 '\uc9c4\uc9dc \uc5c6\uc74c'\uc744 \uad6c\ubd84\ud574 \uc54c\ub9b0\ub2e4
   return out;
@@ -1051,7 +1080,7 @@ async function saveDraft(DB, pid, cid, la, lo, name, q, now) {
 function regSheet(d, results, notice) {
   const body = [tx('\uc7a5\uc18c \ub4f1\ub85d', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('\uc8fc\uc18c\ub098 \uc7a5\uc18c \uc774\ub984\uc744 \ucc3e\uc73c\uba74 \uc9c0\ub3c4\uac00 \uadf8\ucabd\uc73c\ub85c \uc62e\uaca8\uac00\uc694. \uc774\ub984\uc744 \uc801\uc5b4 \ub4f1\ub85d\ud558\uba74 \uc790\ub140\uac00 \ub3c4\ucc29\ud558\uac70\ub098 \ubc97\uc5b4\ub0a0 \ub54c \uc54c\ub824 \ub4dc\ub824\uc694.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 2, 16, 4] }));
-  body.push(panel([{ t: 'field', key: 'kpa', hint: '\uc8fc\uc18c \ub610\ub294 \uc7a5\uc18c (\uc608: \uc11c\uc6b8\uc2dc\uccad \u00b7 \uac00\uc591\ub85c 12)', value: d.q || '', maxlen: 60, h: 44 },
+  body.push(panel([{ t: 'field', key: 'kpa', hint: '\uc8fc\uc18c \ub610\ub294 \uac74\ubb3c\u00b7\ud559\uad50\u00b7\ud68c\uc0ac \uc774\ub984 (\uc608: \ub300\ub3d9\ucd08\ub4f1\ud559\uad50 \u00b7 \uac00\uc591\ub85c 12)', value: d.q || '', maxlen: 60, h: 44 },
     { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('\uc8fc\uc18c \ucc3e\uae30', call('kpg.find'), gold)] }], { pad: [12, 6, 12, 0] }));
   if (results && results.length > 1) body.push(panel(results.map((r, i) => ({ t: 'navrow', title: r.n, sub: r.a, act: call('kpg.pick', '', String(i)), size: 13, vp: 8 })), { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
   body.push({ t: 'tmap', h: 190, r: 14, pad: [12, 8, 12, 0], pts: [{ la: d.la, lo: d.lo, k: 's', n: '', l: d.name || '\uc5ec\uae30' }], foc: 0, fz: 17 });          // \uace0\uc815 \uc9c0\ub3c4(live \uc544\ub2d8): \ud31d\uc5c5\uc5d0 MapLibre \ub97c \uc62c\ub9ac\uba74 \uc5f4 \ub54c\ub9c8\ub2e4 \ubc84\ubc85\uc778\ub2e4 \u00b7 \uc704\uce58\ub294 \ucc3e\uae30\ub85c \uc815\ud55c\ub2e4
@@ -1482,14 +1511,14 @@ async function handle(req, env, url) {
         if (v === 'kpg.find') {
           const q = typeof f.kpa === 'string' ? f.kpa.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
           if (!q) { await saveDraft(DB, pid, cid, d.la, d.lo, name, '', now); return R({ screen: regSheet({ la: d.la, lo: d.lo, name, q: '' }, null, '\ucc3e\uc744 \uc8fc\uc18c\ub098 \uc7a5\uc18c\ub97c \uc801\uc5b4 \uc8fc\uc138\uc694'), cid, sheet: 'ev' }); }
-          const res = await geoFind(q, [d.la, d.lo]);
+          const res = await geoFind(q, [d.la, d.lo], env);
           if (!res.length) { await saveDraft(DB, pid, cid, d.la, d.lo, name, q, now); return R({ screen: regSheet({ la: d.la, lo: d.lo, name, q }, null, (res.err ? '\uac80\uc0c9 \uc11c\ubc84\uac00 \uc751\ub2f5\ud558\uc9c0 \uc54a\uc544\uc694 (' + res.err + '). \uc7a0\uc2dc \ub4a4 \ub2e4\uc2dc \ub20c\ub7ec \ubcf4\uc138\uc694' : '\ucc3e\uc9c0 \ubabb\ud588\uc5b4\uc694. \ub2e4\ub978 \ub9d0\ub85c \uc801\uc5b4 \ubcf4\uc138\uc694 (\uc608: \uc2dc\u00b7\uad6c\u00b7\ub3d9 + \uac74\ubb3c \uc774\ub984)')), cid, sheet: 'ev' }); }
           await saveDraft(DB, pid, cid, res[0].la, res[0].lo, name || (res.length === 1 ? res[0].n.slice(0, 20) : ''), q, now);
           const d2 = await readDraft(DB, pid);
           return R({ screen: regSheet(d2, res, res.length > 1 ? '\uc5ec\ub7ec \uacf3\uc774 \ub098\uc654\uc5b4\uc694. \uc544\ub798\uc5d0\uc11c \uace0\ub974\uc138\uc694' : ''), cid, sheet: 'ev' });
         }
         if (v === 'kpg.pick') {
-          const res = d.q ? await geoFind(d.q, [d.la, d.lo]) : [], i = Math.round(Number(t)), r = res[i];
+          const res = d.q ? await geoFind(d.q, [d.la, d.lo], env) : [], i = Math.round(Number(t)), r = res[i];
           if (!r) return R({ screen: regSheet(d, null, '\ub2e4\uc2dc \ucc3e\uc544 \uc8fc\uc138\uc694'), cid, sheet: 'ev' });
           await saveDraft(DB, pid, cid, r.la, r.lo, name || r.n.slice(0, 20), d.q, now);
           return R({ screen: regSheet(await readDraft(DB, pid), res, ''), cid, sheet: 'ev' });

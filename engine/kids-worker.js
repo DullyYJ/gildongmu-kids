@@ -1023,24 +1023,53 @@ async function readDraft(DB, pid) { return DB.prepare('SELECT * FROM drafts WHER
 // ───────── 장소 등록(s392): 주소(또는 장소 이름)를 적어 찾으면 지도가 그쪽으로 옮겨가고, 이름을 적어 등록하면 도착 · 출발을 부모에게 알린다 ─────────
 const GEO_BASE = 'https://gentle-lab-7e47subway-api.phg0643.workers.dev/kakao-local';
 /** 주소 · 장소 이름 찾기(카카오 로컬을 길동무 프록시로) — 주소로 먼저, 없으면 장소 이름으로. 돌려주는 값: [{n 이름, a 주소, la, lo}] 최대 5개 */
-async function geoFind(q, near) {
+async function geoFind(q, near, env) {
   let err = '';
+  const T = () => (AbortSignal && AbortSignal.timeout ? { signal: AbortSignal.timeout(4500) } : undefined);
+  const fail = (e) => { err = err || (e && e.name === 'TimeoutError' ? '시간 초과' : '연결 실패'); };
+  // 카카오 검색 — 1) 서비스 바인딩 GEO(워커끼리 직접 연결, 가장 확실) 2) 중계 워커 주소 3) 비밀키 KAKAO_REST_KEY 로 직접
   const get = async (path, qs) => {
-    try {
-      const r = await fetch(GEO_BASE + '?path=' + encodeURIComponent(path) + '&qs=' + encodeURIComponent(qs), AbortSignal && AbortSignal.timeout ? { signal: AbortSignal.timeout(4500) } : undefined);
-      if (!r.ok) { err = err || ('응답 ' + r.status); return []; }
-      const j = await r.json();
-      return (j && Array.isArray(j.documents)) ? j.documents : [];
-    } catch (e) { err = err || (e && e.name === 'TimeoutError' ? '시간 초과' : '연결 실패'); return []; }
+    const tries = [];
+    const px = GEO_BASE + '?path=' + encodeURIComponent(path) + '&qs=' + encodeURIComponent(qs);
+    if (env && env.GEO && typeof env.GEO.fetch === 'function') tries.push(() => env.GEO.fetch(px));
+    tries.push(() => fetch(px, T()));
+    if (env && env.KAKAO_REST_KEY) tries.push(() => fetch('https://dapi.kakao.com/v2/local/' + path + '?' + qs, Object.assign({ headers: { Authorization: 'KakaoAK ' + env.KAKAO_REST_KEY } }, T())));
+    for (const f of tries) {
+      try {
+        const r = await f();
+        if (!r.ok) { err = err || ('응답 ' + r.status); continue; }
+        const j = await r.json();
+        if (j && Array.isArray(j.documents)) { err = ''; return j.documents; }
+      } catch (e) { fail(e); }
+    }
+    return [];
   };
   const ok = (d) => Number.isFinite(+d.x) && Number.isFinite(+d.y) && Math.abs(+d.y) <= 85 && Math.abs(+d.x) <= 180 && (+d.x || +d.y);
-  // 주소 찾기와 장소 이름 찾기를 동시에 묻는다(차례로 묻던 때보다 최대 절반) — 주소 결과를 먼저, 없으면 장소 이름 결과
+  // 주소 찾기와 장소 이름 찾기를 동시에 묻는다 — 주소 결과를 먼저, 없으면 장소 이름 결과
   const [ad, kw] = await Promise.all([
     get('search/address.json', 'query=' + encodeURIComponent(q) + '&size=5'),
     get('search/keyword.json', 'query=' + encodeURIComponent(q) + '&size=5' + (near ? '&x=' + near[1].toFixed(5) + '&y=' + near[0].toFixed(5) : '')),
   ]);
   let out = ad.filter(ok).map((d) => ({ n: (d.road_address && d.road_address.building_name) || d.address_name || q, a: d.address_name || '', la: +d.y, lo: +d.x }));
   if (!out.length) out = kw.filter(ok).map((d) => ({ n: d.place_name || d.address_name || q, a: d.road_address_name || d.address_name || '', la: +d.y, lo: +d.x }));
+  // 카카오가 막혔거나 못 찾으면 OpenStreetMap(Nominatim) 으로 한 번 더 — 주소와 학교·건물 이름 모두 받는다
+  if (!out.length) {
+    try {
+      const vb = near ? '&viewbox=' + [near[1] - 0.6, near[0] + 0.6, near[1] + 0.6, near[0] - 0.6].map((x) => x.toFixed(4)).join(',') : '';
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&countrycodes=kr&accept-language=ko&q=' + encodeURIComponent(q) + vb,
+        Object.assign({ headers: { 'User-Agent': 'gildongmu-kids/1.0 (place search)', Accept: 'application/json' } }, T()));
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j)) {
+          out = j.filter((d) => ok({ x: d.lon, y: d.lat })).map((d) => {
+            const parts = String(d.display_name || '').split(',').map((x) => x.trim()).filter(Boolean);
+            return { n: (d.name || parts[0] || q).slice(0, 30), a: parts.slice(d.name ? 1 : 1, 5).reverse().join(' ').slice(0, 60), la: +d.lat, lo: +d.lon };
+          });
+          if (out.length) err = '';
+        }
+      } else err = err || ('응답 ' + r.status);
+    } catch (e) { fail(e); }
+  }
   out = out.slice(0, 5);
   if (!out.length && err) out.err = err;                      // 검색 서버 문제와 '진짜 없음'을 구분해 알린다
   return out;
@@ -1051,7 +1080,7 @@ async function saveDraft(DB, pid, cid, la, lo, name, q, now) {
 function regSheet(d, results, notice) {
   const body = [tx('장소 등록', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('주소나 장소 이름을 찾으면 지도가 그쪽으로 옮겨가요. 이름을 적어 등록하면 자녀가 도착하거나 벗어날 때 알려 드려요.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 2, 16, 4] }));
-  body.push(panel([{ t: 'field', key: 'kpa', hint: '주소 또는 장소 (예: 서울시청 · 가양로 12)', value: d.q || '', maxlen: 60, h: 44 },
+  body.push(panel([{ t: 'field', key: 'kpa', hint: '주소 또는 건물·학교·회사 이름 (예: 대동초등학교 · 가양로 12)', value: d.q || '', maxlen: 60, h: 44 },
     { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('주소 찾기', call('kpg.find'), gold)] }], { pad: [12, 6, 12, 0] }));
   if (results && results.length > 1) body.push(panel(results.map((r, i) => ({ t: 'navrow', title: r.n, sub: r.a, act: call('kpg.pick', '', String(i)), size: 13, vp: 8 })), { pad: [12, 8, 12, 0], ip: [14, 6, 14, 6] }));
   body.push({ t: 'tmap', h: 190, r: 14, pad: [12, 8, 12, 0], pts: [{ la: d.la, lo: d.lo, k: 's', n: '', l: d.name || '여기' }], foc: 0, fz: 17 });          // 고정 지도(live 아님): 팝업에 MapLibre 를 올리면 열 때마다 버벅인다 · 위치는 찾기로 정한다
@@ -1482,14 +1511,14 @@ async function handle(req, env, url) {
         if (v === 'kpg.find') {
           const q = typeof f.kpa === 'string' ? f.kpa.replace(/\s+/g, ' ').trim().slice(0, 60) : '';
           if (!q) { await saveDraft(DB, pid, cid, d.la, d.lo, name, '', now); return R({ screen: regSheet({ la: d.la, lo: d.lo, name, q: '' }, null, '찾을 주소나 장소를 적어 주세요'), cid, sheet: 'ev' }); }
-          const res = await geoFind(q, [d.la, d.lo]);
+          const res = await geoFind(q, [d.la, d.lo], env);
           if (!res.length) { await saveDraft(DB, pid, cid, d.la, d.lo, name, q, now); return R({ screen: regSheet({ la: d.la, lo: d.lo, name, q }, null, (res.err ? '검색 서버가 응답하지 않아요 (' + res.err + '). 잠시 뒤 다시 눌러 보세요' : '찾지 못했어요. 다른 말로 적어 보세요 (예: 시·구·동 + 건물 이름)')), cid, sheet: 'ev' }); }
           await saveDraft(DB, pid, cid, res[0].la, res[0].lo, name || (res.length === 1 ? res[0].n.slice(0, 20) : ''), q, now);
           const d2 = await readDraft(DB, pid);
           return R({ screen: regSheet(d2, res, res.length > 1 ? '여러 곳이 나왔어요. 아래에서 고르세요' : ''), cid, sheet: 'ev' });
         }
         if (v === 'kpg.pick') {
-          const res = d.q ? await geoFind(d.q, [d.la, d.lo]) : [], i = Math.round(Number(t)), r = res[i];
+          const res = d.q ? await geoFind(d.q, [d.la, d.lo], env) : [], i = Math.round(Number(t)), r = res[i];
           if (!r) return R({ screen: regSheet(d, null, '다시 찾아 주세요'), cid, sheet: 'ev' });
           await saveDraft(DB, pid, cid, r.la, r.lo, name || r.n.slice(0, 20), d.q, now);
           return R({ screen: regSheet(await readDraft(DB, pid), res, ''), cid, sheet: 'ev' });
