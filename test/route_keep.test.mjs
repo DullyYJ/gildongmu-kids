@@ -1,4 +1,4 @@
-// 지난 경로 보관 시험(s391): 30분 정지 → 길 저장 · 자녀당 10개(11번째부터 오래된 것 삭제) · 100m 미만 제외 · 보고 끊김은 정지가 아님 · 지난 경로 보기 화면 · 연결 해제 시 삭제
+// 지난 경로 보관 시험(s391): 30분 정지 → 길 저장 · 자녀당 10개(11번째부터 오래된 것 삭제) · 150m 미만 제외 · 보고 끊김은 정지가 아님 · 지난 경로 보기 화면 · 연결 해제 시 삭제
 // 실행: node --no-warnings test/route_keep.test.mjs   (Node 22+ 의 node:sqlite 로 가짜 D1 을 만들어 워커를 그대로 돌린다)
 import fs from 'fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -49,9 +49,10 @@ const MIN = 60000;
   const straight = [[37.5, 127], [37.5001, 127], [37.5002, 127], [37.5003, 127]];
   chk(P.rtThin(straight, 400).length === 4, '적은 점은 그대로(max 이하)');
   const b = P.rtBuild([{ la: 37.5, lo: 127 }, { la: 37.5 + 40 * M, lo: 127 }], { from: null, to: [37.5 + 80 * M, 127] }, hv);
-  chk(b === null, '이동 80m 는 저장하지 않는다(100m 미만)');
-  const b100 = P.rtBuild([{ la: 37.5, lo: 127 }, { la: 37.5 + 70 * M, lo: 127 }], { from: null, to: [37.5 + 130 * M, 127] }, hv);
-  chk(b100 && b100.m >= 120 && b100.m <= 140, '이동 130m 는 저장한다(100m 이상)');
+  chk(b === null, '이동 80m 는 저장하지 않는다(150m 미만)');
+  const b100 = P.rtBuild([{ la: 37.5, lo: 127 }, { la: 37.5 + 90 * M, lo: 127 }], { from: null, to: [37.5 + 170 * M, 127] }, hv);
+  chk(b100 && b100.m >= 160 && b100.m <= 180, '이동 170m 는 저장한다(150m 이상)');
+  chk(P.rtBuild([{ la: 37.5, lo: 127 }, { la: 37.5 + 60 * M, lo: 127 }], { from: null, to: [37.5 + 130 * M, 127] }, hv) === null, '이동 130m 는 저장하지 않는다(150m 미만)');
   const b2 = P.rtBuild([{ la: 37.5, lo: 127 }, { la: 37.5 + 200 * M, lo: 127 }], { from: [37.5 - 50 * M, 127], to: [37.5 + 400 * M, 127] }, hv);
   chk(b2 && b2.m >= 440 && b2.m <= 460 && b2.pts.length >= 2, '출발 자리 + 기록 + 멈춘 자리를 이어 ~450m 로 센다');
 }
@@ -106,8 +107,8 @@ const pts0 = rt[0] ? JSON.parse(rt[0].pts) : [];
 chk(pts0.length >= 2 && pts0.length <= P.RT_PTS, '점 ' + pts0.length + '개(≤' + P.RT_PTS + ')');
 chk(rt[0] && rt[0].t1 > rt[0].t0, '시작·끝 시각 순서');
 
-await trip(150, 35);                                  // 150m 만 가서 머묾 → 100m 이상이라 저장한다
-chk(rows('SELECT * FROM routes').length === 2, '150m 이동 뒤 정지도 저장한다(100m 이상)');
+await trip(150, 35);                                  // 150m 만 가서 머묾 → 150m 이상이라 저장한다
+chk(rows('SELECT * FROM routes').length === 2, '250m 이동 뒤 정지는 저장한다(150m 이상)');
 { const before = rows('SELECT * FROM routes').length; await walk(60, 60); await stay(35); chk(rows('SELECT * FROM routes').length === before, '반경(100m) 안에서 60m 만 움직이면 출발로 치지 않아 새 길이 생기지 않는다'); }
 
 // 보고가 25분 끊겼다 돌아온 경우: 가짜 정지를 만들지 않는다
