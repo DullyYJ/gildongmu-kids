@@ -115,6 +115,13 @@ final class Pop {
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));          // 둥근 카드 뒤 네모난 바탕이 비치지 않게
             int width = Math.min(a.getResources().getDisplayMetrics().widthPixels - Ui.dpi(a, 40), Ui.dpi(a, 360));
             w.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+            w.setGravity(Gravity.CENTER);                                          // 화면 가운데(아래쪽이 아니라)
+            android.view.WindowManager.LayoutParams wp = w.getAttributes();
+            wp.x = 0;
+            wp.y = 0;
+            wp.horizontalMargin = 0f;
+            wp.verticalMargin = 0f;
+            w.setAttributes(wp);
         }
         d.show();
         return new Win(d, m);
