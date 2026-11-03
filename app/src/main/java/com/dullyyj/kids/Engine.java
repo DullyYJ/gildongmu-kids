@@ -1452,7 +1452,7 @@ final class Engine {
         }
         if (!rest.isEmpty()) {
             StringBuilder sb = new StringBuilder("💤 친구들이 휴식 중이에요 — ");
-            for (int i = 0; i < rest.size(); i++) sb.append(i > 0 ? ", " : "").append(rest.get(i).name).append(stateTag(stateOf(rest.get(i), now)));          // 밥 · 응가 같은 일은 문장을 보태지 않고 이름 옆 이모티콘으로만
+            for (int i = 0; i < rest.size(); i++) sb.append(i > 0 ? ", " : "").append(rest.get(i).name);          // 휴식 중인 친구는 이름만 — 표시(이모티콘)를 붙이지 않는다
             kids.put(tx(sb.toString(), 12, false, "sub", 5));
         }
         kids.put(tx("💡 친구를 콕 누르면 응가 치우기·식사·공부·잠자기 메뉴가 나와요", 10, false, "sub", 8));
