@@ -8,11 +8,15 @@ public final class Poke {
     private static volatile String study = ",";
     private static volatile String sleep = ",";
     private static volatile String states = ";";
+    private static volatile String sleepy = ",";
     private static volatile String shown = ",";
     private static volatile Sink sink;
     private Poke() {}
     public static void setStudy(String csv) { study = csv == null ? "," : csv; }
     public static void setSleep(String csv) { sleep = csv == null ? "," : csv; }
+    /** 졸린 채로 모여 있는 친구들(형식 ",id,id,") — 엔진이 놓고(s387) 장면이 읽는다: 이 친구들은 느릿한 몸짓과 졸린 말로 모여 있는다. */
+    public static void setSleepy(String csv) { sleepy = csv == null ? "," : csv; }
+    public static boolean sleepy(String id) { return id != null && sleepy.indexOf("," + id + ",") >= 0; }
     public static void setSink(Sink s) { sink = s; }
     /** 지금 화면에 나와 있는 친구들(장면 그리개가 놓고 엔진이 읽는다) — 형식 ",id,id,". */
     public static void setShown(String csv) { shown = csv == null ? "," : csv; }

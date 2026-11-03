@@ -18,6 +18,18 @@ public final class WearImg {
         return Core.sheets.get("wear_" + Wardrobe.IDS[ci] + "_g" + i, null);
     }
 
+    /** 지금 꾸민 모습(입은 모자 · 옷)에 필요한 시트를 모두 미리 읽어 둔다 — 친구가 나올 때 시트가 읽히는 사이 그림이 바뀌지 않게(s387). 읽는 일은 뒤 스레드. */
+    static void warmAll() {
+        if (Core.sheets == null) return;
+        for (int ci = 0; ci < Wardrobe.IDS.length; ci++) {
+            int hat = Dress.I.worn(ci, 0), cl = Dress.I.worn(ci, 1);
+            if (hat < 0 && cl < 0) continue;
+            Core.sheets.get("wear_" + Wardrobe.IDS[ci], null);
+            if (hat >= 0 && Wardrobe.baked(ci, 0, hat)) Core.sheets.get("wear_" + Wardrobe.IDS[ci] + "_g" + (Wardrobe.PER + hat), null);
+            if (cl >= 0 && Wardrobe.baked(ci, 1, cl)) Core.sheets.get("wear_" + Wardrobe.IDS[ci] + "_g" + cl, null);
+        }
+    }
+
     /** 고른 친구의 구운 옷 · 모자 조각 시트를 미리 읽어 둔다(눌렀을 때 시트가 읽히는 사이 화면이 튀지 않게). 읽는 일은 뒤 스레드. done 은 읽힐 때마다 메인 스레드에서 부른다. */
     static void prefetch(int ci, int slot, Runnable done) {
         if (ci < 0 || ci >= Wardrobe.IDS.length || Core.sheets == null || slot < 0 || slot > 1) return;
