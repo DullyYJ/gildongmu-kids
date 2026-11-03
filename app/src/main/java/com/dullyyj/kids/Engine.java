@@ -1305,10 +1305,10 @@ final class Engine {
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "시작하기 전에 읽어 주세요"));
         a.put(b("text", "text", "길동무 키즈는 부모님께 내 위치를 알려 주는 앱이에요. 길동무 친구들과 놀면서 지내요."));
-        a.put(b("card", "title", "알리는 것", "text", "내 휴대폰의 위치(약 5분마다)와 알린 시각이에요.", "thumb", "", "act", ""));
+        a.put(b("card", "title", "알리는 것", "text", "내 휴대폰의 위치와 알린 시각, 배터리 잔량이에요. 평소에는 몇 분마다 알리고, 부모님이 지도를 보는 동안에는 몇 초마다 알려요. 이때는 맨 위 줄과 알림에 '부모님이 지금 내 위치를 보고 있어요'라고 보여요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "누가 보나요", "text", "내가 QR이나 비밀키로 연결한 부모님만 볼 수 있어요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "언제든 끌 수 있어요", "text", "설정에서 위치 공유를 끄거나 동의를 거둘 수 있어요.", "thumb", "", "act", ""));
-        a.put(b("card", "title", "보관", "text", "위치 기록은 법에서 정한 기간 동안만 보관하고, 그 뒤에는 지워요.", "thumb", "", "act", ""));
+        a.put(b("card", "title", "보관", "text", "위치 기록은 3일, 지난 길은 7일, 오래 머문 곳은 30일 뒤에 지워져요. 연결을 끊으면 바로 모두 지워져요.", "thumb", "", "act", ""));
         a.put(b("gap", "h", "8"));
         a.put(b("switch", "label", "보호자(부모님)가 위 내용을 확인하고 동의했어요", "on", store.get("cp", "0"), "act", "consent.parent"));
         a.put(b("switch", "label", "나도 위 내용을 이해했고 동의해요", "on", store.get("cc", "0"), "act", "consent.child"));

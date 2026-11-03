@@ -329,7 +329,7 @@ let prunedOldAt = 0;
 async function pruneOld(DB, now) {
   if (now - prunedOldAt < 10 * 60000) return;
   prunedOldAt = now;
-  await DB.batch([DB.prepare('DELETE FROM routes WHERE t1<?').bind(now - RT_MAX_AGE), DB.prepare('DELETE FROM stops WHERE t<?').bind(now - STRANGE_KEEP), DB.prepare('DELETE FROM zt WHERE t<?').bind(now - DAY)]);
+  await DB.batch([DB.prepare('DELETE FROM routes WHERE t1<?').bind(now - RT_MAX_AGE), DB.prepare('DELETE FROM stops WHERE t<?').bind(now - STRANGE_KEEP), DB.prepare('DELETE FROM zt WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM drafts WHERE t<?').bind(now - DAY)]);          // 쓰다 만 장소 등록 · 고치기 임시본(주소 검색어 포함)은 하루 뒤 지운다
 }
 async function cron(env) {
   const DB = env.DB, now = Date.now();
