@@ -34,6 +34,17 @@ final class KidsWear {
     private static final Bitmap[] WBM = new Bitmap[8 * 2 * Wardrobe.PER];
     private static final AndroidCv.AImg[] WIM = new AndroidCv.AImg[8 * 2 * Wardrobe.PER];
     private static final int[] WT = new int[6];
+    private static final Bitmap[] CBM = new Bitmap[8 * Wardrobe.GRID * Wardrobe.GRID];
+    private static final AndroidCv.AImg[] CIM = new AndroidCv.AImg[8 * Wardrobe.GRID * Wardrobe.GRID];
+
+    /** 도감 시트에서 오려 둔 한 칸(0.14MB). 시트째 올리면 친구 여덟이 모일 때 그래픽 메모리가 넘쳐 끊긴다. 아직 읽는 중이면 null. */
+    private static AndroidCv.AImg cell(int ci, int q) {
+        Bitmap b = WearImg.cell(ci, q);
+        if (b == null) return null;
+        int k = ci * Wardrobe.GRID * Wardrobe.GRID + q;
+        if (CBM[k] != b) { CBM[k] = b; CIM[k] = new AndroidCv.AImg(b); }
+        return CIM[k];
+    }
 
     /** 몸에 입혀 구운 옷 한 벌의 시트. 없거나 아직 읽는 중이면 null. */
     private static AndroidCv.AImg worn(int ci, int i) {
@@ -74,14 +85,15 @@ final class KidsWear {
                     c.drawImage(wi, WT[0], WT[1], WT[2], WT[3], dx + WT[4] * sc, dy + WT[5] * sc, WT[2] * sc, WT[3] * sc);
                     continue;
                 }
-                AndroidCv.AImg at = img(ci);                        // 구워지지 않은 것(또는 구운 조각이 아직 읽히는 중)만 도감 시트에서 줄 단위로
+                int q = slot * Wardrobe.PER + i;
+                AndroidCv.AImg at = cell(ci, q);                    // 구워지지 않은 것(또는 구운 조각이 아직 읽히는 중)만 도감 시트에서 오린 칸으로 줄 단위로
                 if (at == null) {
                     Art.draw(PEN, ops, (float) (dx + O[0] * sc), (float) (dy + O[1] * sc), (float) (O[2] * sc));
                     continue;
                 }
                 // 옷은 몸 윤곽을 따라 줄마다 몸 폭에 맞춰 입힌다(엔진이 줄 · 자리를 계산) — 나머지는 한 장
                 int nn = Wardrobe.strips(ci, kind, idx, slot, i, O[0], O[1], O[2], ST);
-                int q = slot * Wardrobe.PER + i, cs = Wardrobe.CELL, ox = (q % Wardrobe.GRID) * cs, oy = (q / Wardrobe.GRID) * cs;
+                int ox = 0, oy = 0;                                  // 오린 칸 안의 좌표(192 기준)를 그대로 쓴다
                 // 모자는 머리 기울기를 따라 살짝 기울인다(엔진이 각을 계산, 여기는 돌려 그리기만)
                 float tilt = slot == 0 ? Wardrobe.hatTilt(ci, kind, idx) : slot == 2 ? O[3] : 0f;
                 boolean rot = tilt != 0f && nn > 0;

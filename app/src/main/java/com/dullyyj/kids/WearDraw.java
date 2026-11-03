@@ -50,7 +50,7 @@ final class WearDraw {
         pen.c = c;
         float k = s / 256f;
         long now = android.os.SystemClock.uptimeMillis();
-        Bitmap at = WearImg.atlas(ci);
+        Bitmap at = WearImg.atlas(ci);         // 시트가 읽혔는지 확인용 — 그릴 때는 오린 칸(cellBmp)만 쓴다
         for (int n = 0; n < 3; n++) {
             int slot = n == 0 ? 1 : n == 1 ? 2 : 0;
             Art.Op[] ops = lk.ops[slot];
@@ -73,7 +73,9 @@ final class WearDraw {
                 }
                 // 옷은 몸 윤곽을 따라 줄마다 몸 폭에 맞춰 입히고(엔진이 줄 · 자리를 계산), 나머지는 한 장
                 int nn = Wardrobe.strips(ci, sheet, cell, slot, i, pen.o[0], pen.o[1], pen.o[2], ST);
-                int q = slot * Wardrobe.PER + i, ox = (q % Wardrobe.GRID) * Wardrobe.CELL, oy = (q / Wardrobe.GRID) * Wardrobe.CELL;
+                int q = slot * Wardrobe.PER + i, ox = 0, oy = 0;
+                Bitmap cb = WearImg.cell(ci, q);
+                if (cb == null) continue;                          // 오리는 중이면 이번 프레임만 건너뛴다
                 // 모자는 머리 기울기를 따라 살짝 기울인다(엔진이 각을 계산, 여기는 돌려 그리기만)
                 // 소지품은 떠다니며 살짝 기울어진다(가운데를 중심으로)
                 float tilt = slot == 0 ? Wardrobe.hatTilt(ci, sheet, cell) : slot == 2 ? pen.o[3] : 0f;
@@ -85,7 +87,7 @@ final class WearDraw {
                     int o = j * 8;
                     SRC.set(ox + (int) ST[o], oy + (int) ST[o + 1], ox + (int) ST[o + 2], oy + (int) ST[o + 3]);
                     DST.set(left + ST[o + 4] * k, top + ST[o + 5] * k, left + ST[o + 6] * k, top + ST[o + 7] * k);
-                    c.drawBitmap(at, SRC, DST, IP);
+                    c.drawBitmap(cb, SRC, DST, IP);
                 }
                 if (tilt != 0f && nn > 0) c.restore();
             } else if (at == null && Wardrobe.sprite(ci, slot, i, SP)) {

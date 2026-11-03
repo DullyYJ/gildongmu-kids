@@ -279,3 +279,8 @@
 - **재동의**: 자녀 앱 키를 `consent2/cp2/cc2` 로 바꿔 업데이트 뒤 모두 다시 동의해야 한다. 동의 창에 '만 9살 이상' 카드 추가.
 - 시험: `test/guardian.test.mjs`(23). 다른 시험은 join 뒤 `kg.ok` 를 먼저 한다.
 - 대시보드에 붙여넣는 ASCII 판: `python3 tools/to-ascii.py` → `engine/kids-worker.ascii.js` (kids-worker.js 를 고치면 다시 만든다).
+
+## s395 (2026-11-03) — 모이기 끊김 · 모인 뒤 4마리만
+- 원인(영상 분석): 화면 갱신이 처음 3초는 초당 120번 → 모이기 뒤 5~13번. 친구 여덟이 모두 꾸민 채 나오면 친구마다 도감 시트(9MB)가 통째로 그래픽 메모리에 올라가(소지품은 늘 시트에서) 한도를 넘어 매 프레임 올렸다 내렸다 한다고 봤다(기기에서 직접 재지는 못함).
+- 고침: `WearImg.cell` 이 시트에서 쓰는 칸(192px)만 오려 두고 `KidsWear`/`WearDraw` 는 그 칸으로 그린다(친구당 9MB → 약 0.4MB). `WearImg.warmAll` 은 구운 옷만 입었으면 큰 시트를 읽지 않는다.
+- 모인 뒤: `KidsActs.helloPick`(인사가 끝나 흩어질 때) · `KidsActs.trim`(같이 놀기가 끝난 1.5초 뒤) — 5마리 이상이면 무작위 4마리만 남고 나머지는 양쪽으로 걸어 나간다(40초 쉼). swaps.txt 에 한 줄 추가. JVM 시험: `test/jvm/HelloCap.java`.

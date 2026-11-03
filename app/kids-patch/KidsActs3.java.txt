@@ -153,6 +153,54 @@ final class KidsActs {
         enterEdgeUntil = S.t + 3.0;
         S.spawnAt = S.t + .4;
     }
+    static double trimAt = 0;
+    /**
+     * 같이 놀기로 친구들이 모였다가 놀이가 끝나면(잠깐 뒤): 화면에 MAX_ON(4)마리보다 많으면 무작위 4마리만 남고 나머지는 양쪽으로 걸어 나간다.
+     * 여덟이 한 화면에 오래 있으면 화면이 무겁고 어수선하다. 놀이 중에는 모두 모여 있고, 인사(hello)는 자기 끝에서 따로 정리한다.
+     */
+    static void trim(SceneCore S) {
+        int on = 0, playing = 0;
+        for (Actor a : S.actors) {
+            if (a.hero || a.dead || a.leaving || a.hidden || a.id == null) continue;
+            on++;
+            if ("play".equals(Poke.state(a.id))) playing++;
+        }
+        if (on <= MAX_ON || playing > 0 || S.hello != null || menuA != null) { trimAt = 0; return; }
+        if (trimAt == 0) { trimAt = S.t + 1.5; return; }                   // 놀이가 끝나고 잠깐 인사하듯 머문 뒤에
+        if (S.t < trimAt) return;
+        trimAt = 0;
+        java.util.ArrayList<Actor> pool = new java.util.ArrayList<Actor>();
+        for (Actor a : S.actors) if (!a.hero && !a.dead && !a.leaving && !a.hidden && a.id != null) pool.add(a);
+        java.util.ArrayList<Actor> all = new java.util.ArrayList<Actor>(pool);
+        java.util.HashSet<String> keep = new java.util.HashSet<String>();
+        while (keep.size() < MAX_ON && !pool.isEmpty()) keep.add(pool.remove(Math.min(pool.size() - 1, (int) (S.rnd() * pool.size()))).id);
+        for (Actor a : all) {
+            if (keep.contains(a.id)) continue;
+            reset(a); a.act = null; a.cell = -1; a.bub = ""; a.sk = null;
+            a.leaving = true; a.st = "walk"; a.tx = a.x < S.W / 2 ? -a.w * 1.1 : S.W + a.w * 1.1; a.tz = a.z; a.onArrive = null;
+            rest.put(a.id, S.t + 40.0);
+        }
+    }
+    /**
+     * 모이기(인사)가 끝나 흩어질 때: 모여 있던 친구 중 MAX_ON(4)마리만 무작위로 남고 나머지는 양쪽으로 걸어 나간다(손님이 아니었어도).
+     * 여덟이 한 화면에 계속 있으면 화면도 무겁고 복잡하다 — 평소처럼 네 마리만 머문다. 난수는 장면 시드 난수(S.rnd()).
+     */
+    static void helloPick(SceneCore S, SceneCore.HelloRun h) {
+        java.util.ArrayList<Actor> pool = new java.util.ArrayList<Actor>();
+        for (Actor a : S.actors) if (!a.hero && !a.dead && !a.leaving && a.id != null && !a.hidden) pool.add(a);
+        if (pool.size() <= MAX_ON) return;
+        java.util.ArrayList<Actor> all = new java.util.ArrayList<Actor>(pool);
+        java.util.HashSet<String> keep = new java.util.HashSet<String>();
+        while (keep.size() < MAX_ON && !pool.isEmpty()) {
+            int k = Math.min(pool.size() - 1, (int) (S.rnd() * pool.size()));
+            keep.add(pool.remove(k).id);
+        }
+        for (Actor a : all) {
+            if (keep.contains(a.id)) { h.guests.remove(a.id); continue; }        // 남을 친구는 손님이었어도 남는다
+            h.guests.add(a.id);                                           // 손님처럼 양쪽 가장자리로 걸어 나간다
+            rest.put(a.id, S.t + 40.0);                                    // 나간 친구는 한동안 쉰다(남은 자리에 바로 다시 나오지 않게)
+        }
+    }
     /** 말풍선이 한꺼번에 뜨지 않게 친구마다 첫 말을 조금씩 어긋나게 한다. */
     static void stagger(SceneCore S, SceneCore.AS A, Actor a, String key, double gap) {
         if (S.once(A, "stg")) A.ev.put(key, S.t - gap + ix(a.id) * gap / 8.0);
@@ -300,6 +348,7 @@ final class KidsActs {
             if (stuck) { if (!blockedSince.containsKey(a.id)) blockedSince.put(a.id, S.t); }
             else blockedSince.remove(a.id);
         }
+        trim(S);
         rotate(S);
     }
     static int side(Actor a) {
@@ -427,7 +476,7 @@ final class KidsActs {
     static void register(final SceneCore S) {
         // 장면이 새로 만들어졌다 — 시간(S.t)이 0 부터 다시 간다. 장면 시간으로 적어 둔 것은 전부 비운다
         // (화남 끝 시각 angryUntil 이 옛 장면의 큰 시간 값으로 남으면 새 장면에서 몇십 분 동안 화난 채 멈춘다 — 아침에 켜면 친구들이 계속 "깨우지 마!" 하던 일)
-        rest.clear(); blockedSince.clear(); playNext.clear(); enterEdgeUntil = 0; menuA = null;
+        rest.clear(); blockedSince.clear(); playNext.clear(); enterEdgeUntil = 0; menuA = null; trimAt = 0;
         angryUntil.clear(); angryAct.clear(); lastPoke.clear(); applied.clear(); poopT.clear(); popT.clear(); poopN.clear(); poopSide.clear();
         // 공부: 앉아서 가만히 집중(앞에 책)
         SceneActs.A_(S, "kstudy", 3600, null, (a, u, dt, A) -> {

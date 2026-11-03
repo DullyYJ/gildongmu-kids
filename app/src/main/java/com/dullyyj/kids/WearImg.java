@@ -12,6 +12,32 @@ public final class WearImg {
         return Core.sheets.get("wear_" + Wardrobe.IDS[ci], null);
     }
 
+    private static final Bitmap[] CELLS = new Bitmap[8 * Wardrobe.GRID * Wardrobe.GRID];
+
+    /**
+     * 도감 시트(9MB)에서 칸 하나(192px · 0.14MB)만 오려 둔 그림. 장면은 입은 모자 · 옷 · 소지품 몇 칸만 그리는데 시트째로 그리면 친구마다 9MB 그림이
+     * 그래픽 메모리에 올라가, 여덟이 모이면 메모리가 모자라 매 프레임 올렸다 내렸다 하며 뚝뚝 끊긴다. 오린 칸은 한 번만 만들어 쓴다.
+     * q = 칸 번호(slot * Wardrobe.PER + i). 시트가 아직 읽히는 중이면 null.
+     */
+    public static Bitmap cell(int ci, int q) {
+        int g = Wardrobe.GRID, cs = Wardrobe.CELL;
+        if (ci < 0 || ci >= Wardrobe.IDS.length || ci >= 8 || q < 0 || q >= g * g) return null;
+        int k = ci * g * g + q;
+        Bitmap c = CELLS[k];
+        if (c != null) return c;
+        Bitmap at = atlas(ci);
+        if (at == null) return null;
+        int x = (q % g) * cs, y = (q / g) * cs;
+        if (x + cs > at.getWidth() || y + cs > at.getHeight()) return null;
+        try {
+            c = Bitmap.createBitmap(at, x, y, cs, cs);
+        } catch (Throwable e) {
+            return null;
+        }
+        CELLS[k] = c;
+        return c;
+    }
+
     /** 몸에 입혀 구운 옷 한 벌의 시트(assets/wear/<친구>_g<옷 번호>.webp · 두덩 같은 구운 모자는 번호 20 + 모자 번호). 아직 읽는 중이거나 없으면 null. */
     public static Bitmap worn(int ci, int i) {
         if (ci < 0 || ci >= Wardrobe.IDS.length || i < 0 || i >= 2 * Wardrobe.PER || Core.sheets == null) return null;
@@ -23,8 +49,10 @@ public final class WearImg {
         if (Core.sheets == null) return;
         for (int ci = 0; ci < Wardrobe.IDS.length; ci++) {
             int hat = Dress.I.worn(ci, 0), cl = Dress.I.worn(ci, 1);
-            if (hat < 0 && cl < 0) continue;
-            Core.sheets.get("wear_" + Wardrobe.IDS[ci], null);
+            int it = Dress.I.worn(ci, 2);
+            if (hat < 0 && cl < 0 && it < 0) continue;
+            boolean needAtlas = it >= 0 || (hat >= 0 && !Wardrobe.baked(ci, 0, hat)) || (cl >= 0 && !Wardrobe.baked(ci, 1, cl));
+            if (needAtlas) Core.sheets.get("wear_" + Wardrobe.IDS[ci], null);          // 구운 옷만 입었으면 큰 도감 시트는 읽지 않는다
             if (hat >= 0 && Wardrobe.baked(ci, 0, hat)) Core.sheets.get("wear_" + Wardrobe.IDS[ci] + "_g" + (Wardrobe.PER + hat), null);
             if (cl >= 0 && Wardrobe.baked(ci, 1, cl)) Core.sheets.get("wear_" + Wardrobe.IDS[ci] + "_g" + cl, null);
         }
