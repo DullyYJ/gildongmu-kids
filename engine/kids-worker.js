@@ -919,29 +919,40 @@ async function hubScreen(DB, pid, cid, now) {
   if (!cur) return scr('kids', [], [b('text', { t: 'text' })].slice(0, 0).concat([tx('연결된 자녀가 없어요', { size: 15, bold: true, pad: [16, 24, 16, 6] }), tx('길동무 키즈의 시크릿 키나 QR 로 연결해 주세요', { color: 'sub', pad: [16, 0, 16, 0] })]));
   cid = cur.cid;
   const nm = nmOf(cur);
-  if (!(await gdOk(DB, pid))) return gdScreen(nm);                 // 법정대리인 확인 전에는 자녀 위치를 보여 주지 않는다
-  await tripsSync(DB, cid, now);
-  const loc = await DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch,hd,hdt,mt FROM loc WHERE cid=?').bind(cid).first();
-  const watching = !!(await watchOf(DB, cid, now));
-  const cs = (await DB.prepare('SELECT sh FROM cst WHERE cid=?').bind(cid).first()) || { sh: 1 };
-  const pls = (await DB.prepare('SELECT id,name,la,lo,hh,mm,days FROM places WHERE cid=? ORDER BY hh,mm LIMIT ?').bind(cid, MAX_PLACES).all()).results || [];
-  const trips = await todayTrips(DB, cid, now);
+  // s421: 서로 기대지 않는 조회는 한꺼번에 묻는다(예전엔 16번을 줄줄이 기다려 지난 경로를 고를 때마다 1~2초가 걸렸다). 법정대리인 확인이 안 된 사람에게는 읽은 값을 쓰지 않고 돌려보낸다.
+  const ALL = (q) => q.all().then((r) => (r && r.results) || []);
+  const [gok, loc, wch, cs0, pls, calls, trailRows, rts, vs, qs, msgs0, rd, sync0] = await Promise.all([
+    gdOk(DB, pid),
+    DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch,hd,hdt,mt FROM loc WHERE cid=?').bind(cid).first(),
+    watchOf(DB, cid, now),
+    DB.prepare('SELECT sh FROM cst WHERE cid=?').bind(cid).first(),
+    ALL(DB.prepare('SELECT id,name,la,lo,hh,mm,days FROM places WHERE cid=? ORDER BY hh,mm LIMIT ?').bind(cid, MAX_PLACES)),
+    ALL(DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS)),
+    ALL(DB.prepare('SELECT la,lo FROM locs WHERE cid=? AND t>=? ORDER BY id ASC LIMIT 1500').bind(cid, now - TRAIL_MS)),
+    ALL(DB.prepare('SELECT id,t0,t1,m,sn,en FROM routes WHERE cid=? ORDER BY id DESC LIMIT ?').bind(cid, RT_KEEP)),
+    DB.prepare('SELECT rv,rvt FROM devices WHERE id=?').bind(pid).first(),
+    ALL(DB.prepare('SELECT k,s FROM quests WHERE cid=?').bind(cid)),
+    ALL(DB.prepare('SELECT id,f,x,t FROM chat WHERE cid=? AND t>=? ORDER BY id DESC LIMIT ?').bind(cid, now - CHAT_KEEP, HUB_CHAT)),
+    rdMap(DB, cid),
+    tripsSync(DB, cid, now).then(() => Promise.all([todayTrips(DB, cid, now), ALL(DB.prepare('SELECT k,x,t FROM evs WHERE cid=? AND t>=? AND k NOT IN ' + EV_HIDE + ' ORDER BY id DESC LIMIT ?').bind(cid, now - EV_KEEP, EV_SHOW + 1))])),
+  ]);
+  if (!gok) return gdScreen(nm);                                   // 법정대리인 확인 전에는 자녀 위치를 보여 주지 않는다
+  const watching = !!wch;
+  const cs = cs0 || { sh: 1 };
+  const trips = sync0[0], evr = sync0[1];
   const pins = [];
   const heading = loc && watching && loc.hd >= 0 && now - loc.mt < MOVE_REC_MS && now - loc.hdt < 90000 ? loc.hd : -1;       // 움직이는 중일 때만 가는 방향(앱은 화살표만 돌린다)
   if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, g: 'kid.' + markerKey(cid), ...(heading >= 0 ? { h: heading } : {}) });
   pls.slice(0, 9).forEach((p, i) => pins.push({ la: p.la, lo: p.lo, k: 's', n: String(i + 1), l: p.name, v: 'kp.' + p.id }));
-  const calls = (await DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS).all()).results || [];
   let cpin = -1;                                                                  // 긴급 호출 · 데리러 와줘 가 있으면 그 자리를 지도에 찍고 거기로 맞춘다
   for (const c of calls) if ((c.la || c.lo) && cpin < 0) { cpin = pins.length; pins.push({ la: c.la, lo: c.lo, k: 's', n: '!', l: c.k === 'sos' ? '긴급' : '데리러' }); }
   const noLoc = !pins.length;
   if (noLoc) pins.push({ la: 37.5665, lo: 126.978, k: 's', n: '', l: '' });
   // 이동 경로: 지난 TRAIL_MS 동안 쌓인 점(최대 TRAIL_PTS 개로 솎음) + 지금 위치
-  let trail = ((await DB.prepare('SELECT la,lo FROM locs WHERE cid=? AND t>=? ORDER BY id ASC LIMIT 1500').bind(cid, now - TRAIL_MS).all()).results || []).map((r) => [+r.la.toFixed(5), +r.lo.toFixed(5)]);
+  let trail = trailRows.map((r) => [+r.la.toFixed(5), +r.lo.toFixed(5)]);
   if (loc && trail.length && hav(trail[trail.length - 1][0], trail[trail.length - 1][1], loc.la, loc.lo) >= 15) trail.push([+loc.la.toFixed(5), +loc.lo.toFixed(5)]);
   if (trail.length > TRAIL_PTS) { const st2 = (trail.length - 1) / (TRAIL_PTS - 1); trail = Array.from({ length: TRAIL_PTS }, (_, i) => trail[Math.round(i * st2)]); }
   // 지난 경로 보기(s391): 부모가 고른 경로가 있고 10분이 안 지났으면 지도에 그 경로를(출발 · 도착 핀) 그린다 — 고르는 것도 그리는 것도 엔진, 앱은 받은 선과 핀을 그릴 뿐
-  const rts = ((await DB.prepare('SELECT id,t0,t1,m,sn,en FROM routes WHERE cid=? ORDER BY id DESC LIMIT ?').bind(cid, RT_KEEP).all()).results || []);
-  const vs = await DB.prepare('SELECT rv,rvt FROM devices WHERE id=?').bind(pid).first();
   const rview = vs && vs.rv && vs.rvt > now - RT_VIEW_MS ? await DB.prepare('SELECT id,t0,t1,m,sn,en,pts FROM routes WHERE id=? AND cid=?').bind(vs.rv, cid).first() : null;
   let rpts = null;
   if (rview) { try { rpts = JSON.parse(rview.pts); } catch (e) { rpts = null; } }
@@ -983,7 +994,6 @@ async function hubScreen(DB, pid, cid, now) {
   for (const l of lines) st.push({ s: l.s, size: 13, bold: true, color: l.tone === 'warn' ? 'orange' : l.tone === 'ok' ? 'gold' : 'text' });
   const al = st.slice(0, 2).map((x, i) => tx(x.s, { size: x.size, bold: x.bold, color: x.color, lines: 1, pad: [0, i ? 4 : 0, 0, 0] }));
   while (al.length < 2) al.push(tx('\u00a0', { size: 11.5, lines: 1, pad: [0, 4, 0, 0] }));        // 항상 2줄 — 글이 적어도 칸 높이가 같다
-  const evr = ((await DB.prepare('SELECT k,x,t FROM evs WHERE cid=? AND t>=? AND k NOT IN ' + EV_HIDE + ' ORDER BY id DESC LIMIT ?').bind(cid, now - EV_KEEP, EV_SHOW + 1).all()).results || []);
   const evs = evr.slice(0, EV_SHOW).reverse();                                   // 아래로 갈수록 최근
   // 활동 칸: 늘 상태 2줄 + 활동 EV_VIS 줄이 보인다(글이 적으면 빈 줄로 채워 같은 높이) · 더 있으면 칸 안에서 위아래로 밀어 지난 활동을 본다(처음엔 맨 아래 = 가장 최근)
   const rows = st.slice(2).map((x) => ({ a: x.s })).concat(evs.map((e, i) => ({ a: evWhen(e.t, now) + '  ' + evText(e, nm), on: i === evs.length - 1, act: call('kd.open') })));
@@ -994,7 +1004,6 @@ async function hubScreen(DB, pid, cid, now) {
   const regBtn = { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('+ 장소 등록', call('kpg.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('등록한 장소' + (pls.length ? ' ' + pls.length : ''), call('kps.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('지난 경로' + (rts.length ? ' ' + rts.length : ''), call('kr.open'), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 })] };          // 왼쪽 = 새 장소 등록 팝업 · 오른쪽 = 등록한 장소 목록 팝업(s401)
   body.push(panel(al.concat(fk, [regBtn]), { pad: [12, 1, 12, 0], fill: lines.some((l) => l.tone === 'warn') ? 'card2' : 'card' }));
   // 퀘스트(노란 점)
-  const qs = (await DB.prepare('SELECT k,s FROM quests WHERE cid=?').bind(cid).all()).results || [];
   const nc = qs.filter((q) => q.k === 'c').length, np = qs.length - nc, wait = qs.filter((q) => (q.k === 'c' && q.s === QS_REP) || (q.k === 'p' && (q.s === QS_WAIT || q.s === QS_ON))).length;
   body.push({ t: 'lth', s: '퀘스트', dot: '#f5b800', live: true, pad: [16, 12, 16, 0] });
   body.push(panel([
@@ -1006,8 +1015,7 @@ async function hubScreen(DB, pid, cid, now) {
   // 등록한 장소는 위 오른쪽 단추의 팝업(placesSheet)에서 본다
   // 최근 이동 기록은 '지난 경로' 팝업(rtSheet)으로 옮겼다(s414: 허브는 한 화면에 스크롤 없이 — 칸 크기가 글 수에 따라 달라지지 않게)
   // 가족 실시간 대화(파란 점): 제목은 네모칸 밖(위)에 — 네모칸 안은 위가 대화 내용(남는 세로를 처음부터 다 차지 · 아래가 최근 · 지난 글은 칸 안에서만 밀어 봄), 맨 아래가 입력줄. 박스를 누르면 전체 대화 팝업
-  const msgs = ((await DB.prepare('SELECT id,f,x,t FROM chat WHERE cid=? AND t>=? ORDER BY id DESC LIMIT ?').bind(cid, now - CHAT_KEEP, HUB_CHAT).all()).results || []).reverse();
-  const rd = await rdMap(DB, cid);
+  const msgs = msgs0.reverse();
   const ck = [{ t: 'spacer', h: 0, ffill: 1, fk: 3, fdh: 42, ffmax: CHAT_BOX }];          // 남는 세로를 메우는 빈칸 — 글은 아래(최신)에 붙고 위로 과거
   if (!msgs.length) ck.push(tx('아직 대화가 없어요. ' + nm + '에게 먼저 말을 걸어 보세요', { size: 12, color: 'sub', pad: [2, 6, 2, 2] }));
   msgs.forEach((m, i) => ck.push(Object.assign({ t: 'msg', s: m.x, mine: m.f === 'p', nick: m.f === 'p' ? '' : nm, time: clock(m.t), pad: [0, 4, 0, 0], fd: i + 1 }, m.f === 'p' && m.id > rd.c ? { un: true } : {})));

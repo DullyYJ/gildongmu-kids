@@ -919,29 +919,40 @@ async function hubScreen(DB, pid, cid, now) {
   if (!cur) return scr('kids', [], [b('text', { t: 'text' })].slice(0, 0).concat([tx('\uc5f0\uacb0\ub41c \uc790\ub140\uac00 \uc5c6\uc5b4\uc694', { size: 15, bold: true, pad: [16, 24, 16, 6] }), tx('\uae38\ub3d9\ubb34 \ud0a4\uc988\uc758 \uc2dc\ud06c\ub9bf \ud0a4\ub098 QR \ub85c \uc5f0\uacb0\ud574 \uc8fc\uc138\uc694', { color: 'sub', pad: [16, 0, 16, 0] })]));
   cid = cur.cid;
   const nm = nmOf(cur);
-  if (!(await gdOk(DB, pid))) return gdScreen(nm);                 // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc5d0\ub294 \uc790\ub140 \uc704\uce58\ub97c \ubcf4\uc5ec \uc8fc\uc9c0 \uc54a\ub294\ub2e4
-  await tripsSync(DB, cid, now);
-  const loc = await DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch,hd,hdt,mt FROM loc WHERE cid=?').bind(cid).first();
-  const watching = !!(await watchOf(DB, cid, now));
-  const cs = (await DB.prepare('SELECT sh FROM cst WHERE cid=?').bind(cid).first()) || { sh: 1 };
-  const pls = (await DB.prepare('SELECT id,name,la,lo,hh,mm,days FROM places WHERE cid=? ORDER BY hh,mm LIMIT ?').bind(cid, MAX_PLACES).all()).results || [];
-  const trips = await todayTrips(DB, cid, now);
+  // s421: \uc11c\ub85c \uae30\ub300\uc9c0 \uc54a\ub294 \uc870\ud68c\ub294 \ud55c\uaebc\ubc88\uc5d0 \ubb3b\ub294\ub2e4(\uc608\uc804\uc5d4 16\ubc88\uc744 \uc904\uc904\uc774 \uae30\ub2e4\ub824 \uc9c0\ub09c \uacbd\ub85c\ub97c \uace0\ub97c \ub54c\ub9c8\ub2e4 1~2\ucd08\uac00 \uac78\ub838\ub2e4). \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778\uc774 \uc548 \ub41c \uc0ac\ub78c\uc5d0\uac8c\ub294 \uc77d\uc740 \uac12\uc744 \uc4f0\uc9c0 \uc54a\uace0 \ub3cc\ub824\ubcf4\ub0b8\ub2e4.
+  const ALL = (q) => q.all().then((r) => (r && r.results) || []);
+  const [gok, loc, wch, cs0, pls, calls, trailRows, rts, vs, qs, msgs0, rd, sync0] = await Promise.all([
+    gdOk(DB, pid),
+    DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch,hd,hdt,mt FROM loc WHERE cid=?').bind(cid).first(),
+    watchOf(DB, cid, now),
+    DB.prepare('SELECT sh FROM cst WHERE cid=?').bind(cid).first(),
+    ALL(DB.prepare('SELECT id,name,la,lo,hh,mm,days FROM places WHERE cid=? ORDER BY hh,mm LIMIT ?').bind(cid, MAX_PLACES)),
+    ALL(DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS)),
+    ALL(DB.prepare('SELECT la,lo FROM locs WHERE cid=? AND t>=? ORDER BY id ASC LIMIT 1500').bind(cid, now - TRAIL_MS)),
+    ALL(DB.prepare('SELECT id,t0,t1,m,sn,en FROM routes WHERE cid=? ORDER BY id DESC LIMIT ?').bind(cid, RT_KEEP)),
+    DB.prepare('SELECT rv,rvt FROM devices WHERE id=?').bind(pid).first(),
+    ALL(DB.prepare('SELECT k,s FROM quests WHERE cid=?').bind(cid)),
+    ALL(DB.prepare('SELECT id,f,x,t FROM chat WHERE cid=? AND t>=? ORDER BY id DESC LIMIT ?').bind(cid, now - CHAT_KEEP, HUB_CHAT)),
+    rdMap(DB, cid),
+    tripsSync(DB, cid, now).then(() => Promise.all([todayTrips(DB, cid, now), ALL(DB.prepare('SELECT k,x,t FROM evs WHERE cid=? AND t>=? AND k NOT IN ' + EV_HIDE + ' ORDER BY id DESC LIMIT ?').bind(cid, now - EV_KEEP, EV_SHOW + 1))])),
+  ]);
+  if (!gok) return gdScreen(nm);                                   // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc5d0\ub294 \uc790\ub140 \uc704\uce58\ub97c \ubcf4\uc5ec \uc8fc\uc9c0 \uc54a\ub294\ub2e4
+  const watching = !!wch;
+  const cs = cs0 || { sh: 1 };
+  const trips = sync0[0], evr = sync0[1];
   const pins = [];
   const heading = loc && watching && loc.hd >= 0 && now - loc.mt < MOVE_REC_MS && now - loc.hdt < 90000 ? loc.hd : -1;       // \uc6c0\uc9c1\uc774\ub294 \uc911\uc77c \ub54c\ub9cc \uac00\ub294 \ubc29\ud5a5(\uc571\uc740 \ud654\uc0b4\ud45c\ub9cc \ub3cc\ub9b0\ub2e4)
   if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, g: 'kid.' + markerKey(cid), ...(heading >= 0 ? { h: heading } : {}) });
   pls.slice(0, 9).forEach((p, i) => pins.push({ la: p.la, lo: p.lo, k: 's', n: String(i + 1), l: p.name, v: 'kp.' + p.id }));
-  const calls = (await DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS).all()).results || [];
   let cpin = -1;                                                                  // \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \uac00 \uc788\uc73c\uba74 \uadf8 \uc790\ub9ac\ub97c \uc9c0\ub3c4\uc5d0 \ucc0d\uace0 \uac70\uae30\ub85c \ub9de\ucd98\ub2e4
   for (const c of calls) if ((c.la || c.lo) && cpin < 0) { cpin = pins.length; pins.push({ la: c.la, lo: c.lo, k: 's', n: '!', l: c.k === 'sos' ? '\uae34\uae09' : '\ub370\ub9ac\ub7ec' }); }
   const noLoc = !pins.length;
   if (noLoc) pins.push({ la: 37.5665, lo: 126.978, k: 's', n: '', l: '' });
   // \uc774\ub3d9 \uacbd\ub85c: \uc9c0\ub09c TRAIL_MS \ub3d9\uc548 \uc313\uc778 \uc810(\ucd5c\ub300 TRAIL_PTS \uac1c\ub85c \uc18e\uc74c) + \uc9c0\uae08 \uc704\uce58
-  let trail = ((await DB.prepare('SELECT la,lo FROM locs WHERE cid=? AND t>=? ORDER BY id ASC LIMIT 1500').bind(cid, now - TRAIL_MS).all()).results || []).map((r) => [+r.la.toFixed(5), +r.lo.toFixed(5)]);
+  let trail = trailRows.map((r) => [+r.la.toFixed(5), +r.lo.toFixed(5)]);
   if (loc && trail.length && hav(trail[trail.length - 1][0], trail[trail.length - 1][1], loc.la, loc.lo) >= 15) trail.push([+loc.la.toFixed(5), +loc.lo.toFixed(5)]);
   if (trail.length > TRAIL_PTS) { const st2 = (trail.length - 1) / (TRAIL_PTS - 1); trail = Array.from({ length: TRAIL_PTS }, (_, i) => trail[Math.round(i * st2)]); }
   // \uc9c0\ub09c \uacbd\ub85c \ubcf4\uae30(s391): \ubd80\ubaa8\uac00 \uace0\ub978 \uacbd\ub85c\uac00 \uc788\uace0 10\ubd84\uc774 \uc548 \uc9c0\ub0ac\uc73c\uba74 \uc9c0\ub3c4\uc5d0 \uadf8 \uacbd\ub85c\ub97c(\ucd9c\ubc1c \u00b7 \ub3c4\ucc29 \ud540) \uadf8\ub9b0\ub2e4 \u2014 \uace0\ub974\ub294 \uac83\ub3c4 \uadf8\ub9ac\ub294 \uac83\ub3c4 \uc5d4\uc9c4, \uc571\uc740 \ubc1b\uc740 \uc120\uacfc \ud540\uc744 \uadf8\ub9b4 \ubfd0
-  const rts = ((await DB.prepare('SELECT id,t0,t1,m,sn,en FROM routes WHERE cid=? ORDER BY id DESC LIMIT ?').bind(cid, RT_KEEP).all()).results || []);
-  const vs = await DB.prepare('SELECT rv,rvt FROM devices WHERE id=?').bind(pid).first();
   const rview = vs && vs.rv && vs.rvt > now - RT_VIEW_MS ? await DB.prepare('SELECT id,t0,t1,m,sn,en,pts FROM routes WHERE id=? AND cid=?').bind(vs.rv, cid).first() : null;
   let rpts = null;
   if (rview) { try { rpts = JSON.parse(rview.pts); } catch (e) { rpts = null; } }
@@ -983,7 +994,6 @@ async function hubScreen(DB, pid, cid, now) {
   for (const l of lines) st.push({ s: l.s, size: 13, bold: true, color: l.tone === 'warn' ? 'orange' : l.tone === 'ok' ? 'gold' : 'text' });
   const al = st.slice(0, 2).map((x, i) => tx(x.s, { size: x.size, bold: x.bold, color: x.color, lines: 1, pad: [0, i ? 4 : 0, 0, 0] }));
   while (al.length < 2) al.push(tx('\u00a0', { size: 11.5, lines: 1, pad: [0, 4, 0, 0] }));        // \ud56d\uc0c1 2\uc904 \u2014 \uae00\uc774 \uc801\uc5b4\ub3c4 \uce78 \ub192\uc774\uac00 \uac19\ub2e4
-  const evr = ((await DB.prepare('SELECT k,x,t FROM evs WHERE cid=? AND t>=? AND k NOT IN ' + EV_HIDE + ' ORDER BY id DESC LIMIT ?').bind(cid, now - EV_KEEP, EV_SHOW + 1).all()).results || []);
   const evs = evr.slice(0, EV_SHOW).reverse();                                   // \uc544\ub798\ub85c \uac08\uc218\ub85d \ucd5c\uadfc
   // \ud65c\ub3d9 \uce78: \ub298 \uc0c1\ud0dc 2\uc904 + \ud65c\ub3d9 EV_VIS \uc904\uc774 \ubcf4\uc778\ub2e4(\uae00\uc774 \uc801\uc73c\uba74 \ube48 \uc904\ub85c \ucc44\uc6cc \uac19\uc740 \ub192\uc774) \u00b7 \ub354 \uc788\uc73c\uba74 \uce78 \uc548\uc5d0\uc11c \uc704\uc544\ub798\ub85c \ubc00\uc5b4 \uc9c0\ub09c \ud65c\ub3d9\uc744 \ubcf8\ub2e4(\ucc98\uc74c\uc5d4 \ub9e8 \uc544\ub798 = \uac00\uc7a5 \ucd5c\uadfc)
   const rows = st.slice(2).map((x) => ({ a: x.s })).concat(evs.map((e, i) => ({ a: evWhen(e.t, now) + '  ' + evText(e, nm), on: i === evs.length - 1, act: call('kd.open') })));
@@ -994,7 +1004,6 @@ async function hubScreen(DB, pid, cid, now) {
   const regBtn = { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('+ \uc7a5\uc18c \ub4f1\ub85d', call('kpg.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('\ub4f1\ub85d\ud55c \uc7a5\uc18c' + (pls.length ? ' ' + pls.length : ''), call('kps.open', cid), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 }), btn('\uc9c0\ub09c \uacbd\ub85c' + (rts.length ? ' ' + rts.length : ''), call('kr.open'), { fill: 'card2', tc: 'text', line: 'border', h: 36, size: 12.5 })] };          // \uc67c\ucabd = \uc0c8 \uc7a5\uc18c \ub4f1\ub85d \ud31d\uc5c5 \u00b7 \uc624\ub978\ucabd = \ub4f1\ub85d\ud55c \uc7a5\uc18c \ubaa9\ub85d \ud31d\uc5c5(s401)
   body.push(panel(al.concat(fk, [regBtn]), { pad: [12, 1, 12, 0], fill: lines.some((l) => l.tone === 'warn') ? 'card2' : 'card' }));
   // \ud018\uc2a4\ud2b8(\ub178\ub780 \uc810)
-  const qs = (await DB.prepare('SELECT k,s FROM quests WHERE cid=?').bind(cid).all()).results || [];
   const nc = qs.filter((q) => q.k === 'c').length, np = qs.length - nc, wait = qs.filter((q) => (q.k === 'c' && q.s === QS_REP) || (q.k === 'p' && (q.s === QS_WAIT || q.s === QS_ON))).length;
   body.push({ t: 'lth', s: '\ud018\uc2a4\ud2b8', dot: '#f5b800', live: true, pad: [16, 12, 16, 0] });
   body.push(panel([
@@ -1006,8 +1015,7 @@ async function hubScreen(DB, pid, cid, now) {
   // \ub4f1\ub85d\ud55c \uc7a5\uc18c\ub294 \uc704 \uc624\ub978\ucabd \ub2e8\ucd94\uc758 \ud31d\uc5c5(placesSheet)\uc5d0\uc11c \ubcf8\ub2e4
   // \ucd5c\uadfc \uc774\ub3d9 \uae30\ub85d\uc740 '\uc9c0\ub09c \uacbd\ub85c' \ud31d\uc5c5(rtSheet)\uc73c\ub85c \uc62e\uacbc\ub2e4(s414: \ud5c8\ube0c\ub294 \ud55c \ud654\uba74\uc5d0 \uc2a4\ud06c\ub864 \uc5c6\uc774 \u2014 \uce78 \ud06c\uae30\uac00 \uae00 \uc218\uc5d0 \ub530\ub77c \ub2ec\ub77c\uc9c0\uc9c0 \uc54a\uac8c)
   // \uac00\uc871 \uc2e4\uc2dc\uac04 \ub300\ud654(\ud30c\ub780 \uc810): \uc81c\ubaa9\uc740 \ub124\ubaa8\uce78 \ubc16(\uc704)\uc5d0 \u2014 \ub124\ubaa8\uce78 \uc548\uc740 \uc704\uac00 \ub300\ud654 \ub0b4\uc6a9(\ub0a8\ub294 \uc138\ub85c\ub97c \ucc98\uc74c\ubd80\ud130 \ub2e4 \ucc28\uc9c0 \u00b7 \uc544\ub798\uac00 \ucd5c\uadfc \u00b7 \uc9c0\ub09c \uae00\uc740 \uce78 \uc548\uc5d0\uc11c\ub9cc \ubc00\uc5b4 \ubd04), \ub9e8 \uc544\ub798\uac00 \uc785\ub825\uc904. \ubc15\uc2a4\ub97c \ub204\ub974\uba74 \uc804\uccb4 \ub300\ud654 \ud31d\uc5c5
-  const msgs = ((await DB.prepare('SELECT id,f,x,t FROM chat WHERE cid=? AND t>=? ORDER BY id DESC LIMIT ?').bind(cid, now - CHAT_KEEP, HUB_CHAT).all()).results || []).reverse();
-  const rd = await rdMap(DB, cid);
+  const msgs = msgs0.reverse();
   const ck = [{ t: 'spacer', h: 0, ffill: 1, fk: 3, fdh: 42, ffmax: CHAT_BOX }];          // \ub0a8\ub294 \uc138\ub85c\ub97c \uba54\uc6b0\ub294 \ube48\uce78 \u2014 \uae00\uc740 \uc544\ub798(\ucd5c\uc2e0)\uc5d0 \ubd99\uace0 \uc704\ub85c \uacfc\uac70
   if (!msgs.length) ck.push(tx('\uc544\uc9c1 \ub300\ud654\uac00 \uc5c6\uc5b4\uc694. ' + nm + '\uc5d0\uac8c \uba3c\uc800 \ub9d0\uc744 \uac78\uc5b4 \ubcf4\uc138\uc694', { size: 12, color: 'sub', pad: [2, 6, 2, 2] }));
   msgs.forEach((m, i) => ck.push(Object.assign({ t: 'msg', s: m.x, mine: m.f === 'p', nick: m.f === 'p' ? '' : nm, time: clock(m.t), pad: [0, 4, 0, 0], fd: i + 1 }, m.f === 'p' && m.id > rd.c ? { un: true } : {})));
