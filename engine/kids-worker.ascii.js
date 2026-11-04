@@ -21,7 +21,7 @@ const bad = (m, s) => J({ ok: false, err: m }, s || 400);
 // \uc11c\ube44\uc2a4 \uacc4\uc815 \ud0a4(JSON \uc804\uccb4)\ub294 \uc6cc\ucee4 \ube44\ubc00\uac12 FCM_SA \uc5d0 \ub123\ub294\ub2e4. \uc5c6\uc73c\uba74 \ud478\uc2dc\ub9cc \uac74\ub108\ub6f0\uace0 \ub098\uba38\uc9c0\ub294 \uadf8\ub300\ub85c \ub3c8\ub2e4.
 const MISS_AFTER = 5 * 60000;
 let CTX = null;
-function later(p) { const q = Promise.resolve(p).catch(() => {}); if (CTX && CTX.waitUntil) CTX.waitUntil(q); return q; }
+function later(p) { const q = Promise.resolve(p).catch(() => {}); try { if (CTX && CTX.waitUntil) CTX.waitUntil(q); } catch (e) { /* \uc774\ubbf8 \ub05d\ub09c \uc694\uccad\uc758 \ud578\ub4e4\uc774\uba74 \uadf8\ub0e5 \ub3cc\uc544\uac00\uac8c \ub454\ub2e4 */ } return q; }
 const locBumpAt = new Map();
 const locHold = new Map();                      // \ud284 \uac83\uc73c\ub85c \ubcf4\uace0 \ubcf4\ub958\ud55c \uc704\uce58(cid \u2192 {la,lo,t}) \u2014 \uace7\ubc14\ub85c \uac19\uc740 \uacf3\uc5d0\uc11c \ub610 \uc624\uba74 \uc9c4\uc9dc\ub85c \ubcf8\ub2e4
 const LOC_FRESH_MS = 5 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
@@ -246,7 +246,7 @@ async function pushRows(env, DB, rows) {
   if (!sa || !rows.length) return 0;
   const at = await fcmAccess(sa);
   let ok = 0;
-  await Promise.all(rows.map(async (r) => {
+  await inChunks(rows, 100, async (r) => {
     const data = {};
     for (const k of Object.keys(r.data)) data[k] = String(r.data[k]).slice(0, 400);
     const res = await fetch('https://fcm.googleapis.com/v1/projects/' + sa.project_id + '/messages:send', {
@@ -255,7 +255,7 @@ async function pushRows(env, DB, rows) {
     });
     if (res.ok) ok++;
     else if (res.status === 404 || res.status === 400) { const t = await res.text().catch(() => ''); if (/UNREGISTERED|INVALID_ARGUMENT|NOT_FOUND/.test(t)) await DB.prepare("UPDATE devices SET ft='' WHERE id=? AND ft=?").bind(r.id, r.ft).run(); }
-  }));
+  });
   return ok;
 }
 async function notifyChild(env, DB, cid, data) {
@@ -471,20 +471,25 @@ async function cron(env) {
   try { await pruneOld(DB, now); } catch (e) { /* \uc815\ub9ac\uac00 \uc54c\ub9bc\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ }
   try { await safetyCron(env, DB, now, (u) => fetch(u)); } catch (e) { /* \uc548\uc804 \uc810\uac80\uc774 \uc77c\uc815 \uc54c\ub9bc\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ }
 }
+/** n \uac1c\uc529 \ud55c\uaebc\ubc88\uc5d0(\ub3d9\uc2dc\uc5d0) \ucc98\ub9ac\ud55c\ub2e4 \u2014 \uc0ac\ub78c\uc774 \ub9ce\uc544\ub3c4 \ucc28\ub840\ub85c \uc904\uc904\uc774 \uae30\ub2e4\ub9ac\uc9c0 \uc54a\uace0, \ud55c \ubc88\uc5d0 \ub108\ubb34 \ub9ce\uc774 \uc5f4\uc9c0\ub3c4 \uc54a\ub294\ub2e4. */
+async function inChunks(arr, n, fn) {
+  for (let i = 0; i < arr.length; i += n) await Promise.all(arr.slice(i, i + n).map(fn));
+}
 async function tripsCron(env, DB, now) {
-  const cids = ((await DB.prepare('SELECT DISTINCT cid FROM places').all()).results || []).map((r) => r.cid);
-  if (!cids.length) return;
-  for (const cid of cids) { plCache.delete(cid); await tripsSync(DB, cid, now); }
+  // s424: \uc7a5\uc18c\uac00 \uc788\ub294 \uc790\ub140\ub97c \ud55c \uba85\uc529 \ub3cc\uba70 \uc77d\ub358 \uac83\uc744 \ud45c \ud558\ub098\ub85c \ud55c\uaebc\ubc88\uc5d0(\uc790\ub140 \uc218\uac00 \ub298\uc5b4\ub3c4 DB \ud638\ucd9c \uc218\uac00 \uac19\ub2e4). \uc624\ub298 \uc57d\uc18d \uc2dc\uac01 30\ubd84 \uc804 ~ 2\uc2dc\uac04 \uc548\uc778 \uc7a5\uc18c\uc5d0\ub9cc '\uc624\ub298 \uc77c\uc815' \uc904\uc744 \ub9cc\ub4e4\uace0, \uc0c8\ub85c \uc0dd\uae34 \uc790\ub140\ub9cc \ud654\uba74\uc744 \uae68\uc6b4\ub2e4.
+  const kp = kstParts(now), ds0 = dayStart(now);
+  const made = await DB.prepare("INSERT OR IGNORE INTO trips(id,cid,pl,day,st,tn) SELECT id||':'||?1, cid, id, ?1, 'due', ?2 FROM places WHERE ((days >> ?3) & 1)=1 AND (hh*60+mm)*60000 >= ?4 AND (hh*60+mm)*60000 <= ?5").bind(kp.ds, now, kp.wd, now - ds0 - STAY, now - ds0 + LEAD).run();
+  if (made && made.meta && made.meta.changes > 0)          // \uc0c8\ub85c \uc0dd\uae34 \uc904(tn = \uc9c0\uae08)\uc774 \uc788\ub294 \uc790\ub140\uc758 \ud654\uba74\ub9cc \ud55c \ubc88\uc5d0 \uae68\uc6b4\ub2e4(\uc790\ub140\ub9c8\ub2e4 \uc4f0\uae30 1\ubc88\uc529 \ud558\uc9c0 \uc54a\uace0 \ubb38\uc7a5 \ud558\ub098\ub85c)
+    await DB.prepare('INSERT INTO rev(cid,n) SELECT DISTINCT cid,1 FROM trips WHERE tn=? AND day=? ON CONFLICT(cid) DO UPDATE SET n=n+1').bind(now, kp.ds).run();
   if (!saOf(env)) return;
-  const kp = kstParts(now);
-  const rows = (await DB.prepare('SELECT t.id id,t.cid cid,t.st st,t.ta ta,t.tc tc,t.pn pn,p.name name,p.hh hh,p.mm mm FROM trips t JOIN places p ON p.id=t.pl WHERE t.day=?').bind(kp.ds).all()).results || [];
-  for (const r of rows) {
+  const rows = (await DB.prepare('SELECT t.id id,t.cid cid,t.st st,t.ta ta,t.tc tc,t.pn pn,p.name name,p.hh hh,p.mm mm FROM trips t JOIN places p ON p.id=t.pl WHERE t.day=? AND ((t.pn&1)=0 OR (t.pn&8)=0) AND (p.hh*60+p.mm)*60000 >= ? AND (p.hh*60+p.mm)*60000 <= ?').bind(kp.ds, now - ds0 - STAY, now - ds0 + LEAD).all()).results || [];
+  await inChunks(rows, 20, async (r) => {
     const eta = etaOf(r, now);
     if (r.st === 'due' && !(r.pn & 1) && now >= eta - LEAD && now < eta + STAY && (await once(DB, r.id, 1)))
       await notifyChild(env, DB, r.cid, { k: 'due', title: '\uae38\ub3d9\ubb34 \ud0a4\uc988', body: r.name + '\uc5d0 \uac00\uc57c\ud574\uc694', tag: 'trip' + r.id });
     if (!(r.pn & 8) && !r.tc && !r.ta && now >= eta + MISS_AFTER && now <= eta + STAY && (await once(DB, r.id, 8)))
       await notifyParents(env, DB, r.cid, (nm) => ({ k: 'miss', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' ' + r.name + '\uc5d0 ' + (r.st === 'go' ? '\uac00\uace0 \uc788\uc5b4\uc694 \u00b7 \uc57d\uc18d \uc2dc\uac01(' + clock(eta) + ')\uc774 \uc9c0\ub0ac\uc5b4\uc694' : '\ub3c4\ucc29\ud558\uc9c0 \uc54a\uc558\uc5b4\uc694 (' + clock(eta) + ' \uc57d\uc18d)'), tag: 'trip' + r.id }));
-  }
+  });
 }
 
 let ready = false;
@@ -493,9 +498,21 @@ async function addCol(DB, table, col, ddl) {              // \uc61b \ud45c\uc5d0
   if (cols.some((c) => c.name === col)) return;
   try { await DB.prepare('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + ddl).run(); } catch (e) { /* \ub2e4\ub978 \uc694\uccad\uc774 \uba3c\uc800 \ub367\ubd99\uc600\ub2e4 */ }
 }
+// s424: \uc11c\ubc84\uac00 \uc0c8\ub85c \ub730 \ub54c\ub9c8\ub2e4 \ud45c \u00b7 \uc5f4 \ud655\uc778(\uc57d 70\ubc88)\uc744 \ud558\ub358 \uac83\uc744 '\ubc84\uc804 \ud55c \uc904 \ud655\uc778'\uc73c\ub85c \ubc14\uafe8\ub2e4. \ud45c \u00b7 \uc5f4\uc744 \uace0\uce58\uba74(\uc544\ub798 migrate) SCHEMA_V \ub3c4 \uc62c\ub824\uc57c \uc0c8 \uc11c\ubc84\uac00 \ub2e4\uc2dc \uc900\ube44\ud55c\ub2e4(\uc2dc\ud5d8\uc774 \uc9c0\ucf1c \uc900\ub2e4).
+const SCHEMA_V = 's424-1';
 async function init(DB) {
   if (ready) return;
+  try {
+    const m = await DB.prepare("SELECT v FROM meta WHERE k='schema'").first();
+    if (m && m.v === SCHEMA_V) { ready = true; return; }
+  } catch (e) { /* meta \ud45c\uac00 \uc544\uc9c1 \uc5c6\ub2e4 \u2014 \uc544\ub798\uc5d0\uc11c \ucc98\uc74c\ubd80\ud130 \uc900\ube44 */ }
+  await migrate(DB);
+  try { await DB.prepare("INSERT INTO meta(k,v) VALUES('schema',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").bind(SCHEMA_V).run(); } catch (e) { /* \ub2e4\uc74c \uc11c\ubc84\uac00 \ub2e4\uc2dc \ud55c \ubc88 \uc900\ube44\ud55c\ub2e4(\uac19\uc740 \uc77c\uc744 \ub418\ud480\uc774\ud560 \ubfd0 \uc548\uc804) */ }
+  ready = true;
+}
+async function migrate(DB) {
   await DB.batch([
+    DB.prepare('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY, role TEXT NOT NULL, sh TEXT NOT NULL, t INTEGER NOT NULL)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS codes(code TEXT PRIMARY KEY, cid TEXT NOT NULL, exp INTEGER NOT NULL)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS links(cid TEXT NOT NULL, pid TEXT NOT NULL, t INTEGER NOT NULL, PRIMARY KEY(cid, pid))'),
@@ -568,7 +585,6 @@ async function init(DB) {
   await addCol(DB, 'loc', 'hat', 'INTEGER NOT NULL DEFAULT 0');
   await addCol(DB, 'devices', 'wt', 'INTEGER NOT NULL DEFAULT 0');        // \ubd80\ubaa8\uac00 \ud0a4\uc988 \ud654\uba74(\ud5c8\ube0c)\uc744 \ub9c8\uc9c0\ub9c9\uc73c\ub85c \ubcf4\uace0 \uc788\ub358 \uc2dc\uac01 \u2014 \uc2e4\uc2dc\uac04(\ubcf4\ub294 \uc911) \ud310\ub2e8
   await addCol(DB, 'devices', 'ws', 'INTEGER NOT NULL DEFAULT 0');        // \uc774\ubc88\uc5d0 \uc774\uc5b4\uc11c \ubcf4\uae30 \uc2dc\uc791\ud55c \uc2dc\uac01
-  ready = true;
 }
 
 async function sha(s) {
@@ -635,6 +651,7 @@ function ago(ms) {
   return Math.floor(s / 86400) + '\uc77c \uc804';
 }
 
+const AUTH_MAX = 20000;
 const authOk = new Map();                                   // \ubc29\uae08 \ud655\uc778\ud55c \uae30\uae30\ub294 5\ubd84 \ub3d9\uc548 \ub2e4\uc2dc \uc77d\uc9c0 \uc54a\ub294\ub2e4(\uc694\uccad\ub9c8\ub2e4 \ud45c \uc77d\uae30 \u00b7 \ud574\uc2dc\ub97c \uc544\ub080\ub2e4)
 async function auth(req, DB, role) {
   const id = req.headers.get('x-id'), sec = req.headers.get('x-sec');
@@ -644,7 +661,7 @@ async function auth(req, DB, role) {
   const r = await DB.prepare('SELECT sh FROM devices WHERE id=? AND role=?').bind(id, role).first();
   if (!r) return null;
   if (r.sh !== (await sha(sec))) return null;
-  if (authOk.size > 500) authOk.clear();
+  if (authOk.size >= AUTH_MAX) { let n = AUTH_MAX >> 3; for (const k of authOk.keys()) { authOk.delete(k); if (--n <= 0) break; } }          // s424: \uac00\ub4dd \ucc28\uba74 \uc804\ubd80 \uc9c0\uc6b0\uc9c0 \uc54a\uace0 \uc624\ub798\ub41c \uac83 1/8 \ub9cc(\uc804\ubd80 \uc9c0\uc6b0\uba74 \ud55c\uaebc\ubc88\uc5d0 \ub2e4\uc2dc \uc77d\ub290\ub77c \ubab0\ub9b0\ub2e4)
   authOk.set(ck, Date.now() + 300000);
   return id;
 }
@@ -740,12 +757,13 @@ async function prune(DB, cid, now) {
 
 // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \uc7a5\uc18c \uc77c\uc815: \uc2dc\uac01\uc774 \ub418\uba74 \uc624\ub298\uc758 \uc774\ub3d9(trip)\uc744 \ub9cc\ub4e0\ub2e4 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 const plCache = new Map();                                  // \uc7a5\uc18c\uac00 \uc788\ub294 \uc790\ub140\uc778\uc9c0 \uc7a0\uae50 \uae30\uc5b5(\uc5c6\uc73c\uba74 \uae30\ub2e4\ub9ac\ub294 \ub3d9\uc548 \uc7a5\uc18c \ud45c\ub97c \uc77d\uc9c0 \uc54a\ub294\ub2e4)
-async function tripsSync(DB, cid, now) {
+async function tripsSync(DB, cid, now) {            // s424: \uc77d\uc740 \uc7a5\uc18c \ubaa9\ub85d\uc744 \ub3cc\ub824\uc900\ub2e4(\uc704\uce58 \ubcf4\uace0\uac00 \uac19\uc740 \ud45c\ub97c \ub610 \uc77d\uc9c0 \uc54a\uac8c \u2014 \uacb0\uacfc\ub294 \uadf8\ub300\ub85c, \ud638\ucd9c\ub9cc 1\ubc88 \uc801\uac8c)
   const pc = plCache.get(cid);
-  if (pc && now < pc.exp && !pc.has) return;
-  const pls = (await DB.prepare('SELECT id,hh,mm,days FROM places WHERE cid=?').bind(cid).all()).results || [];
+  if (pc && now < pc.exp && !pc.has) return null;                  // \uc7a5\uc18c \uc5c6\uc74c\uc73c\ub85c \uae30\uc5b5\ud574 \ub454 \uc790\ub140 \u2014 \uc77d\uc9c0 \uc54a\uc558\ub2e4(null)
+  const pls = (await DB.prepare('SELECT id,name,la,lo,hh,mm,days FROM places WHERE cid=?').bind(cid).all()).results || [];
+  if (plCache.size > 20000) plCache.clear();
   plCache.set(cid, { has: pls.length > 0, exp: now + (pls.length ? 300000 : 20000) });
-  if (!pls.length) return;
+  if (!pls.length) return pls;
   const kp = kstParts(now), st = [];
   for (const pl of pls) {
     if (!((pl.days >> kp.wd) & 1)) continue;
@@ -753,9 +771,10 @@ async function tripsSync(DB, cid, now) {
     if (now < eta - LEAD || now > eta + STAY) continue;
     st.push(DB.prepare("INSERT OR IGNORE INTO trips(id,cid,pl,day,st,tn) VALUES(?,?,?,?,'due',?)").bind(pl.id + ':' + kp.ds, cid, pl.id, kp.ds, now));
   }
-  if (!st.length) return;
+  if (!st.length) return pls;
   const rs = await DB.batch(st);
   if (rs.some((r) => r && r.meta && r.meta.changes > 0)) await bump(DB, cid);
+  return pls;
 }
 async function todayTrips(DB, cid, now) {
   const kp = kstParts(now);
@@ -1404,8 +1423,9 @@ async function handle(req, env, url) {
     if (p === '/c/loc' && m === 'POST') {         // \uc704\uce58\ub294 \uc5f0\uacb0\ub41c \ubd80\ubaa8\uac00 \uc788\uc744 \ub54c\ub9cc, \uac00\uc7a5 \ucd5c\uadfc \ud55c \uac74\ub9cc \uc800\uc7a5(\ubc14\ub85c \uc55e \uc704\uce58\ub3c4 \ud558\ub098 \ub454\ub2e4: \uac00\ub294 \uc911\uc778\uc9c0 \ubcf4\ub824\uace0)
       const la = +body.la, lo = +body.lo, acc = +body.acc || 0;
       if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180) || (la === 0 && lo === 0)) return bad('\uc704\uce58\uac00 \ub9de\uc9c0 \uc54a\uc544\uc694');
-      const n = await linkedCount(DB, cid);
-      const last = n > 0 ? await DB.prepare('SELECT la,lo,acc,t,dn,hp,ap,mva,mvo,mvt,bt,mt,ha,hb,hat FROM loc WHERE cid=?').bind(cid).first() : null;
+      const nl = await DB.prepare('SELECT (SELECT COUNT(*) FROM links WHERE cid=?) n, l.la la,l.lo lo,l.acc acc,l.t t,l.dn dn,l.hp hp,l.ap ap,l.mva mva,l.mvo mvo,l.mvt mvt,l.bt bt,l.mt mt,l.ha ha,l.hb hb,l.hat hat FROM (SELECT 1) x LEFT JOIN loc l ON l.cid=?').bind(cid, cid).first();          // s424: \uc5f0\uacb0 \uc218 + \uc774\uc804 \uc704\uce58\ub97c \ud55c \ubc88\uc5d0(\uacb0\uacfc\ub294 \uac19\uace0 DB \ud638\ucd9c\ub9cc 1\ubc88 \uc801\uac8c)
+      const n = nl ? nl.n : 0;
+      const last = n > 0 && nl && nl.t != null ? nl : null;
       let mtNow = last ? last.mt : 0;
       const wch = n > 0 ? await watchOf(DB, cid, now) : null;                   // \uc2e4\uc2dc\uac04 \ubcf4\uae30(s393): \ubcf4\ub294 \uc911\uc774\uba74 \ubcf4\uace0\ub97c \ucd18\ucd18\ud788 \ubc1b\uace0 \uc751\ub2f5\uc5d0 \uc8fc\uae30 \uc885\ub958\ub97c \uc2e4\uc5b4 \uc900\ub2e4
       const bt = Number.isFinite(+body.bt) && +body.bt >= 0 && +body.bt <= 100 ? Math.round(+body.bt) : -1, ch = body.ch ? 1 : 0;
@@ -1429,12 +1449,12 @@ async function handle(req, env, url) {
           else if (now - last.hat > 25000) await DB.prepare('UPDATE loc SET ha=?,hb=?,hat=? WHERE cid=?').bind(la, lo, now, cid).run();
         }
         if (bt >= 0 && bt <= BATT_LOW && !ch && (!last || last.bt < 0 || last.bt > BATT_LOW || now - last.t > 30 * 60000)) later(battAlert(env, DB, cid, bt, now));
-        await tripsSync(DB, cid, now);
+        let pls2 = await tripsSync(DB, cid, now);
+        if (!pls2) pls2 = (await DB.prepare('SELECT id,name,la,lo FROM places WHERE cid=?').bind(cid).all()).results || [];          // \uae30\uc5b5\ub9cc \ubcf4\uace0 \uc9c0\ub098\uac04 \uacbd\uc6b0\ub294 \uc608\uc804\ucc98\ub7fc \uc9c1\uc811 \uc77d\ub294\ub2e4(\ubc29\uae08 \ub4f1\ub85d\ud55c \uc7a5\uc18c\ub97c \ub193\uce58\uc9c0 \uc54a\uac8c)
         const tr = (await todayTrips(DB, cid, now)).filter((r) => !r.ta && hav(la, lo, r.la, r.lo) <= HERE_M);   // \uc7a5\uc18c 150m \uc548\uc5d0 \ub4e4\uc5b4\uc130\ub2e4 \u2014 \ub3c4\ucc29 \uc2dc\uac01 \uae30\ub85d
         if (tr.length) await DB.batch(tr.map((r) => DB.prepare('UPDATE trips SET ta=? WHERE id=? AND ta=0').bind(now, r.id)));
         // '\ubb50\ud558\ub2c8?' \uae30\ub85d: \ub4f1\ub85d \uc7a5\uc18c 150m \uc548\uc5d0 \ub4e4\uc5b4\uc624\uac70\ub098(\uadfc\ucc98) \ubc97\uc5b4\ub098\uba74(210m \ubc16 \u2014 \ud754\ub4e4\ub9bc\uc73c\ub85c \ub4e4\ub77d\uac70\ub9ac\uc9c0 \uc54a\uac8c), \ub3d9\ub124 \uc774\ub984\uc774 \ubc14\ub00c\uba74 \ud55c \uc904
         const dn = String(body.dn || '').replace(/\s+/g, ' ').trim().slice(0, 20), ohp = last ? last.hp || '' : '', odn = last ? last.dn || '' : '';
-        const pls2 = (await DB.prepare('SELECT id,name,la,lo FROM places WHERE cid=?').bind(cid).all()).results || [];
         let hp = '', hn = '', bd = HERE_M + 1;
         for (const q of pls2) { const dd = hav(la, lo, q.la, q.lo); if (dd <= HERE_M && dd < bd) { bd = dd; hp = q.id; hn = q.name; } }
         const oq = ohp ? pls2.find((q) => q.id === ohp) : null;

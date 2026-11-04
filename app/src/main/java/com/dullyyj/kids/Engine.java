@@ -1086,6 +1086,13 @@ final class Engine {
         }
     }
 
+    /** 통신이 끊겼을 때 다시 시도하기까지 기다리는 시간. 처음 두 번은 예전 그대로(0.5초 · 1초)라 잠깐 끊긴 건 바로 이어지고, 길게 끊기면 점점 늘려(최대 12초) 서버가 살아났을 때 수십만 대가 한꺼번에 몰리지 않게 기기마다 조금씩 다르게 흩는다. */
+    long backoffMs(int fails) {
+        if (fails <= 2) return 500L * Math.max(1, fails);
+        long base = Math.min(500L << Math.min(fails - 1, 6), 12000L);
+        return base - srnd.nextInt((int) (base / 3) + 1);
+    }
+
     private void waitLoop() {
         int fails = 0;
         try {
@@ -1098,7 +1105,7 @@ final class Engine {
                 String r = Kid.callT("GET", "/c/wait?since=" + svRev + "&fg=1&tab=" + t + "&qt=" + ("p".equals(questTabNow()) ? "p" : "c"), null, cid, csec, 24000);
                 if (r == null) {
                     fails++;
-                    Thread.sleep(Math.min(500L * fails, 4000L));
+                    Thread.sleep(backoffMs(fails));
                     continue;
                 }
                 fails = 0;

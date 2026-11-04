@@ -21,7 +21,7 @@ const bad = (m, s) => J({ ok: false, err: m }, s || 400);
 // 서비스 계정 키(JSON 전체)는 워커 비밀값 FCM_SA 에 넣는다. 없으면 푸시만 건너뛰고 나머지는 그대로 돈다.
 const MISS_AFTER = 5 * 60000;
 let CTX = null;
-function later(p) { const q = Promise.resolve(p).catch(() => {}); if (CTX && CTX.waitUntil) CTX.waitUntil(q); return q; }
+function later(p) { const q = Promise.resolve(p).catch(() => {}); try { if (CTX && CTX.waitUntil) CTX.waitUntil(q); } catch (e) { /* 이미 끝난 요청의 핸들이면 그냥 돌아가게 둔다 */ } return q; }
 const locBumpAt = new Map();
 const locHold = new Map();                      // 튄 것으로 보고 보류한 위치(cid → {la,lo,t}) — 곧바로 같은 곳에서 또 오면 진짜로 본다
 const LOC_FRESH_MS = 5 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
@@ -246,7 +246,7 @@ async function pushRows(env, DB, rows) {
   if (!sa || !rows.length) return 0;
   const at = await fcmAccess(sa);
   let ok = 0;
-  await Promise.all(rows.map(async (r) => {
+  await inChunks(rows, 100, async (r) => {
     const data = {};
     for (const k of Object.keys(r.data)) data[k] = String(r.data[k]).slice(0, 400);
     const res = await fetch('https://fcm.googleapis.com/v1/projects/' + sa.project_id + '/messages:send', {
@@ -255,7 +255,7 @@ async function pushRows(env, DB, rows) {
     });
     if (res.ok) ok++;
     else if (res.status === 404 || res.status === 400) { const t = await res.text().catch(() => ''); if (/UNREGISTERED|INVALID_ARGUMENT|NOT_FOUND/.test(t)) await DB.prepare("UPDATE devices SET ft='' WHERE id=? AND ft=?").bind(r.id, r.ft).run(); }
-  }));
+  });
   return ok;
 }
 async function notifyChild(env, DB, cid, data) {
@@ -471,20 +471,25 @@ async function cron(env) {
   try { await pruneOld(DB, now); } catch (e) { /* 정리가 알림을 막지 않는다 */ }
   try { await safetyCron(env, DB, now, (u) => fetch(u)); } catch (e) { /* 안전 점검이 일정 알림을 막지 않는다 */ }
 }
+/** n 개씩 한꺼번에(동시에) 처리한다 — 사람이 많아도 차례로 줄줄이 기다리지 않고, 한 번에 너무 많이 열지도 않는다. */
+async function inChunks(arr, n, fn) {
+  for (let i = 0; i < arr.length; i += n) await Promise.all(arr.slice(i, i + n).map(fn));
+}
 async function tripsCron(env, DB, now) {
-  const cids = ((await DB.prepare('SELECT DISTINCT cid FROM places').all()).results || []).map((r) => r.cid);
-  if (!cids.length) return;
-  for (const cid of cids) { plCache.delete(cid); await tripsSync(DB, cid, now); }
+  // s424: 장소가 있는 자녀를 한 명씩 돌며 읽던 것을 표 하나로 한꺼번에(자녀 수가 늘어도 DB 호출 수가 같다). 오늘 약속 시각 30분 전 ~ 2시간 안인 장소에만 '오늘 일정' 줄을 만들고, 새로 생긴 자녀만 화면을 깨운다.
+  const kp = kstParts(now), ds0 = dayStart(now);
+  const made = await DB.prepare("INSERT OR IGNORE INTO trips(id,cid,pl,day,st,tn) SELECT id||':'||?1, cid, id, ?1, 'due', ?2 FROM places WHERE ((days >> ?3) & 1)=1 AND (hh*60+mm)*60000 >= ?4 AND (hh*60+mm)*60000 <= ?5").bind(kp.ds, now, kp.wd, now - ds0 - STAY, now - ds0 + LEAD).run();
+  if (made && made.meta && made.meta.changes > 0)          // 새로 생긴 줄(tn = 지금)이 있는 자녀의 화면만 한 번에 깨운다(자녀마다 쓰기 1번씩 하지 않고 문장 하나로)
+    await DB.prepare('INSERT INTO rev(cid,n) SELECT DISTINCT cid,1 FROM trips WHERE tn=? AND day=? ON CONFLICT(cid) DO UPDATE SET n=n+1').bind(now, kp.ds).run();
   if (!saOf(env)) return;
-  const kp = kstParts(now);
-  const rows = (await DB.prepare('SELECT t.id id,t.cid cid,t.st st,t.ta ta,t.tc tc,t.pn pn,p.name name,p.hh hh,p.mm mm FROM trips t JOIN places p ON p.id=t.pl WHERE t.day=?').bind(kp.ds).all()).results || [];
-  for (const r of rows) {
+  const rows = (await DB.prepare('SELECT t.id id,t.cid cid,t.st st,t.ta ta,t.tc tc,t.pn pn,p.name name,p.hh hh,p.mm mm FROM trips t JOIN places p ON p.id=t.pl WHERE t.day=? AND ((t.pn&1)=0 OR (t.pn&8)=0) AND (p.hh*60+p.mm)*60000 >= ? AND (p.hh*60+p.mm)*60000 <= ?').bind(kp.ds, now - ds0 - STAY, now - ds0 + LEAD).all()).results || [];
+  await inChunks(rows, 20, async (r) => {
     const eta = etaOf(r, now);
     if (r.st === 'due' && !(r.pn & 1) && now >= eta - LEAD && now < eta + STAY && (await once(DB, r.id, 1)))
       await notifyChild(env, DB, r.cid, { k: 'due', title: '길동무 키즈', body: r.name + '에 가야해요', tag: 'trip' + r.id });
     if (!(r.pn & 8) && !r.tc && !r.ta && now >= eta + MISS_AFTER && now <= eta + STAY && (await once(DB, r.id, 8)))
       await notifyParents(env, DB, r.cid, (nm) => ({ k: 'miss', title: '길동무', body: who(nm) + ' ' + r.name + '에 ' + (r.st === 'go' ? '가고 있어요 · 약속 시각(' + clock(eta) + ')이 지났어요' : '도착하지 않았어요 (' + clock(eta) + ' 약속)'), tag: 'trip' + r.id }));
-  }
+  });
 }
 
 let ready = false;
@@ -493,9 +498,21 @@ async function addCol(DB, table, col, ddl) {              // 옛 표에 열을 �
   if (cols.some((c) => c.name === col)) return;
   try { await DB.prepare('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + ddl).run(); } catch (e) { /* 다른 요청이 먼저 덧붙였다 */ }
 }
+// s424: 서버가 새로 뜰 때마다 표 · 열 확인(약 70번)을 하던 것을 '버전 한 줄 확인'으로 바꿨다. 표 · 열을 고치면(아래 migrate) SCHEMA_V 도 올려야 새 서버가 다시 준비한다(시험이 지켜 준다).
+const SCHEMA_V = 's424-1';
 async function init(DB) {
   if (ready) return;
+  try {
+    const m = await DB.prepare("SELECT v FROM meta WHERE k='schema'").first();
+    if (m && m.v === SCHEMA_V) { ready = true; return; }
+  } catch (e) { /* meta 표가 아직 없다 — 아래에서 처음부터 준비 */ }
+  await migrate(DB);
+  try { await DB.prepare("INSERT INTO meta(k,v) VALUES('schema',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").bind(SCHEMA_V).run(); } catch (e) { /* 다음 서버가 다시 한 번 준비한다(같은 일을 되풀이할 뿐 안전) */ }
+  ready = true;
+}
+async function migrate(DB) {
   await DB.batch([
+    DB.prepare('CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT NOT NULL)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS devices(id TEXT PRIMARY KEY, role TEXT NOT NULL, sh TEXT NOT NULL, t INTEGER NOT NULL)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS codes(code TEXT PRIMARY KEY, cid TEXT NOT NULL, exp INTEGER NOT NULL)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS links(cid TEXT NOT NULL, pid TEXT NOT NULL, t INTEGER NOT NULL, PRIMARY KEY(cid, pid))'),
@@ -568,7 +585,6 @@ async function init(DB) {
   await addCol(DB, 'loc', 'hat', 'INTEGER NOT NULL DEFAULT 0');
   await addCol(DB, 'devices', 'wt', 'INTEGER NOT NULL DEFAULT 0');        // 부모가 키즈 화면(허브)을 마지막으로 보고 있던 시각 — 실시간(보는 중) 판단
   await addCol(DB, 'devices', 'ws', 'INTEGER NOT NULL DEFAULT 0');        // 이번에 이어서 보기 시작한 시각
-  ready = true;
 }
 
 async function sha(s) {
@@ -635,6 +651,7 @@ function ago(ms) {
   return Math.floor(s / 86400) + '일 전';
 }
 
+const AUTH_MAX = 20000;
 const authOk = new Map();                                   // 방금 확인한 기기는 5분 동안 다시 읽지 않는다(요청마다 표 읽기 · 해시를 아낀다)
 async function auth(req, DB, role) {
   const id = req.headers.get('x-id'), sec = req.headers.get('x-sec');
@@ -644,7 +661,7 @@ async function auth(req, DB, role) {
   const r = await DB.prepare('SELECT sh FROM devices WHERE id=? AND role=?').bind(id, role).first();
   if (!r) return null;
   if (r.sh !== (await sha(sec))) return null;
-  if (authOk.size > 500) authOk.clear();
+  if (authOk.size >= AUTH_MAX) { let n = AUTH_MAX >> 3; for (const k of authOk.keys()) { authOk.delete(k); if (--n <= 0) break; } }          // s424: 가득 차면 전부 지우지 않고 오래된 것 1/8 만(전부 지우면 한꺼번에 다시 읽느라 몰린다)
   authOk.set(ck, Date.now() + 300000);
   return id;
 }
@@ -740,12 +757,13 @@ async function prune(DB, cid, now) {
 
 // ───────── 장소 일정: 시각이 되면 오늘의 이동(trip)을 만든다 ─────────
 const plCache = new Map();                                  // 장소가 있는 자녀인지 잠깐 기억(없으면 기다리는 동안 장소 표를 읽지 않는다)
-async function tripsSync(DB, cid, now) {
+async function tripsSync(DB, cid, now) {            // s424: 읽은 장소 목록을 돌려준다(위치 보고가 같은 표를 또 읽지 않게 — 결과는 그대로, 호출만 1번 적게)
   const pc = plCache.get(cid);
-  if (pc && now < pc.exp && !pc.has) return;
-  const pls = (await DB.prepare('SELECT id,hh,mm,days FROM places WHERE cid=?').bind(cid).all()).results || [];
+  if (pc && now < pc.exp && !pc.has) return null;                  // 장소 없음으로 기억해 둔 자녀 — 읽지 않았다(null)
+  const pls = (await DB.prepare('SELECT id,name,la,lo,hh,mm,days FROM places WHERE cid=?').bind(cid).all()).results || [];
+  if (plCache.size > 20000) plCache.clear();
   plCache.set(cid, { has: pls.length > 0, exp: now + (pls.length ? 300000 : 20000) });
-  if (!pls.length) return;
+  if (!pls.length) return pls;
   const kp = kstParts(now), st = [];
   for (const pl of pls) {
     if (!((pl.days >> kp.wd) & 1)) continue;
@@ -753,9 +771,10 @@ async function tripsSync(DB, cid, now) {
     if (now < eta - LEAD || now > eta + STAY) continue;
     st.push(DB.prepare("INSERT OR IGNORE INTO trips(id,cid,pl,day,st,tn) VALUES(?,?,?,?,'due',?)").bind(pl.id + ':' + kp.ds, cid, pl.id, kp.ds, now));
   }
-  if (!st.length) return;
+  if (!st.length) return pls;
   const rs = await DB.batch(st);
   if (rs.some((r) => r && r.meta && r.meta.changes > 0)) await bump(DB, cid);
+  return pls;
 }
 async function todayTrips(DB, cid, now) {
   const kp = kstParts(now);
@@ -1404,8 +1423,9 @@ async function handle(req, env, url) {
     if (p === '/c/loc' && m === 'POST') {         // 위치는 연결된 부모가 있을 때만, 가장 최근 한 건만 저장(바로 앞 위치도 하나 둔다: 가는 중인지 보려고)
       const la = +body.la, lo = +body.lo, acc = +body.acc || 0;
       if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180) || (la === 0 && lo === 0)) return bad('위치가 맞지 않아요');
-      const n = await linkedCount(DB, cid);
-      const last = n > 0 ? await DB.prepare('SELECT la,lo,acc,t,dn,hp,ap,mva,mvo,mvt,bt,mt,ha,hb,hat FROM loc WHERE cid=?').bind(cid).first() : null;
+      const nl = await DB.prepare('SELECT (SELECT COUNT(*) FROM links WHERE cid=?) n, l.la la,l.lo lo,l.acc acc,l.t t,l.dn dn,l.hp hp,l.ap ap,l.mva mva,l.mvo mvo,l.mvt mvt,l.bt bt,l.mt mt,l.ha ha,l.hb hb,l.hat hat FROM (SELECT 1) x LEFT JOIN loc l ON l.cid=?').bind(cid, cid).first();          // s424: 연결 수 + 이전 위치를 한 번에(결과는 같고 DB 호출만 1번 적게)
+      const n = nl ? nl.n : 0;
+      const last = n > 0 && nl && nl.t != null ? nl : null;
       let mtNow = last ? last.mt : 0;
       const wch = n > 0 ? await watchOf(DB, cid, now) : null;                   // 실시간 보기(s393): 보는 중이면 보고를 촘촘히 받고 응답에 주기 종류를 실어 준다
       const bt = Number.isFinite(+body.bt) && +body.bt >= 0 && +body.bt <= 100 ? Math.round(+body.bt) : -1, ch = body.ch ? 1 : 0;
@@ -1429,12 +1449,12 @@ async function handle(req, env, url) {
           else if (now - last.hat > 25000) await DB.prepare('UPDATE loc SET ha=?,hb=?,hat=? WHERE cid=?').bind(la, lo, now, cid).run();
         }
         if (bt >= 0 && bt <= BATT_LOW && !ch && (!last || last.bt < 0 || last.bt > BATT_LOW || now - last.t > 30 * 60000)) later(battAlert(env, DB, cid, bt, now));
-        await tripsSync(DB, cid, now);
+        let pls2 = await tripsSync(DB, cid, now);
+        if (!pls2) pls2 = (await DB.prepare('SELECT id,name,la,lo FROM places WHERE cid=?').bind(cid).all()).results || [];          // 기억만 보고 지나간 경우는 예전처럼 직접 읽는다(방금 등록한 장소를 놓치지 않게)
         const tr = (await todayTrips(DB, cid, now)).filter((r) => !r.ta && hav(la, lo, r.la, r.lo) <= HERE_M);   // 장소 150m 안에 들어섰다 — 도착 시각 기록
         if (tr.length) await DB.batch(tr.map((r) => DB.prepare('UPDATE trips SET ta=? WHERE id=? AND ta=0').bind(now, r.id)));
         // '뭐하니?' 기록: 등록 장소 150m 안에 들어오거나(근처) 벗어나면(210m 밖 — 흔들림으로 들락거리지 않게), 동네 이름이 바뀌면 한 줄
         const dn = String(body.dn || '').replace(/\s+/g, ' ').trim().slice(0, 20), ohp = last ? last.hp || '' : '', odn = last ? last.dn || '' : '';
-        const pls2 = (await DB.prepare('SELECT id,name,la,lo FROM places WHERE cid=?').bind(cid).all()).results || [];
         let hp = '', hn = '', bd = HERE_M + 1;
         for (const q of pls2) { const dd = hav(la, lo, q.la, q.lo); if (dd <= HERE_M && dd < bd) { bd = dd; hp = q.id; hn = q.name; } }
         const oq = ohp ? pls2.find((q) => q.id === ohp) : null;
