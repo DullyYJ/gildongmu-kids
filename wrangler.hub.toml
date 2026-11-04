@@ -11,4 +11,4 @@ class_name = "FamHub"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["FamHub"]
+new_sqlite_classes = ["FamHub"]
