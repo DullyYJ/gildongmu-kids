@@ -1104,6 +1104,21 @@ final class Engine {
 
     /** s426: 서버가 "초인종을 써도 돼요"(ws:1)라고 알려 준 상태 — 서버가 꺼 두면 응답에서 사라지고 바로 예전 긴 대기로 돌아간다. */
     private volatile boolean wsHint = false;
+
+    /** s429: 초인종에서 울릴 때까지 기다리는 시간 — 서버가 응답의 wa(밀리초)로 알려 준다. 없으면 45초. */
+    private static long waOf(String r) {
+        int i = r.indexOf("\"wa\":");
+        if (i < 0) return 45000L;
+        i += 5;
+        long v = 0L;
+        int n = 0;
+        while (i < r.length() && n < 7 && r.charAt(i) >= '0' && r.charAt(i) <= '9') {
+            v = v * 10L + (r.charAt(i) - '0');
+            i++;
+            n++;
+        }
+        return v > 0L ? v : 45000L;
+    }
     private final Door door = new Door();
 
     private void waitLoop() {
@@ -1131,7 +1146,7 @@ final class Engine {
                 wsHint = r.indexOf("\"ws\":1") >= 0;
                 boolean same = bell && r.indexOf("\"same\":1") >= 0;
                 if (!same) remGot("chat".equals(t) ? "chat" : null, r);
-                if (same && wsHint && door.isUp()) door.await(seen, 45000L);                                             // 바뀐 게 없다 — 울릴 때까지(안전하게 45초마다 한 번은 확인)
+                if (same && wsHint && door.isUp()) door.await(seen, waOf(r));                                             // 바뀐 게 없다 — 울릴 때까지(안전하게 45초마다 한 번은 확인)
             }
         } catch (InterruptedException e) {
             // 끝

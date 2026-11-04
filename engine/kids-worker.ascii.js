@@ -52,6 +52,8 @@ async function watchOf(DB, cid, now) {
 }
 /** s428: \ubd80\ubaa8\uac00 \ubcf4\ub294 \uc911\uc774\uac70\ub098, \uae34\uae09 \ud638\ucd9c(sos) \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918(pick)\uac00 \uc5f4\ub824 \uc788\uc73c\uba74(30\ubd84) \ucd18\ucd18\ud55c \ubcf4\uace0 \u2014 \ud55c \ubc88\uc758 \uc870\ud68c\ub85c \ub458 \ub2e4 \ubcf8\ub2e4. \uc5f4\ub9b0 \ud638\ucd9c\uc740 \ub290\ub9b0 \ubcf4\uace0(sl)\ub3c4 \ub9c9\ub294\ub2e4. */
 const CALL_FAST_MS = 30 * 60000;
+/** s429: \ucd08\uc778\uc885 \ubaa8\ub4dc\uc5d0\uc11c \uc571\uc774 \uc6b8\ub9bc\uc744 \uae30\ub2e4\ub9ac\ub294 \ucd5c\ub300 \uc2dc\uac04(\uc11c\ubc84\uac00 \uc54c\ub824 \uc900\ub2e4 \u2014 \uc571\uc740 \uc22b\uc790\ub97c \ubaa8\ub978\ub2e4). \ud5c8\ube0c \ud654\uba74\uc740 '\ubcf4\ub294 \uc911' \ud45c\uc2dc(WATCH_MS)\uac00 \ub04a\uae30\uc9c0 \uc54a\uac8c \uadf8 \uc808\ubc18. */
+const WS_WAIT_MS = 45000, WS_HUB_WAIT_MS = WATCH_MS / 2;
 async function watchOrCall(DB, cid, now) {
   const r = await DB.prepare("SELECT MIN(d.ws) ws, (SELECT 1 FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? LIMIT 1) cl FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.wt>?").bind(cid, now - CALL_FAST_MS, cid, now - WATCH_MS).first();
   if (r && r.ws) return { ws: r.ws };
@@ -1590,9 +1592,9 @@ async function handle(req, env, url) {
       if (tab === 'chat' && url.searchParams.get('fg') === '1') await markRd(DB, cid, 'c');      // \uc790\ub140 \uc571\uc774 \uc55e\uc5d0 \ub5a0\uc11c \ub300\ud654 \ud0ed\uc744 \ubcf4\ub294 \uc911(fg=1) = \ubd80\ubaa8 \uae00\uc744 \uc77d\ub294 \uc911
       const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // nw=1: \ucd08\uc778\uc885\uc774 \uc774\uc5b4\uc838 \uc788\ub2e4 \u2014 \ubd99\ub4e4\uc9c0 \uc54a\uace0 \uc9c0\uae08 \uac12\uc73c\ub85c \ubc14\ub85c \ub2f5\ud55c\ub2e4
       const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
-      if (nw && rev === since) return J({ ok: true, rev, same: 1, ws: 1 });
+      if (nw && rev === since) return J({ ok: true, rev, same: 1, ws: 1, wa: WS_WAIT_MS });
       const b = await childBundle(DB, cid, tab, qt, Date.now(), rev);
-      return J(ws && b && typeof b === 'object' ? Object.assign({}, b, { ws: 1 }) : b);
+      return J(ws && b && typeof b === 'object' ? Object.assign({}, b, { ws: 1, wa: WS_WAIT_MS }) : b);
     }
     if (p === '/c/screen' && m === 'GET') {
       if (url.searchParams.get('tab') === 'chat' && url.searchParams.get('fg') === '1') await markRd(DB, cid, 'c');
@@ -1713,11 +1715,11 @@ async function handle(req, env, url) {
       if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // \uc2e4\uc2dc\uac04 \ubcf4\uae30(s393): \ub300\uae30\uac00 \uc774\uc5b4\uc838 \uc788\ub294 \ub3d9\uc548 '\ubcf4\ub294 \uc911'
       const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // s426: nw=1 \u2014 \ucd08\uc778\uc885\uc774 \uc774\uc5b4\uc838 \uc788\ub2e4. \ubd99\ub4e4\uc9c0 \uc54a\uace0 \uc9c0\uae08 \uac12\uc73c\ub85c \ubc14\ub85c \ub2f5\ud55c\ub2e4(\ubcf4\ub294 \uc911 \ud45c\uc2dc \u00b7 \uc77d\uc74c\uc740 \uc704\uc5d0\uc11c \uadf8\ub300\ub85c \ucc98\ub9ac)
       const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
-      if (nw && rev === since) return J({ ok: true, rev, cid, same: 1, ws: 1 });
+      if (nw && rev === since) return J({ ok: true, rev, cid, same: 1, ws: 1, wa: v === 'hub' ? WS_HUB_WAIT_MS : WS_WAIT_MS });
       const t2 = Date.now(), kids = await childrenOf(DB, pid);
       if (!kids.some((k) => k.cid === cid)) return J({ ok: true, linked: kids.length, rev, gone: true });
       const screen = v === 'cheer' ? await cheerSheet(DB, pid, cid, '') : v === 'chat' ? await chatSheet(DB, pid, cid, t2) : v === 'fam' ? await famScreen(DB, pid, cid, t2) : v === 'quest' ? await questSheet(DB, pid, cid, url.searchParams.get('qt')) : await hubScreen(DB, pid, cid, t2);
-      return J(Object.assign({ ok: true, linked: kids.length, rev, cid, screen, pop: v === 'hub' ? await popOf(DB, pid, cid, t2) : null }, ws ? { ws: 1 } : {}));
+      return J(Object.assign({ ok: true, linked: kids.length, rev, cid, screen, pop: v === 'hub' ? await popOf(DB, pid, cid, t2) : null }, ws ? { ws: 1, wa: v === 'hub' ? WS_HUB_WAIT_MS : WS_WAIT_MS } : {}));
     }
     if (p === '/p/act' && m === 'POST') {         // \ubd80\ubaa8\uac00 \ub204\ub978 \uac83 \u00b7 \ubcf4\ub0b8 \uac83. \ud654\uba74\uc740 \uc5d4\uc9c4\uc774 \ub2e4\uc2dc \uc9dc\uc11c \ub3cc\ub824\uc900\ub2e4
       const v = typeof body.v === 'string' ? body.v : '', id = typeof body.id === 'string' ? body.id : '', t = typeof body.t === 'string' ? body.t : '';

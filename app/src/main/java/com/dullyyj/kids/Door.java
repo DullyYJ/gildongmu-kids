@@ -58,7 +58,7 @@ final class Door {
 
     /** seen 보다 더 울릴 때까지(또는 연결이 끊길 때까지, 최대 maxMs) 기다린다. 울렸으면 true. */
     boolean await(long seen, long maxMs) throws InterruptedException {
-        long end = System.currentTimeMillis() + maxMs;
+        long end = System.currentTimeMillis() + Math.max(5000L, Math.min(maxMs, 120000L));       // 서버가 준 시간이 엉뚱해도 5초~2분 안
         synchronized (lock) {
             while (seq == seen && up) {
                 long left = end - System.currentTimeMillis();

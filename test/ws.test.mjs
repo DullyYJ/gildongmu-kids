@@ -136,4 +136,11 @@ chk(r.status === 426, 'Upgrade 머리글이 없으면 426 — 연결되지 않�
   chk(/com\.squareup\.okhttp3:okhttp:4\.12\.0/.test(gr), '앱: okhttp 의존성');
 }
 Response = RealResponse;
+{
+  const w = fs.readFileSync(file, 'utf8');
+  chk(/WS_HUB_WAIT_MS = WATCH_MS \/ 2/.test(w) && (w.match(/wa: /g) || []).length >= 4, '서버가 울림 기다리는 시간(wa)을 알려 준다 — 허브 화면은 보는 중 표시(WATCH_MS)의 절반');
+  const e = fs.readFileSync(new URL('../app/src/main/java/com/dullyyj/kids/Engine.java', import.meta.url).pathname, 'utf8');
+  chk(/door\.await\(seen, waOf\(r\)\)/.test(e) && !/door\.await\(seen, 45000L\)/.test(e), '자녀 앱은 서버가 준 wa 를 따른다');
+}
+
 console.log(`${ok} 통과, ${bad} 실패`); process.exit(bad ? 1 : 0);

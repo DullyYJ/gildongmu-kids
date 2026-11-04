@@ -52,6 +52,8 @@ async function watchOf(DB, cid, now) {
 }
 /** s428: 부모가 보는 중이거나, 긴급 호출(sos) · 데리러 와줘(pick)가 열려 있으면(30분) 촘촘한 보고 — 한 번의 조회로 둘 다 본다. 열린 호출은 느린 보고(sl)도 막는다. */
 const CALL_FAST_MS = 30 * 60000;
+/** s429: 초인종 모드에서 앱이 울림을 기다리는 최대 시간(서버가 알려 준다 — 앱은 숫자를 모른다). 허브 화면은 '보는 중' 표시(WATCH_MS)가 끊기지 않게 그 절반. */
+const WS_WAIT_MS = 45000, WS_HUB_WAIT_MS = WATCH_MS / 2;
 async function watchOrCall(DB, cid, now) {
   const r = await DB.prepare("SELECT MIN(d.ws) ws, (SELECT 1 FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? LIMIT 1) cl FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.wt>?").bind(cid, now - CALL_FAST_MS, cid, now - WATCH_MS).first();
   if (r && r.ws) return { ws: r.ws };
@@ -1590,9 +1592,9 @@ async function handle(req, env, url) {
       if (tab === 'chat' && url.searchParams.get('fg') === '1') await markRd(DB, cid, 'c');      // 자녀 앱이 앞에 떠서 대화 탭을 보는 중(fg=1) = 부모 글을 읽는 중
       const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // nw=1: 초인종이 이어져 있다 — 붙들지 않고 지금 값으로 바로 답한다
       const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
-      if (nw && rev === since) return J({ ok: true, rev, same: 1, ws: 1 });
+      if (nw && rev === since) return J({ ok: true, rev, same: 1, ws: 1, wa: WS_WAIT_MS });
       const b = await childBundle(DB, cid, tab, qt, Date.now(), rev);
-      return J(ws && b && typeof b === 'object' ? Object.assign({}, b, { ws: 1 }) : b);
+      return J(ws && b && typeof b === 'object' ? Object.assign({}, b, { ws: 1, wa: WS_WAIT_MS }) : b);
     }
     if (p === '/c/screen' && m === 'GET') {
       if (url.searchParams.get('tab') === 'chat' && url.searchParams.get('fg') === '1') await markRd(DB, cid, 'c');
@@ -1713,11 +1715,11 @@ async function handle(req, env, url) {
       if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // 실시간 보기(s393): 대기가 이어져 있는 동안 '보는 중'
       const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // s426: nw=1 — 초인종이 이어져 있다. 붙들지 않고 지금 값으로 바로 답한다(보는 중 표시 · 읽음은 위에서 그대로 처리)
       const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
-      if (nw && rev === since) return J({ ok: true, rev, cid, same: 1, ws: 1 });
+      if (nw && rev === since) return J({ ok: true, rev, cid, same: 1, ws: 1, wa: v === 'hub' ? WS_HUB_WAIT_MS : WS_WAIT_MS });
       const t2 = Date.now(), kids = await childrenOf(DB, pid);
       if (!kids.some((k) => k.cid === cid)) return J({ ok: true, linked: kids.length, rev, gone: true });
       const screen = v === 'cheer' ? await cheerSheet(DB, pid, cid, '') : v === 'chat' ? await chatSheet(DB, pid, cid, t2) : v === 'fam' ? await famScreen(DB, pid, cid, t2) : v === 'quest' ? await questSheet(DB, pid, cid, url.searchParams.get('qt')) : await hubScreen(DB, pid, cid, t2);
-      return J(Object.assign({ ok: true, linked: kids.length, rev, cid, screen, pop: v === 'hub' ? await popOf(DB, pid, cid, t2) : null }, ws ? { ws: 1 } : {}));
+      return J(Object.assign({ ok: true, linked: kids.length, rev, cid, screen, pop: v === 'hub' ? await popOf(DB, pid, cid, t2) : null }, ws ? { ws: 1, wa: v === 'hub' ? WS_HUB_WAIT_MS : WS_WAIT_MS } : {}));
     }
     if (p === '/p/act' && m === 'POST') {         // 부모가 누른 것 · 보낸 것. 화면은 엔진이 다시 짜서 돌려준다
       const v = typeof body.v === 'string' ? body.v : '', id = typeof body.id === 'string' ? body.id : '', t = typeof body.t === 'string' ? body.t : '';
