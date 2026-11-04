@@ -128,4 +128,33 @@ chk(pin && Math.abs(pin.la - la) < 1e-6, '화면을 새로 열면 현재 위치�
   chk(lrow.hat === NOW && lrow.mvt > 0, '합쳐도 기준점(ha/hat)과 이동 기록(mva/mvt) 값이 함께 갱신된다');
 }
 
+// ── s428: 긴급 호출 · 데리러 와줘가 열려 있으면 느린 보고 대신 촘촘히 ──
+{
+  DB._db.exec('DELETE FROM trips; DELETE FROM places');                      // 앞 시험에서 남은 약속 · 장소를 치운다
+  NOW += 3 * MIN; la += 5000 * M; await loc();                               // 멀리 이동(등록 장소와 떨어진 곳)
+  NOW += 12 * MIN; await loc(); NOW += 12 * MIN; r = await loc();
+  chk(r.sl === 1 && !r.w, '(기준) 호출이 없으면 가만히 있을 때 sl:1');
+  for (const k of ['sos', 'pick']) {
+    const cr = await req('POST', '/c/call', 'c', { k, la, lo });
+    chk(cr.ok, k + ' 호출을 만든다');
+    NOW += 12 * MIN; const rv = rev(); la += 30 * M; r = await loc();
+    chk(!r.sl && r.w > 0, k + ' 호출이 열려 있으면 sl 이 없고 w 가 와서 빠른 주기가 된다');
+    chk(rev() === rv + 1, k + ' 호출 중에는 움직임마다 rev 를 올려 부모 화면이 바로 바뀐다');
+    await req('POST', '/c/call', 'c', { k, op: 'cancel' });
+    NOW += 12 * MIN; r = await loc(); NOW += 12 * MIN; r = await loc();
+    chk(r.sl === 1 && !r.w, k + ' 호출을 취소하면 다시 느린 보고가 된다');
+  }
+  await req('POST', '/c/call', 'c', { k: 'sos', la, lo });
+  NOW += 12 * MIN; r = await loc();
+  chk(r.w > 0 && !r.sl, '호출이 12분 지났어도 30분 안이면 빠른 주기');
+  NOW += 25 * MIN; r = await loc();
+  chk(r.sl === 1 && !r.w, '30분이 지나면 부모가 확인하지 않았어도 다시 느린 보고(호출은 계속 열려 있음)');
+  await req('POST', '/c/call', 'c', { k: 'sos', op: 'cancel' });
+}
+
+{
+  const calls = fs.readFileSync(new URL('../app/src/main/java/com/dullyyj/kids/Calls.java', import.meta.url).pathname, 'utf8');
+  chk((calls.match(/LocReq\.watch\(a\.getApplicationContext\(\)\)/g) || []).length === 2, '앱: 긴급 호출 · 데리러 와줘가 나가면 바로 빠른 보고(arr 안전 도착은 아님)');
+}
+
 console.log(`${ok} 통과, ${bad} 실패`); process.exit(bad ? 1 : 0);

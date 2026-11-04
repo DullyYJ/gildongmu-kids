@@ -50,6 +50,13 @@ async function watchOf(DB, cid, now) {
   const r = await DB.prepare('SELECT MIN(d.ws) ws FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.wt>?').bind(cid, now - WATCH_MS).first();
   return r && r.ws ? { ws: r.ws } : null;
 }
+/** s428: \ubd80\ubaa8\uac00 \ubcf4\ub294 \uc911\uc774\uac70\ub098, \uae34\uae09 \ud638\ucd9c(sos) \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918(pick)\uac00 \uc5f4\ub824 \uc788\uc73c\uba74(30\ubd84) \ucd18\ucd18\ud55c \ubcf4\uace0 \u2014 \ud55c \ubc88\uc758 \uc870\ud68c\ub85c \ub458 \ub2e4 \ubcf8\ub2e4. \uc5f4\ub9b0 \ud638\ucd9c\uc740 \ub290\ub9b0 \ubcf4\uace0(sl)\ub3c4 \ub9c9\ub294\ub2e4. */
+const CALL_FAST_MS = 30 * 60000;
+async function watchOrCall(DB, cid, now) {
+  const r = await DB.prepare("SELECT MIN(d.ws) ws, (SELECT 1 FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? LIMIT 1) cl FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.wt>?").bind(cid, now - CALL_FAST_MS, cid, now - WATCH_MS).first();
+  if (r && r.ws) return { ws: r.ws };
+  return r && r.cl ? { ws: now, call: 1 } : null;
+}
 /** \ubd80\ubaa8\uac00 \ud0a4\uc988 \ud654\uba74\uc744 \ubcf4\uace0 \uc788\ub2e4\uace0 \uc801\ub294\ub2e4. \uc0c8\ub85c \ubcf4\uae30 \uc2dc\uc791\ud588\uc73c\uba74 \uc790\ub140 \ud3f0\uc5d0 'watch' \ud478\uc2dc. */
 async function watchTouch(env, DB, pid, cid, now) {
   const d = await DB.prepare('SELECT wt FROM devices WHERE id=?').bind(pid).first();
@@ -1451,7 +1458,7 @@ async function handle(req, env, url) {
       const n = nl ? nl.n : 0;
       const last = n > 0 && nl && nl.t != null ? nl : null;
       let mtNow = last ? last.mt : 0;
-      const wch = n > 0 ? await watchOf(DB, cid, now) : null;                   // \uc2e4\uc2dc\uac04 \ubcf4\uae30(s393): \ubcf4\ub294 \uc911\uc774\uba74 \ubcf4\uace0\ub97c \ucd18\ucd18\ud788 \ubc1b\uace0 \uc751\ub2f5\uc5d0 \uc8fc\uae30 \uc885\ub958\ub97c \uc2e4\uc5b4 \uc900\ub2e4
+      const wch = n > 0 ? await watchOrCall(DB, cid, now) : null;                   // \uc2e4\uc2dc\uac04 \ubcf4\uae30(s393): \ubcf4\ub294 \uc911\uc774\uba74 \ubcf4\uace0\ub97c \ucd18\ucd18\ud788 \ubc1b\uace0 \uc751\ub2f5\uc5d0 \uc8fc\uae30 \uc885\ub958\ub97c \uc2e4\uc5b4 \uc900\ub2e4
       const bt = Number.isFinite(+body.bt) && +body.bt >= 0 && +body.bt <= 100 ? Math.round(+body.bt) : -1, ch = body.ch ? 1 : 0;
       if (last && now - last.t < (wch ? 1200 : 12000) && hav(last.la, last.lo, la, lo) < (wch ? 2 : 8)) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });     // \uac70\uc758 \uac19\uc740 \uc790\ub9ac \u00b7 \ubc29\uae08 \ubcf4\ub0c8\ub2e4 \u2014 \uc4f0\uc9c0\ub3c4 \uc54c\ub9ac\uc9c0\ub3c4 \uc54a\ub294\ub2e4
       if (last && now - last.t < LOC_FRESH_MS) {   // \ud284 \uc704\uce58 \uac70\ub974\uae30(\uc9c0\ub3c4\uac00 \uac11\uc790\uae30 \uba40\ub9ac \uac14\ub2e4 \uc624\ub294 \uc77c): \u2460 \ubc29\uae08 \ubc1b\uc740 \uac83\ubcf4\ub2e4 \ud6e8\uc52c \ubd80\uc815\ud655\ud55c \uc704\uce58 \u2461 \uba87 \ucd08 \ub9cc\uc5d0 1.5km \ub118\uac8c \uc21c\uac04\uc774\ub3d9\ud55c \uc704\uce58\ub294 \ub36e\uc9c0 \uc54a\ub294\ub2e4(\u2461\ub294 120\ucd08 \uc548\uc5d0 \uadf8 \uadfc\ucc98\uc5d0\uc11c \ub610 \uc624\uba74 \uc9c4\uc9dc\ub85c \ubcf8\ub2e4)

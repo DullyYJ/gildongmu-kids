@@ -124,6 +124,7 @@ public final class Calls {
         Core.engine.callSend("sos", false, new Engine.CallCb() {
             @Override
             public void done(final boolean ok, final int linked, boolean dup) {
+                if (ok && linked != 0) LocReq.watch(a.getApplicationContext());       // s428: 긴급 호출이 나가면 위치 보고를 바로 촘촘하게(이후는 서버가 정한 주기 w)
                 MAIN.post(new Runnable() {
                     @Override
                     public void run() {
@@ -275,6 +276,7 @@ public final class Calls {
 
             @Override
             public void done(final boolean ok, final int linked, final boolean dup, final int np) {
+                if (ok && linked != 0) LocReq.watch(a.getApplicationContext());       // s428: 데리러 와줘도 마찬가지
                 MAIN.post(new Runnable() {
                     @Override
                     public void run() {

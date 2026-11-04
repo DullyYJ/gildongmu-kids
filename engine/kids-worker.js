@@ -50,6 +50,13 @@ async function watchOf(DB, cid, now) {
   const r = await DB.prepare('SELECT MIN(d.ws) ws FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.wt>?').bind(cid, now - WATCH_MS).first();
   return r && r.ws ? { ws: r.ws } : null;
 }
+/** s428: 부모가 보는 중이거나, 긴급 호출(sos) · 데리러 와줘(pick)가 열려 있으면(30분) 촘촘한 보고 — 한 번의 조회로 둘 다 본다. 열린 호출은 느린 보고(sl)도 막는다. */
+const CALL_FAST_MS = 30 * 60000;
+async function watchOrCall(DB, cid, now) {
+  const r = await DB.prepare("SELECT MIN(d.ws) ws, (SELECT 1 FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? LIMIT 1) cl FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.wt>?").bind(cid, now - CALL_FAST_MS, cid, now - WATCH_MS).first();
+  if (r && r.ws) return { ws: r.ws };
+  return r && r.cl ? { ws: now, call: 1 } : null;
+}
 /** 부모가 키즈 화면을 보고 있다고 적는다. 새로 보기 시작했으면 자녀 폰에 'watch' 푸시. */
 async function watchTouch(env, DB, pid, cid, now) {
   const d = await DB.prepare('SELECT wt FROM devices WHERE id=?').bind(pid).first();
@@ -1451,7 +1458,7 @@ async function handle(req, env, url) {
       const n = nl ? nl.n : 0;
       const last = n > 0 && nl && nl.t != null ? nl : null;
       let mtNow = last ? last.mt : 0;
-      const wch = n > 0 ? await watchOf(DB, cid, now) : null;                   // 실시간 보기(s393): 보는 중이면 보고를 촘촘히 받고 응답에 주기 종류를 실어 준다
+      const wch = n > 0 ? await watchOrCall(DB, cid, now) : null;                   // 실시간 보기(s393): 보는 중이면 보고를 촘촘히 받고 응답에 주기 종류를 실어 준다
       const bt = Number.isFinite(+body.bt) && +body.bt >= 0 && +body.bt <= 100 ? Math.round(+body.bt) : -1, ch = body.ch ? 1 : 0;
       if (last && now - last.t < (wch ? 1200 : 12000) && hav(last.la, last.lo, la, lo) < (wch ? 2 : 8)) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });     // 거의 같은 자리 · 방금 보냈다 — 쓰지도 알리지도 않는다
       if (last && now - last.t < LOC_FRESH_MS) {   // 튄 위치 거르기(지도가 갑자기 멀리 갔다 오는 일): ① 방금 받은 것보다 훨씬 부정확한 위치 ② 몇 초 만에 1.5km 넘게 순간이동한 위치는 덮지 않는다(②는 120초 안에 그 근처에서 또 오면 진짜로 본다)
