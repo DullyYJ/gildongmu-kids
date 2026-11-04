@@ -180,6 +180,12 @@ chk(snap.tot_p === 1 && snap.tot_c === 1 && snap.tot_fam === 1 && snap.act_c ===
 const sn1 = rows("SELECT v FROM meta WHERE k='mxsnap'")[0].v;
 await mod.scheduled({}, env, ctx); await flush();
 chk(rows("SELECT v FROM meta WHERE k='mxsnap'")[0].v === sn1, '30분 안에는 다시 세지 않는다');
+// 끝난 지 오래된 구독 줄은 지운다(약 13개월)
+DB._db.prepare('INSERT INTO subs(pid,tk,st,exp,vt,t) VALUES(?,?,?,?,?,?)').run('oldparent1', 'tk-old-1234567890', 'EXPIRED', NOW - 401 * 86400000, NOW, NOW);
+DB._db.prepare('INSERT INTO subs(pid,tk,st,exp,vt,t) VALUES(?,?,?,?,?,?)').run('newparent1', 'tk-new-1234567890', 'EXPIRED', NOW - 100 * 86400000, NOW, NOW);
+NOW += 11 * 60000;
+await mod.scheduled({}, env, ctx); await flush();
+chk(rows("SELECT pid FROM subs WHERE pid='oldparent1'").length === 0 && rows("SELECT pid FROM subs WHERE pid='newparent1'").length === 1, '끝난 지 400일이 넘은 구독 줄만 지운다(처리방침 약 13개월)');
 // 관리자 읽기
 const noKey = await mod.fetch(new Request('https://k.test/admin/mx'), env, ctx);
 chk(noKey.status === 404, 'ADMIN_KEY 가 없으면 /admin/mx 는 없는 길(404)');
