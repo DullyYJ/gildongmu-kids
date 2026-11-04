@@ -42,6 +42,7 @@ dependencies {
     implementation 'com.google.firebase:firebase-messaging'
     implementation 'com.google.android.gms:play-services-location:21.3.0'
     implementation 'com.google.zxing:core:3.5.3'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'     // s426: 서버 초인종(WebSocket) — 서버가 켜 둘 때만 쓴다
 }
 
 // 길동무 키즈: 가져온 길동무 장면 그림 코드(읽기 전용 복사본)에 키즈용 동작·배율·"건드림" 알림을 끼운다. 원본 저장소는 고치지 않는다.

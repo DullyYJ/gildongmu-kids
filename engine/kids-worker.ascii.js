@@ -706,6 +706,8 @@ function sleepOrWake(cid, ms) {
   });
 }
 // s425: \ud5c8\ube0c(Durable Object, \uc120\ud0dd)\uac00 \uc5f0\uacb0\ub3fc \uc788\uc73c\uba74 \ubc14\ub010 rev \ub97c \uc54c\ub824 \uae30\ub2e4\ub9ac\ub294 \ucabd\uc744 \uc11c\ubc84\uac00 \ub2ec\ub77c\ub3c4 \uace7\ubc14\ub85c \uae68\uc6b4\ub2e4. \uc5c6\uc73c\uba74 \uc774\uc804\uacfc \ub611\uac19\ub2e4.
+// s426: WebSocket \ucd08\uc778\uc885 \uc2a4\uc704\uce58 \u2014 \uc6cc\ucee4 \ubcc0\uc218 WS_MODE: \uc5c6\uc74c/off = \uaebc\uc9d0(\uae30\ubcf8, \uc608\uc804 \uadf8\ub300\ub85c) \u00b7 canary = WS_CANARY(\uc27c\ud45c\ub85c \uc790\ub140 \uc544\uc774\ub514)\ub9cc \u00b7 all = \ubaa8\ub450. \ud5c8\ube0c(FAM)\uac00 \uc5f0\uacb0\ub3fc \uc788\uc5b4\uc57c \ud55c\ub2e4.
+const wsOn = (env, cid) => { const md = env && env.WS_MODE; if (!md || !env.FAM) return false; if (md === 'all') return true; return md === 'canary' && String(env.WS_CANARY || '').split(',').some((x) => x.trim() === cid); };
 const famHub = (cid) => { const e = ENVG; return e && e.FAM && e.FAM.idFromName ? e.FAM.get(e.FAM.idFromName(cid)) : null; };
 async function bump(DB, cid) {
   const hub = famHub(cid);
@@ -1571,11 +1573,19 @@ async function handle(req, env, url) {
       return J({ ok: true });
     }
     if (p === '/c/state' && m === 'GET') return J(Object.assign({ ok: true, rev: await revOf(DB, cid) }, await childState(DB, cid, now)));
+    if (p === '/c/ws' && m === 'GET') {           // s426: \ucd08\uc778\uc885 \uc5f0\uacb0(\ucf1c\uc838 \uc788\uace0 \uc774 \uc790\ub140\uac00 \ub300\uc0c1\uc77c \ub54c\ub9cc \u00b7 \uc544\ub2c8\uba74 404 \u2014 \uc571\uc740 \uc608\uc804 \uae34 \ub300\uae30\ub97c \uadf8\ub300\ub85c \uc4f4\ub2e4)
+      const hub = wsOn(env, cid) ? famHub(cid) : null;
+      if (!hub) return bad('\uc5c6\uc5b4\uc694', 404);
+      return hub.fetch(new Request('https://hub/ws', req));
+    }
     if (p === '/c/wait' && m === 'GET') {         // \ubc14\ub014 \ub54c\uae4c\uc9c0 \ubd99\ub4e4\uc5b4 \ub450\uc5c8\ub2e4\uac00 \uc0c8 \ubb36\uc74c\uc744 \uc900\ub2e4(\uc790\ub140 \uc571\uc774 \ub298 \uc774\uac78 \uac78\uc5b4 \ub454\ub2e4)
       const since = +url.searchParams.get('since') || 0, tab = url.searchParams.get('tab'), qt = url.searchParams.get('qt');
       if (tab === 'chat' && url.searchParams.get('fg') === '1') await markRd(DB, cid, 'c');      // \uc790\ub140 \uc571\uc774 \uc55e\uc5d0 \ub5a0\uc11c \ub300\ud654 \ud0ed\uc744 \ubcf4\ub294 \uc911(fg=1) = \ubd80\ubaa8 \uae00\uc744 \uc77d\ub294 \uc911
-      const rev = await waitRev(DB, cid, since, now);
-      return J(await childBundle(DB, cid, tab, qt, Date.now(), rev));
+      const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // nw=1: \ucd08\uc778\uc885\uc774 \uc774\uc5b4\uc838 \uc788\ub2e4 \u2014 \ubd99\ub4e4\uc9c0 \uc54a\uace0 \uc9c0\uae08 \uac12\uc73c\ub85c \ubc14\ub85c \ub2f5\ud55c\ub2e4
+      const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
+      if (nw && rev === since) return J({ ok: true, rev, same: 1, ws: 1 });
+      const b = await childBundle(DB, cid, tab, qt, Date.now(), rev);
+      return J(ws && b && typeof b === 'object' ? Object.assign({}, b, { ws: 1 }) : b);
     }
     if (p === '/c/screen' && m === 'GET') {
       if (url.searchParams.get('tab') === 'chat' && url.searchParams.get('fg') === '1') await markRd(DB, cid, 'c');
@@ -1681,6 +1691,12 @@ async function handle(req, env, url) {
       if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                // \ubcf4\ub294 \uc911 \ud45c\uc2dc(+ \uc0c8\ub85c \ubcf4\uae30 \uc2dc\uc791\ud558\uba74 \uc790\ub140 \ud3f0\uc5d0 watch \ud478\uc2dc) \u00b7 \uc704\uce58\uac00 \uc5c6\uac70\ub098 \uc624\ub798\ub410\uc73c\uba74 \uc790\ub140 \ud3f0\uc5d0 \ud55c \ubc88 \uc694\uccad
       return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await hubScreen(DB, pid, cid, now), pop: v === 'hub' ? await popOf(DB, pid, cid, now) : null });
     }
+    if (p === '/p/ws' && m === 'GET') {           // s426: \ucd08\uc778\uc885 \uc5f0\uacb0(\ubd80\ubaa8) \u2014 \uc774 \ubd80\ubaa8\uc5d0\uac8c \uc5f0\uacb0\ub41c \uc790\ub140\ub9cc, \ucf1c\uc838 \uc788\uace0 \ub300\uc0c1\uc77c \ub54c\ub9cc. \uc544\ub2c8\uba74 404
+      const cid0 = url.searchParams.get('cid') || '';
+      const hub = (await childrenOf(DB, pid)).some((k) => k.cid === cid0) && wsOn(env, cid0) ? famHub(cid0) : null;
+      if (!hub) return bad('\uc5c6\uc5b4\uc694', 404);
+      return hub.fetch(new Request('https://hub/ws', req));
+    }
     if (p === '/p/wait' && m === 'GET') {         // \ubc14\ub014 \ub54c\uae4c\uc9c0 \ubd99\ub4e4\uc5b4 \ub450\uc5c8\ub2e4\uac00 \uadf8 \ud654\uba74\uc744 \uc0c8\ub85c \uc900\ub2e4(\ubd80\ubaa8 \uc571\uc774 \ubcf4\ub294 \ud654\uba74\ub9c8\ub2e4 \uac74\ub2e4)
       const v = url.searchParams.get('v') || 'hub', cid0 = url.searchParams.get('cid') || '', since = +url.searchParams.get('since') || 0;
       const kids0 = await childrenOf(DB, pid);
@@ -1688,11 +1704,13 @@ async function handle(req, env, url) {
       if (!cid) return J({ ok: true, linked: 0, rev: 0 });
       if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');         // \ubd80\ubaa8 \uc571\uc774 \ud0a4\uc988 \ud654\uba74\uc744 \ubcf4\ub294 \ub3d9\uc548\uc5d0\ub9cc \uae34 \ub300\uae30\ub97c \uac74\ub2e4 \u2014 \uadf8\ub3d9\uc548\uc740 \uc790\ub140 \uae00\uc744 \uc77d\ub294 \uc911
       if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // \uc2e4\uc2dc\uac04 \ubcf4\uae30(s393): \ub300\uae30\uac00 \uc774\uc5b4\uc838 \uc788\ub294 \ub3d9\uc548 '\ubcf4\ub294 \uc911'
-      const rev = await waitRev(DB, cid, since, now);
+      const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // s426: nw=1 \u2014 \ucd08\uc778\uc885\uc774 \uc774\uc5b4\uc838 \uc788\ub2e4. \ubd99\ub4e4\uc9c0 \uc54a\uace0 \uc9c0\uae08 \uac12\uc73c\ub85c \ubc14\ub85c \ub2f5\ud55c\ub2e4(\ubcf4\ub294 \uc911 \ud45c\uc2dc \u00b7 \uc77d\uc74c\uc740 \uc704\uc5d0\uc11c \uadf8\ub300\ub85c \ucc98\ub9ac)
+      const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
+      if (nw && rev === since) return J({ ok: true, rev, cid, same: 1, ws: 1 });
       const t2 = Date.now(), kids = await childrenOf(DB, pid);
       if (!kids.some((k) => k.cid === cid)) return J({ ok: true, linked: kids.length, rev, gone: true });
       const screen = v === 'cheer' ? await cheerSheet(DB, pid, cid, '') : v === 'chat' ? await chatSheet(DB, pid, cid, t2) : v === 'fam' ? await famScreen(DB, pid, cid, t2) : v === 'quest' ? await questSheet(DB, pid, cid, url.searchParams.get('qt')) : await hubScreen(DB, pid, cid, t2);
-      return J({ ok: true, linked: kids.length, rev, cid, screen, pop: v === 'hub' ? await popOf(DB, pid, cid, t2) : null });
+      return J(Object.assign({ ok: true, linked: kids.length, rev, cid, screen, pop: v === 'hub' ? await popOf(DB, pid, cid, t2) : null }, ws ? { ws: 1 } : {}));
     }
     if (p === '/p/act' && m === 'POST') {         // \ubd80\ubaa8\uac00 \ub204\ub978 \uac83 \u00b7 \ubcf4\ub0b8 \uac83. \ud654\uba74\uc740 \uc5d4\uc9c4\uc774 \ub2e4\uc2dc \uc9dc\uc11c \ub3cc\ub824\uc900\ub2e4
       const v = typeof body.v === 'string' ? body.v : '', id = typeof body.id === 'string' ? body.id : '', t = typeof body.t === 'string' ? body.t : '';

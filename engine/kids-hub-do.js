@@ -11,7 +11,17 @@ export class FamHub {
     this.known = 0;             // 마지막으로 안 rev(본 엔진 D1 의 값)
     this.at = 0;                // 마지막으로 바뀐 신호를 받은 시각
     this.w = new Set();         // 기다리는 요청들의 깨우기 함수
+    try { if (state && state.setWebSocketAutoResponse && typeof WebSocketRequestResponsePair !== 'undefined') state.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong')); } catch (e) { /* 자동 응답이 없어도 초인종은 동작한다 */ }
   }
+  // s426: WebSocket 초인종 — 앱이 연결을 붙들고 있어도 이 객체는 잠든다(절전 연결: 요금은 '깨어 있는 시간' 기준). 바뀌었다는 신호가 오면 연결된 앱들에게 {r:rev} 한 줄만 보낸다. 내용은 보내지 않는다 — 앱이 곧바로 평소 요청으로 새 화면을 받아 간다.
+  ring() {
+    let n = 0;
+    try { for (const w of this.state.getWebSockets()) { try { w.send('{"r":' + this.known + '}'); n++; } catch (e) { /* 이미 끊긴 연결 */ } } } catch (e) { /* 절전 연결을 지원하지 않는 곳(시험) */ }
+    return n;
+  }
+  webSocketMessage() { /* 앱이 보내는 건 없다(ping 은 자동 응답) */ }
+  webSocketClose(ws, code) { try { ws.close(code >= 1000 && code < 5000 && code !== 1005 && code !== 1006 ? code : 1000, 'bye'); } catch (e) { /* 이미 닫힘 */ } }
+  webSocketError(ws) { try { ws.close(1011, 'err'); } catch (e) { /* 이미 닫힘 */ } }
   wake() { const a = [...this.w]; this.w.clear(); for (const f of a) f(); }
   async fetch(req) {
     const u = new URL(req.url), p = u.pathname;
@@ -20,7 +30,15 @@ export class FamHub {
       this.known = r > this.known ? r : this.known + 1;
       this.at = Date.now();
       this.wake();
-      return J({ ok: true, rev: this.known });
+      const rung = this.ring();
+      return J({ ok: true, rev: this.known, rung });
+    }
+    if (p === '/ws') {                                       // s426: 앱의 WebSocket 연결을 받는다(본 엔진이 인증을 마친 뒤에만 여기로 넘긴다)
+      if (req.headers.get('Upgrade') !== 'websocket') return new Response('websocket only', { status: 426 });
+      const pair = new WebSocketPair(), cl = pair[0], sv = pair[1];
+      this.state.acceptWebSocket(sv);
+      try { sv.send('{"hi":1}'); } catch (e) { /* 곧 끊기면 앱이 다시 건다 */ }
+      return new Response(null, { status: 101, webSocket: cl });
     }
     if (p === '/wait') {                                     // rev = 기다리는 쪽이 아는 값, ms = 최대 기다림
       const n = Math.floor(+u.searchParams.get('rev')) || 0, ms = Math.max(0, Math.min(25000, Math.floor(+u.searchParams.get('ms')) || 0));

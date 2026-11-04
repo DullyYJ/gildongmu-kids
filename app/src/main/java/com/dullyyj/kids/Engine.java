@@ -1102,6 +1102,10 @@ final class Engine {
         return base - srnd.nextInt((int) (base / 3) + 1);
     }
 
+    /** s426: 서버가 "초인종을 써도 돼요"(ws:1)라고 알려 준 상태 — 서버가 꺼 두면 응답에서 사라지고 바로 예전 긴 대기로 돌아간다. */
+    private volatile boolean wsHint = false;
+    private final Door door = new Door();
+
     private void waitLoop() {
         int fails = 0;
         try {
@@ -1110,8 +1114,11 @@ final class Engine {
                     Thread.sleep(3000L);
                     continue;
                 }
+                if (wsHint && !door.isUp()) door.ensure(Kid.BASE + "/c/ws", cid, csec, srnd.nextInt(3000));         // 서버가 허락할 때만 연결을 건다(흩뿌림은 엔진이)
+                boolean bell = wsHint && door.isUp();                                                              // 초인종이 이어져 있으면 붙들지 않는다(nw=1)
                 String t = tab();
-                String r = Kid.callT("GET", "/c/wait?since=" + svRev + "&fg=1&tab=" + t + "&qt=" + ("p".equals(questTabNow()) ? "p" : "c"), null, cid, csec, 24000);
+                long seen = door.seq();
+                String r = Kid.callT("GET", "/c/wait?since=" + svRev + "&fg=1&tab=" + t + "&qt=" + ("p".equals(questTabNow()) ? "p" : "c") + (bell ? "&nw=1" : ""), null, cid, csec, bell ? 10000 : 24000);
                 if (r == null) {
                     fails++;
                     Thread.sleep(backoffMs(fails));
@@ -1121,11 +1128,15 @@ final class Engine {
                 synchronized (this) {
                     waitOkT = System.currentTimeMillis();
                 }
-                remGot("chat".equals(t) ? "chat" : null, r);
+                wsHint = r.indexOf("\"ws\":1") >= 0;
+                boolean same = bell && r.indexOf("\"same\":1") >= 0;
+                if (!same) remGot("chat".equals(t) ? "chat" : null, r);
+                if (same && wsHint && door.isUp()) door.await(seen, 45000L);                                             // 바뀐 게 없다 — 울릴 때까지(안전하게 45초마다 한 번은 확인)
             }
         } catch (InterruptedException e) {
             // 끝
         } finally {
+            door.close();
             synchronized (this) {
                 waitRun = false;
             }
