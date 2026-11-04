@@ -30,6 +30,7 @@ final class Engine {
     static final long EVT_MIN = 20000L, EVT_MAX = 70000L; // 랜덤 행동 간격
     static final long CHAT_KEEP_MS = 7L * 24L * 3600L * 1000L; // 가족 대화 보관(최대 7일)
     static final long LOC_INTERVAL_MS = 300000L;        // 위치 보내는 주기(5분)
+    static final long LOC_SLOW_MS = 480000L;            // s426: 서버가 "가만히 · 장소와 멀리 · 약속 없음 · 보는 사람 없음"이라고 알려 주면(sl) 8분마다(위치 끊김 점검은 20분이라 그보다 짧게)
     static final long LOC_MOVING_MS = 180000L;          // p-kids53(YJ): 자녀가 움직인다고 판단(GPS 이동 발생)하면 3분마다 위치를 확인한다
     static final double MOVE_M = 60.0;                  // 이어진 두 위치가 이만큼(m) 이상(그리고 오차의 1.5배 이상) 떨어지면 '움직임'
     static final long MOVE_GAP_MS = 12 * 60000L;        // 두 위치 사이가 이보다 길면(꺼졌다 켜짐 등) 움직임을 판단하지 않는다
@@ -100,6 +101,8 @@ final class Engine {
     private String lastSig = "";
     private boolean loc = false;
     private volatile int watchW = 0;                         // s393: 부모가 지금 보고 있어서 서버가 정해 준 보고 주기 종류(1 = 2.5초 · 2 = 10초 · 3 = 15초 · 0 = 원래대로)
+    private volatile boolean slowOk = false;                // s426: 서버가 보고 주기를 늘려도 된다고 한 상태(움직이거나 보는 사람이 생기면 곧바로 풀린다)
+    private volatile long slowUntil = 0L;                   // 이 시각까지만 유효(응답이 없으면 스스로 풀린다)
     private volatile long watchUntil = 0L;                  // 이 시각까지만 유효(서버 응답이 없으면 스스로 풀린다 — 배터리 보호)
     private volatile int battPct = -1;                      // s392: 폰 배터리 %(모르면 -1) · 충전 중 — 위치와 함께 서버에 보낸다(서버가 '배터리 낮음' 알림을 판단)
     private volatile boolean battChg = false;
@@ -365,6 +368,7 @@ final class Engine {
     /** 위치 보내는 주기 — 계산은 엔진이: 움직이는 중이면 3분, 가만히 있으면 5분. */
     synchronized long locIntervalMs() {
         if (watchW > 0 && System.currentTimeMillis() < watchUntil) return watchW == 1 ? 2500L : (watchW == 2 ? 10000L : 15000L);      // 부모가 보는 동안(서버가 정한 대로)
+        if (slowOk && !moving && System.currentTimeMillis() < slowUntil) return LOC_SLOW_MS;
         return moving ? LOC_MOVING_MS : LOC_INTERVAL_MS;
     }
 
@@ -412,6 +416,7 @@ final class Engine {
 
     /** 부모가 보기 시작했다는 푸시(watch)를 받았다 — 서버 응답이 올 때까지 90초 동안 빠른 주기. 이후엔 위치 보고 응답의 w 가 정한다. */
     void watchOn() {
+        slowOk = false;
         setWatch(1);
     }
 
@@ -424,7 +429,11 @@ final class Engine {
     private void watchFrom(String r) {
         if (r == null || r.isEmpty()) return;                      // 통신이 안 됐다 — 있던 상태는 시간이 지나면 저절로 풀린다
         try {
-            setWatch(new JSONObject(r).optInt("w", 0));
+            JSONObject j = new JSONObject(r);
+            setWatch(j.optInt("w", 0));
+            boolean sl = j.optInt("sl", 0) == 1 && watchW == 0;                // s426: 서버가 정한다 — 앱은 따를 뿐
+            slowOk = sl;
+            slowUntil = sl ? System.currentTimeMillis() + 15 * 60000L : 0L;
         } catch (Exception e) {
             // 모양이 이상하면 건너뛴다
         }

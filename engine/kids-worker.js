@@ -23,6 +23,8 @@ const MISS_AFTER = 5 * 60000;
 let CTX = null, ENVG = null;                    // ENVG: 지금 요청의 바인딩(허브 FAM 이 있으면 실시간 깨우기에 쓴다)
 function later(p) { const q = Promise.resolve(p).catch(() => {}); try { if (CTX && CTX.waitUntil) CTX.waitUntil(q); } catch (e) { /* 이미 끝난 요청의 핸들이면 그냥 돌아가게 둔다 */ } return q; }
 const locBumpAt = new Map();
+// s426: 아무도 안 보고 · 가만히 있고 · 등록 장소와 멀고 · 약속 시간대가 아니면 자녀 앱이 보고 주기를 8분(앱 쪽)으로 늘려도 된다고 응답에 sl:1 을 실어 준다. 안전 점검(위치 끊김 20분)보다 짧게.
+const SLOW_STILL_MS = 10 * 60000, SLOW_PLACE_M = 500, SLOW_LEAD_MS = 30 * 60000 + 10 * 60000;
 const locHold = new Map();                      // 튄 것으로 보고 보류한 위치(cid → {la,lo,t}) — 곧바로 같은 곳에서 또 오면 진짜로 본다
 const LOC_FRESH_MS = 5 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
 // 부모가 처음 열었는데(앱을 새로 깔았거나 막 연결) 자녀 위치가 없거나 오래됐으면, 자녀 폰에 '위치 한 번 올려' 푸시를 보낸다(s390).
@@ -1461,17 +1463,21 @@ async function handle(req, env, url) {
         if (skip) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });
         locHold.delete(cid);                       // 정상 위치가 이어졌다 — 보류해 둔 튄 위치는 잊는다(같은 튐이 되풀이돼도 확인으로 치지 않는다)
       }
+      let slowOk = false;
       if (n > 0) {
+        const lcols = [], lvals = [];                                       // 같은 요청에서 loc 의 다른 칸을 여러 번 바꾸던 것을 모아 한 번에 쓴다
+        const lset = (c, v) => { lcols.push(c); for (const x of v) lvals.push(x); };
         await DB.prepare('INSERT INTO loc(cid,la,lo,acc,t,bt,ch) VALUES(?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET bt=excluded.bt,ch=excluded.ch,pla=CASE WHEN excluded.t-loc.t>=20000 THEN loc.la ELSE loc.pla END, plo=CASE WHEN excluded.t-loc.t>=20000 THEN loc.lo ELSE loc.plo END, plt=CASE WHEN excluded.t-loc.t>=20000 THEN loc.t ELSE loc.plt END, la=excluded.la,lo=excluded.lo,acc=excluded.acc,t=excluded.t').bind(cid, la, lo, acc, now, bt, ch).run();
         if (acc <= 60) {                                                       // 움직임 · 가는 방향: 기준점에서 max(8m, 오차) 넘게 벗어나면 움직이는 중 + 방향 계산(걷는 속도로 2.5초마다 보고해도 잡힌다). 25초 넘게 제자리면 기준점을 새로 잡는다
-          if (!last || !last.hat) await DB.prepare('UPDATE loc SET ha=?,hb=?,hat=? WHERE cid=?').bind(la, lo, now, cid).run();
-          else if (hav(last.ha, last.hb, la, lo) >= Math.max(8, acc)) { mtNow = now; await DB.prepare('UPDATE loc SET hd=?,hdt=?,mt=?,ha=?,hb=?,hat=? WHERE cid=?').bind(bearing(last.ha, last.hb, la, lo), now, now, la, lo, now, cid).run(); }
-          else if (now - last.hat > 25000) await DB.prepare('UPDATE loc SET ha=?,hb=?,hat=? WHERE cid=?').bind(la, lo, now, cid).run();
+          if (!last || !last.hat) lset('ha=?,hb=?,hat=?', [la, lo, now]);
+          else if (hav(last.ha, last.hb, la, lo) >= Math.max(8, acc)) { mtNow = now; lset('hd=?,hdt=?,mt=?,ha=?,hb=?,hat=?', [bearing(last.ha, last.hb, la, lo), now, now, la, lo, now]); }
+          else if (now - last.hat > 25000) lset('ha=?,hb=?,hat=?', [la, lo, now]);
         }
         if (bt >= 0 && bt <= BATT_LOW && !ch && (!last || last.bt < 0 || last.bt > BATT_LOW || now - last.t > 30 * 60000)) later(battAlert(env, DB, cid, bt, now));
         let pls2 = await tripsSync(DB, cid, now);
         if (!pls2) pls2 = (await DB.prepare('SELECT id,name,la,lo FROM places WHERE cid=?').bind(cid).all()).results || [];          // 기억만 보고 지나간 경우는 예전처럼 직접 읽는다(방금 등록한 장소를 놓치지 않게)
-        const tr = (await todayTrips(DB, cid, now)).filter((r) => !r.ta && hav(la, lo, r.la, r.lo) <= HERE_M);   // 장소 150m 안에 들어섰다 — 도착 시각 기록
+        const trs = await todayTrips(DB, cid, now);
+        const tr = trs.filter((r) => !r.ta && hav(la, lo, r.la, r.lo) <= HERE_M);   // 장소 150m 안에 들어섰다 — 도착 시각 기록
         if (tr.length) await DB.batch(tr.map((r) => DB.prepare('UPDATE trips SET ta=? WHERE id=? AND ta=0').bind(now, r.id)));
         // '뭐하니?' 기록: 등록 장소 150m 안에 들어오거나(근처) 벗어나면(210m 밖 — 흔들림으로 들락거리지 않게), 동네 이름이 바뀌면 한 줄
         const dn = String(body.dn || '').replace(/\s+/g, ' ').trim().slice(0, 20), ohp = last ? last.hp || '' : '', odn = last ? last.dn || '' : '';
@@ -1479,13 +1485,13 @@ async function handle(req, env, url) {
         for (const q of pls2) { const dd = hav(la, lo, q.la, q.lo); if (dd <= HERE_M && dd < bd) { bd = dd; hp = q.id; hn = q.name; } }
         const oq = ohp ? pls2.find((q) => q.id === ohp) : null;
         if (oq && hav(la, lo, oq.la, oq.lo) <= HERE_M + 60) { hp = oq.id; hn = oq.name; }
-        if (hp !== ohp || (dn && dn !== odn)) await DB.prepare('UPDATE loc SET dn=?,hp=? WHERE cid=?').bind(dn || odn, hp, cid).run();
+        if (hp !== ohp || (dn && dn !== odn)) lset('dn=?,hp=?', [dn || odn, hp]);
         // 이동 이력: 한 점 쌓기(오차가 큰 위치는 건너뜀) + 많이 움직였으면 '이동 중' 활동 줄
         if (acc <= 150) {
           const cr = await DB.prepare('SELECT la,lo FROM locs WHERE cid=? ORDER BY id DESC LIMIT 1').bind(cid).first();
           if (!cr || hav(cr.la, cr.lo, la, lo) >= Math.max(CRUMB_M, acc)) await DB.prepare('INSERT INTO locs(cid,la,lo,t) VALUES(?,?,?,?)').bind(cid, la, lo, now).run();
         }
-        let arrNow = false;                                                 // 이번 보고로 도착했다 — 같이 보내려던 '근처에 왔어요' 알림은 건너뛴다
+        let arrNow = false, arrCall = null;                                 // 이번 보고로 도착했다 — 같이 보내려던 '근처에 왔어요' 알림은 건너뛴다
         if (acc <= 60) {                                                    // 도착: 등록 장소 50m 안(오차 60m 이하인 위치만)에 들어서면 도착 — 80m 넘게 벗어나야 다시 도착할 수 있다
           const oap = last ? last.ap || '' : '';
           let ap = '', an = '', ad = ARR_AUTO_M + 1;
@@ -1493,10 +1499,17 @@ async function handle(req, env, url) {
           const oaq = oap ? pls2.find((q) => q.id === oap) : null;
           if (oaq && hav(la, lo, oaq.la, oaq.lo) <= ARR_AUTO_M + 30) { ap = oaq.id; an = oaq.name; }
           if (ap !== oap) {
-            await DB.prepare('UPDATE loc SET ap=? WHERE cid=?').bind(ap, cid).run();
-            if (ap) { arrNow = true; later(arriveAuto(env, DB, cid, ap, an, now)); }
+            lset('ap=?', [ap]);
+            if (ap) { arrNow = true; arrCall = () => later(arriveAuto(env, DB, cid, ap, an, now)); }
           }
         }
+        let mvDm = 0;                                                       // 이동 기록 기준점(mva…) 갱신도 여기서 함께 모은다 — 활동 줄은 아래에서 남긴다
+        if (acc <= 150) {
+          if (!last || !last.mvt) lset('mva=?,mvo=?,mvt=?', [la, lo, now]);
+          else { const dm = hav(last.mva, last.mvo, la, lo); if (dm >= MV_EV_M && now - last.mvt >= MV_EV_GAP) { mvDm = dm; lset('mva=?,mvo=?,mvt=?', [la, lo, now]); } }
+        }
+        if (lcols.length) await DB.prepare('UPDATE loc SET ' + lcols.join(',') + ' WHERE cid=?').bind(...lvals, cid).run();      // s426: 위치 표 갱신을 한 문장으로(예전엔 최대 5번 따로)
+        if (arrCall) arrCall();
         let rtSaved = false;
         if (acc <= 150) { try { rtSaved = await routeStep(env, DB, cid, la, lo, now, last ? last.t : 0, hn || dn || odn); } catch (e) { /* 경로 보관이 위치 저장을 막지 않는다 */ } }
         let evd = false;
@@ -1505,23 +1518,19 @@ async function handle(req, env, url) {
           else if (oq) { await ev(DB, cid, 'lv', oq.name, now); evd = true; later(zoneAlert(env, DB, cid, 'lv', oq.id, oq.name, now)); }
         }
         else if (last && dn && dn !== odn) { await ev(DB, cid, 'loc', dn, now); evd = true; }
-        if (acc <= 150) {
-          if (!last || !last.mvt) await DB.prepare('UPDATE loc SET mva=?,mvo=?,mvt=? WHERE cid=?').bind(la, lo, now, cid).run();
-          else {
-            const dm = hav(last.mva, last.mvo, la, lo);
-            if (dm >= MV_EV_M && now - last.mvt >= MV_EV_GAP) {
-              if (!evd) { await ev(DB, cid, 'mv', ((dn || odn) ? (dn || odn) + ' · ' : '') + fmtDist(dm), now); evd = true; }
-              await DB.prepare('UPDATE loc SET mva=?,mvo=?,mvt=? WHERE cid=?').bind(la, lo, now, cid).run();
-            }
-          }
-        }
+        if (mvDm && !evd) { await ev(DB, cid, 'mv', ((dn || odn) ? (dn || odn) + ' · ' : '') + fmtDist(mvDm), now); evd = true; }
         if (rtSaved) { await bump(DB, cid); evd = true; }                 // 지난 경로가 하나 늘었다 — 부모 화면의 '지난 경로' 줄이 바로 바뀐다
         if (!evd) {                                  // 제자리(15m 안)에서 보낸 위치는 1분에 한 번만 부모 화면을 깨운다 — 가만히 있을 때 화면이 계속 다시 그려지지 않게
           const lb = locBumpAt.get(cid) || 0;
-          if ((last ? hav(last.la, last.lo, la, lo) : 1e9) >= 15 || now - lb >= 60000 || (wch && now - lb >= 1500)) { locBumpAt.set(cid, now); await bump(DB, cid); }      // 보는 중이면 1.5초마다(부모 화면의 점이 계속 움직이게)
+          if (wch && ((last ? hav(last.la, last.lo, la, lo) : 1e9) >= 15 || now - lb >= 1500)) { locBumpAt.set(cid, now); await bump(DB, cid); }      // s426: 부모가 키즈 화면을 보는 중일 때만 깨운다(1.5초마다). 아무도 안 보면 쓰지 않는다 — 부모가 앱을 열면 어차피 현재 위치를 새로 받는다
+        }
+        if (!wch && acc <= 150 && last && hav(last.la, last.lo, la, lo) < 100 && (!mtNow || now - mtNow >= SLOW_STILL_MS)) {      // s426: 가만히 있다 → 장소·약속과 멀면 보고 주기를 늘려도 된다
+          slowOk = !pls2.some((q) => hav(la, lo, q.la, q.lo) <= SLOW_PLACE_M) && !trs.some((r) => { if (r.tc) return false; const eta = etaOf(r, now); return now >= eta - SLOW_LEAD_MS && now < eta + STAY; });
         }
       }
-      return J({ ok: true, linked: n, w: watchCode(wch, mtNow, now) });
+      let sl = 0;                                   // s426: 보고 주기를 늘려도 되는 때(아래 조건이 모두 맞을 때만). 하나라도 어긋나면 원래 주기.
+      if (n > 0 && !wch && acc <= 150 && slowOk) sl = 1;
+      return J(sl ? { ok: true, linked: n, w: watchCode(wch, mtNow, now), sl: 1 } : { ok: true, linked: n, w: watchCode(wch, mtNow, now) });
     }
     if (p === '/c/ev' && m === 'POST') {          // 자녀 앱이 알리는 활동(밥 · 놀기 · 공부 · 잠 · 응가) — 연결된 부모가 있을 때만, 같은 일은 60초에 한 번만
       const k = String(body.k || ''), x = String(body.x || '').replace(/\s+/g, ' ').trim().slice(0, 12);

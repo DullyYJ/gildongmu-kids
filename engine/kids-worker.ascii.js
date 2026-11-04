@@ -23,6 +23,8 @@ const MISS_AFTER = 5 * 60000;
 let CTX = null, ENVG = null;                    // ENVG: \uc9c0\uae08 \uc694\uccad\uc758 \ubc14\uc778\ub529(\ud5c8\ube0c FAM \uc774 \uc788\uc73c\uba74 \uc2e4\uc2dc\uac04 \uae68\uc6b0\uae30\uc5d0 \uc4f4\ub2e4)
 function later(p) { const q = Promise.resolve(p).catch(() => {}); try { if (CTX && CTX.waitUntil) CTX.waitUntil(q); } catch (e) { /* \uc774\ubbf8 \ub05d\ub09c \uc694\uccad\uc758 \ud578\ub4e4\uc774\uba74 \uadf8\ub0e5 \ub3cc\uc544\uac00\uac8c \ub454\ub2e4 */ } return q; }
 const locBumpAt = new Map();
+// s426: \uc544\ubb34\ub3c4 \uc548 \ubcf4\uace0 \u00b7 \uac00\ub9cc\ud788 \uc788\uace0 \u00b7 \ub4f1\ub85d \uc7a5\uc18c\uc640 \uba40\uace0 \u00b7 \uc57d\uc18d \uc2dc\uac04\ub300\uac00 \uc544\ub2c8\uba74 \uc790\ub140 \uc571\uc774 \ubcf4\uace0 \uc8fc\uae30\ub97c 8\ubd84(\uc571 \ucabd)\uc73c\ub85c \ub298\ub824\ub3c4 \ub41c\ub2e4\uace0 \uc751\ub2f5\uc5d0 sl:1 \uc744 \uc2e4\uc5b4 \uc900\ub2e4. \uc548\uc804 \uc810\uac80(\uc704\uce58 \ub04a\uae40 20\ubd84)\ubcf4\ub2e4 \uc9e7\uac8c.
+const SLOW_STILL_MS = 10 * 60000, SLOW_PLACE_M = 500, SLOW_LEAD_MS = 30 * 60000 + 10 * 60000;
 const locHold = new Map();                      // \ud284 \uac83\uc73c\ub85c \ubcf4\uace0 \ubcf4\ub958\ud55c \uc704\uce58(cid \u2192 {la,lo,t}) \u2014 \uace7\ubc14\ub85c \uac19\uc740 \uacf3\uc5d0\uc11c \ub610 \uc624\uba74 \uc9c4\uc9dc\ub85c \ubcf8\ub2e4
 const LOC_FRESH_MS = 5 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
 // \ubd80\ubaa8\uac00 \ucc98\uc74c \uc5f4\uc5c8\ub294\ub370(\uc571\uc744 \uc0c8\ub85c \uae54\uc558\uac70\ub098 \ub9c9 \uc5f0\uacb0) \uc790\ub140 \uc704\uce58\uac00 \uc5c6\uac70\ub098 \uc624\ub798\ub410\uc73c\uba74, \uc790\ub140 \ud3f0\uc5d0 '\uc704\uce58 \ud55c \ubc88 \uc62c\ub824' \ud478\uc2dc\ub97c \ubcf4\ub0b8\ub2e4(s390).
@@ -1461,17 +1463,21 @@ async function handle(req, env, url) {
         if (skip) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });
         locHold.delete(cid);                       // \uc815\uc0c1 \uc704\uce58\uac00 \uc774\uc5b4\uc84c\ub2e4 \u2014 \ubcf4\ub958\ud574 \ub454 \ud284 \uc704\uce58\ub294 \uc78a\ub294\ub2e4(\uac19\uc740 \ud290\uc774 \ub418\ud480\uc774\ub3fc\ub3c4 \ud655\uc778\uc73c\ub85c \uce58\uc9c0 \uc54a\ub294\ub2e4)
       }
+      let slowOk = false;
       if (n > 0) {
+        const lcols = [], lvals = [];                                       // \uac19\uc740 \uc694\uccad\uc5d0\uc11c loc \uc758 \ub2e4\ub978 \uce78\uc744 \uc5ec\ub7ec \ubc88 \ubc14\uafb8\ub358 \uac83\uc744 \ubaa8\uc544 \ud55c \ubc88\uc5d0 \uc4f4\ub2e4
+        const lset = (c, v) => { lcols.push(c); for (const x of v) lvals.push(x); };
         await DB.prepare('INSERT INTO loc(cid,la,lo,acc,t,bt,ch) VALUES(?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET bt=excluded.bt,ch=excluded.ch,pla=CASE WHEN excluded.t-loc.t>=20000 THEN loc.la ELSE loc.pla END, plo=CASE WHEN excluded.t-loc.t>=20000 THEN loc.lo ELSE loc.plo END, plt=CASE WHEN excluded.t-loc.t>=20000 THEN loc.t ELSE loc.plt END, la=excluded.la,lo=excluded.lo,acc=excluded.acc,t=excluded.t').bind(cid, la, lo, acc, now, bt, ch).run();
         if (acc <= 60) {                                                       // \uc6c0\uc9c1\uc784 \u00b7 \uac00\ub294 \ubc29\ud5a5: \uae30\uc900\uc810\uc5d0\uc11c max(8m, \uc624\ucc28) \ub118\uac8c \ubc97\uc5b4\ub098\uba74 \uc6c0\uc9c1\uc774\ub294 \uc911 + \ubc29\ud5a5 \uacc4\uc0b0(\uac77\ub294 \uc18d\ub3c4\ub85c 2.5\ucd08\ub9c8\ub2e4 \ubcf4\uace0\ud574\ub3c4 \uc7a1\ud78c\ub2e4). 25\ucd08 \ub118\uac8c \uc81c\uc790\ub9ac\uba74 \uae30\uc900\uc810\uc744 \uc0c8\ub85c \uc7a1\ub294\ub2e4
-          if (!last || !last.hat) await DB.prepare('UPDATE loc SET ha=?,hb=?,hat=? WHERE cid=?').bind(la, lo, now, cid).run();
-          else if (hav(last.ha, last.hb, la, lo) >= Math.max(8, acc)) { mtNow = now; await DB.prepare('UPDATE loc SET hd=?,hdt=?,mt=?,ha=?,hb=?,hat=? WHERE cid=?').bind(bearing(last.ha, last.hb, la, lo), now, now, la, lo, now, cid).run(); }
-          else if (now - last.hat > 25000) await DB.prepare('UPDATE loc SET ha=?,hb=?,hat=? WHERE cid=?').bind(la, lo, now, cid).run();
+          if (!last || !last.hat) lset('ha=?,hb=?,hat=?', [la, lo, now]);
+          else if (hav(last.ha, last.hb, la, lo) >= Math.max(8, acc)) { mtNow = now; lset('hd=?,hdt=?,mt=?,ha=?,hb=?,hat=?', [bearing(last.ha, last.hb, la, lo), now, now, la, lo, now]); }
+          else if (now - last.hat > 25000) lset('ha=?,hb=?,hat=?', [la, lo, now]);
         }
         if (bt >= 0 && bt <= BATT_LOW && !ch && (!last || last.bt < 0 || last.bt > BATT_LOW || now - last.t > 30 * 60000)) later(battAlert(env, DB, cid, bt, now));
         let pls2 = await tripsSync(DB, cid, now);
         if (!pls2) pls2 = (await DB.prepare('SELECT id,name,la,lo FROM places WHERE cid=?').bind(cid).all()).results || [];          // \uae30\uc5b5\ub9cc \ubcf4\uace0 \uc9c0\ub098\uac04 \uacbd\uc6b0\ub294 \uc608\uc804\ucc98\ub7fc \uc9c1\uc811 \uc77d\ub294\ub2e4(\ubc29\uae08 \ub4f1\ub85d\ud55c \uc7a5\uc18c\ub97c \ub193\uce58\uc9c0 \uc54a\uac8c)
-        const tr = (await todayTrips(DB, cid, now)).filter((r) => !r.ta && hav(la, lo, r.la, r.lo) <= HERE_M);   // \uc7a5\uc18c 150m \uc548\uc5d0 \ub4e4\uc5b4\uc130\ub2e4 \u2014 \ub3c4\ucc29 \uc2dc\uac01 \uae30\ub85d
+        const trs = await todayTrips(DB, cid, now);
+        const tr = trs.filter((r) => !r.ta && hav(la, lo, r.la, r.lo) <= HERE_M);   // \uc7a5\uc18c 150m \uc548\uc5d0 \ub4e4\uc5b4\uc130\ub2e4 \u2014 \ub3c4\ucc29 \uc2dc\uac01 \uae30\ub85d
         if (tr.length) await DB.batch(tr.map((r) => DB.prepare('UPDATE trips SET ta=? WHERE id=? AND ta=0').bind(now, r.id)));
         // '\ubb50\ud558\ub2c8?' \uae30\ub85d: \ub4f1\ub85d \uc7a5\uc18c 150m \uc548\uc5d0 \ub4e4\uc5b4\uc624\uac70\ub098(\uadfc\ucc98) \ubc97\uc5b4\ub098\uba74(210m \ubc16 \u2014 \ud754\ub4e4\ub9bc\uc73c\ub85c \ub4e4\ub77d\uac70\ub9ac\uc9c0 \uc54a\uac8c), \ub3d9\ub124 \uc774\ub984\uc774 \ubc14\ub00c\uba74 \ud55c \uc904
         const dn = String(body.dn || '').replace(/\s+/g, ' ').trim().slice(0, 20), ohp = last ? last.hp || '' : '', odn = last ? last.dn || '' : '';
@@ -1479,13 +1485,13 @@ async function handle(req, env, url) {
         for (const q of pls2) { const dd = hav(la, lo, q.la, q.lo); if (dd <= HERE_M && dd < bd) { bd = dd; hp = q.id; hn = q.name; } }
         const oq = ohp ? pls2.find((q) => q.id === ohp) : null;
         if (oq && hav(la, lo, oq.la, oq.lo) <= HERE_M + 60) { hp = oq.id; hn = oq.name; }
-        if (hp !== ohp || (dn && dn !== odn)) await DB.prepare('UPDATE loc SET dn=?,hp=? WHERE cid=?').bind(dn || odn, hp, cid).run();
+        if (hp !== ohp || (dn && dn !== odn)) lset('dn=?,hp=?', [dn || odn, hp]);
         // \uc774\ub3d9 \uc774\ub825: \ud55c \uc810 \uc313\uae30(\uc624\ucc28\uac00 \ud070 \uc704\uce58\ub294 \uac74\ub108\ub700) + \ub9ce\uc774 \uc6c0\uc9c1\uc600\uc73c\uba74 '\uc774\ub3d9 \uc911' \ud65c\ub3d9 \uc904
         if (acc <= 150) {
           const cr = await DB.prepare('SELECT la,lo FROM locs WHERE cid=? ORDER BY id DESC LIMIT 1').bind(cid).first();
           if (!cr || hav(cr.la, cr.lo, la, lo) >= Math.max(CRUMB_M, acc)) await DB.prepare('INSERT INTO locs(cid,la,lo,t) VALUES(?,?,?,?)').bind(cid, la, lo, now).run();
         }
-        let arrNow = false;                                                 // \uc774\ubc88 \ubcf4\uace0\ub85c \ub3c4\ucc29\ud588\ub2e4 \u2014 \uac19\uc774 \ubcf4\ub0b4\ub824\ub358 '\uadfc\ucc98\uc5d0 \uc654\uc5b4\uc694' \uc54c\ub9bc\uc740 \uac74\ub108\ub6f4\ub2e4
+        let arrNow = false, arrCall = null;                                 // \uc774\ubc88 \ubcf4\uace0\ub85c \ub3c4\ucc29\ud588\ub2e4 \u2014 \uac19\uc774 \ubcf4\ub0b4\ub824\ub358 '\uadfc\ucc98\uc5d0 \uc654\uc5b4\uc694' \uc54c\ub9bc\uc740 \uac74\ub108\ub6f4\ub2e4
         if (acc <= 60) {                                                    // \ub3c4\ucc29: \ub4f1\ub85d \uc7a5\uc18c 50m \uc548(\uc624\ucc28 60m \uc774\ud558\uc778 \uc704\uce58\ub9cc)\uc5d0 \ub4e4\uc5b4\uc11c\uba74 \ub3c4\ucc29 \u2014 80m \ub118\uac8c \ubc97\uc5b4\ub098\uc57c \ub2e4\uc2dc \ub3c4\ucc29\ud560 \uc218 \uc788\ub2e4
           const oap = last ? last.ap || '' : '';
           let ap = '', an = '', ad = ARR_AUTO_M + 1;
@@ -1493,10 +1499,17 @@ async function handle(req, env, url) {
           const oaq = oap ? pls2.find((q) => q.id === oap) : null;
           if (oaq && hav(la, lo, oaq.la, oaq.lo) <= ARR_AUTO_M + 30) { ap = oaq.id; an = oaq.name; }
           if (ap !== oap) {
-            await DB.prepare('UPDATE loc SET ap=? WHERE cid=?').bind(ap, cid).run();
-            if (ap) { arrNow = true; later(arriveAuto(env, DB, cid, ap, an, now)); }
+            lset('ap=?', [ap]);
+            if (ap) { arrNow = true; arrCall = () => later(arriveAuto(env, DB, cid, ap, an, now)); }
           }
         }
+        let mvDm = 0;                                                       // \uc774\ub3d9 \uae30\ub85d \uae30\uc900\uc810(mva\u2026) \uac31\uc2e0\ub3c4 \uc5ec\uae30\uc11c \ud568\uaed8 \ubaa8\uc740\ub2e4 \u2014 \ud65c\ub3d9 \uc904\uc740 \uc544\ub798\uc5d0\uc11c \ub0a8\uae34\ub2e4
+        if (acc <= 150) {
+          if (!last || !last.mvt) lset('mva=?,mvo=?,mvt=?', [la, lo, now]);
+          else { const dm = hav(last.mva, last.mvo, la, lo); if (dm >= MV_EV_M && now - last.mvt >= MV_EV_GAP) { mvDm = dm; lset('mva=?,mvo=?,mvt=?', [la, lo, now]); } }
+        }
+        if (lcols.length) await DB.prepare('UPDATE loc SET ' + lcols.join(',') + ' WHERE cid=?').bind(...lvals, cid).run();      // s426: \uc704\uce58 \ud45c \uac31\uc2e0\uc744 \ud55c \ubb38\uc7a5\uc73c\ub85c(\uc608\uc804\uc5d4 \ucd5c\ub300 5\ubc88 \ub530\ub85c)
+        if (arrCall) arrCall();
         let rtSaved = false;
         if (acc <= 150) { try { rtSaved = await routeStep(env, DB, cid, la, lo, now, last ? last.t : 0, hn || dn || odn); } catch (e) { /* \uacbd\ub85c \ubcf4\uad00\uc774 \uc704\uce58 \uc800\uc7a5\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ } }
         let evd = false;
@@ -1505,23 +1518,19 @@ async function handle(req, env, url) {
           else if (oq) { await ev(DB, cid, 'lv', oq.name, now); evd = true; later(zoneAlert(env, DB, cid, 'lv', oq.id, oq.name, now)); }
         }
         else if (last && dn && dn !== odn) { await ev(DB, cid, 'loc', dn, now); evd = true; }
-        if (acc <= 150) {
-          if (!last || !last.mvt) await DB.prepare('UPDATE loc SET mva=?,mvo=?,mvt=? WHERE cid=?').bind(la, lo, now, cid).run();
-          else {
-            const dm = hav(last.mva, last.mvo, la, lo);
-            if (dm >= MV_EV_M && now - last.mvt >= MV_EV_GAP) {
-              if (!evd) { await ev(DB, cid, 'mv', ((dn || odn) ? (dn || odn) + ' \u00b7 ' : '') + fmtDist(dm), now); evd = true; }
-              await DB.prepare('UPDATE loc SET mva=?,mvo=?,mvt=? WHERE cid=?').bind(la, lo, now, cid).run();
-            }
-          }
-        }
+        if (mvDm && !evd) { await ev(DB, cid, 'mv', ((dn || odn) ? (dn || odn) + ' \u00b7 ' : '') + fmtDist(mvDm), now); evd = true; }
         if (rtSaved) { await bump(DB, cid); evd = true; }                 // \uc9c0\ub09c \uacbd\ub85c\uac00 \ud558\ub098 \ub298\uc5c8\ub2e4 \u2014 \ubd80\ubaa8 \ud654\uba74\uc758 '\uc9c0\ub09c \uacbd\ub85c' \uc904\uc774 \ubc14\ub85c \ubc14\ub010\ub2e4
         if (!evd) {                                  // \uc81c\uc790\ub9ac(15m \uc548)\uc5d0\uc11c \ubcf4\ub0b8 \uc704\uce58\ub294 1\ubd84\uc5d0 \ud55c \ubc88\ub9cc \ubd80\ubaa8 \ud654\uba74\uc744 \uae68\uc6b4\ub2e4 \u2014 \uac00\ub9cc\ud788 \uc788\uc744 \ub54c \ud654\uba74\uc774 \uacc4\uc18d \ub2e4\uc2dc \uadf8\ub824\uc9c0\uc9c0 \uc54a\uac8c
           const lb = locBumpAt.get(cid) || 0;
-          if ((last ? hav(last.la, last.lo, la, lo) : 1e9) >= 15 || now - lb >= 60000 || (wch && now - lb >= 1500)) { locBumpAt.set(cid, now); await bump(DB, cid); }      // \ubcf4\ub294 \uc911\uc774\uba74 1.5\ucd08\ub9c8\ub2e4(\ubd80\ubaa8 \ud654\uba74\uc758 \uc810\uc774 \uacc4\uc18d \uc6c0\uc9c1\uc774\uac8c)
+          if (wch && ((last ? hav(last.la, last.lo, la, lo) : 1e9) >= 15 || now - lb >= 1500)) { locBumpAt.set(cid, now); await bump(DB, cid); }      // s426: \ubd80\ubaa8\uac00 \ud0a4\uc988 \ud654\uba74\uc744 \ubcf4\ub294 \uc911\uc77c \ub54c\ub9cc \uae68\uc6b4\ub2e4(1.5\ucd08\ub9c8\ub2e4). \uc544\ubb34\ub3c4 \uc548 \ubcf4\uba74 \uc4f0\uc9c0 \uc54a\ub294\ub2e4 \u2014 \ubd80\ubaa8\uac00 \uc571\uc744 \uc5f4\uba74 \uc5b4\ucc28\ud53c \ud604\uc7ac \uc704\uce58\ub97c \uc0c8\ub85c \ubc1b\ub294\ub2e4
+        }
+        if (!wch && acc <= 150 && last && hav(last.la, last.lo, la, lo) < 100 && (!mtNow || now - mtNow >= SLOW_STILL_MS)) {      // s426: \uac00\ub9cc\ud788 \uc788\ub2e4 \u2192 \uc7a5\uc18c\u00b7\uc57d\uc18d\uacfc \uba40\uba74 \ubcf4\uace0 \uc8fc\uae30\ub97c \ub298\ub824\ub3c4 \ub41c\ub2e4
+          slowOk = !pls2.some((q) => hav(la, lo, q.la, q.lo) <= SLOW_PLACE_M) && !trs.some((r) => { if (r.tc) return false; const eta = etaOf(r, now); return now >= eta - SLOW_LEAD_MS && now < eta + STAY; });
         }
       }
-      return J({ ok: true, linked: n, w: watchCode(wch, mtNow, now) });
+      let sl = 0;                                   // s426: \ubcf4\uace0 \uc8fc\uae30\ub97c \ub298\ub824\ub3c4 \ub418\ub294 \ub54c(\uc544\ub798 \uc870\uac74\uc774 \ubaa8\ub450 \ub9de\uc744 \ub54c\ub9cc). \ud558\ub098\ub77c\ub3c4 \uc5b4\uae0b\ub098\uba74 \uc6d0\ub798 \uc8fc\uae30.
+      if (n > 0 && !wch && acc <= 150 && slowOk) sl = 1;
+      return J(sl ? { ok: true, linked: n, w: watchCode(wch, mtNow, now), sl: 1 } : { ok: true, linked: n, w: watchCode(wch, mtNow, now) });
     }
     if (p === '/c/ev' && m === 'POST') {          // \uc790\ub140 \uc571\uc774 \uc54c\ub9ac\ub294 \ud65c\ub3d9(\ubc25 \u00b7 \ub180\uae30 \u00b7 \uacf5\ubd80 \u00b7 \uc7a0 \u00b7 \uc751\uac00) \u2014 \uc5f0\uacb0\ub41c \ubd80\ubaa8\uac00 \uc788\uc744 \ub54c\ub9cc, \uac19\uc740 \uc77c\uc740 60\ucd08\uc5d0 \ud55c \ubc88\ub9cc
       const k = String(body.k || ''), x = String(body.x || '').replace(/\s+/g, ' ').trim().slice(0, 12);
