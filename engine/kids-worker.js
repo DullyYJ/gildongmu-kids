@@ -283,6 +283,21 @@ function gdScreen(nm) {
   ], { dlg: dlg() });          // s415: 키즈 화면 위 가운데 팝업(앱이 '키즈 화면'이 아니라 팝업으로 띄운다)
 }
 /** 연결된 부모마다(자녀 이름은 부모가 정한 이름) 글을 따로 만들어 보낸다. mk(nm) => data */
+/** 꾸미기 저장 글: "고른친구,탭;모자,옷,소지품;…(8명)" — 이 모양만 받는다(번호는 -1 ~ 19). */
+const WEAR_RE = /^[0-7],[0-2](;-?\d{1,2},-?\d{1,2},-?\d{1,2}){8}$/;
+const wearOk = (w) => typeof w === 'string' && w.length <= 120 && WEAR_RE.test(w) && w.split(';').slice(1).every((t) => t.split(',').every((x) => +x >= -1 && +x <= 19));
+/** 이 부모에게 연결된 자녀(요청한 자녀가 아니면 첫 자녀)가 꾸민 모습 — 없으면 빈 글. */
+async function wearFor(DB, pid, cid0) {
+  const kids = await childrenOf(DB, pid);
+  const cid = kids.some((k) => k.cid === cid0) ? cid0 : kids[0] ? kids[0].cid : '';
+  const r = cid ? await DB.prepare('SELECT w FROM wear WHERE cid=?').bind(cid).first() : null;
+  return { cid, w: r ? r.w : '' };
+}
+/** 부모 앱 홈 장면이 바로 바뀌도록 조용한 알림(k:'wear')을 보낸다 — 화면에 알림 카드는 뜨지 않는다. */
+async function wearPush(env, DB, cid, w) {
+  const rs = (await DB.prepare('SELECT d.id id,d.ft ft FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>\'\'').bind(GD_VER, cid).all()).results || [];
+  if (rs.length) await pushRows(env, DB, rs.map((r) => ({ id: r.id, ft: r.ft, data: { k: 'wear', cid, w } })));
+}
 async function notifyParents(env, DB, cid, mk, all) {      // all: 법정대리인 확인 전인 부모에게도 보낸다(긴급 호출 — 알림에는 위치가 없고, 위치는 확인을 마쳐야 보인다)
   const rs = (all
     ? await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.ft<>''").bind(cid).all()
@@ -506,6 +521,7 @@ async function init(DB) {
     DB.prepare('CREATE TABLE IF NOT EXISTS routes(id INTEGER PRIMARY KEY AUTOINCREMENT, cid TEXT NOT NULL, t0 INTEGER NOT NULL, t1 INTEGER NOT NULL, m INTEGER NOT NULL, sn TEXT NOT NULL DEFAULT \'\', en TEXT NOT NULL DEFAULT \'\', pts TEXT NOT NULL)'),      // 지난 경로(s391): 자녀당 RT_KEEP 개
     DB.prepare('CREATE INDEX IF NOT EXISTS routes_c ON routes(cid, id)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS cst(cid TEXT PRIMARY KEY, sh INTEGER NOT NULL DEFAULT 1, stl INTEGER NOT NULL DEFAULT 0, lb INTEGER NOT NULL DEFAULT 0, wx TEXT NOT NULL DEFAULT \'\')'),      // 안전 알림 상태: 위치 공유(1 켬 · 0 끔) · 끊김 알림을 보냈나 · 배터리 알림 시각 · 날씨 알림을 보낸 날
+    DB.prepare('CREATE TABLE IF NOT EXISTS wear(cid TEXT PRIMARY KEY, w TEXT NOT NULL, t INTEGER NOT NULL)'),      // s423: 자녀가 꾸민 길동무 친구들(입은 모자 · 옷 · 소지품 번호) — 부모 앱 홈 장면이 같은 모습으로 보인다
     DB.prepare('CREATE TABLE IF NOT EXISTS zt(k TEXT PRIMARY KEY, t INTEGER NOT NULL)'),      // 장소 도착/출발 알림을 마지막으로 보낸 시각(자녀:장소:종류 → 5분에 한 번 — 워커가 바뀌어도 유지)
     DB.prepare('CREATE TABLE IF NOT EXISTS gd(pid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 법정대리인 확인 동의(부모 기기별 · 버전 · 시각) — 이 동의가 있어야 자녀 위치가 보인다
     DB.prepare('CREATE TABLE IF NOT EXISTS lbs(id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, cid TEXT NOT NULL, pid TEXT NOT NULL, k TEXT NOT NULL)'),      // 위치정보법 제16조 이용·제공사실 확인자료: 언제 · 누가 · 누구의 위치를 받았나(좌표는 없다) · 6개월 넘게 보관
@@ -1475,6 +1491,16 @@ async function handle(req, env, url) {
       if (n > 0 && !(await DB.prepare('SELECT 1 a FROM evs WHERE cid=? AND k=? AND x=? AND t>? LIMIT 1').bind(cid, k, x, now - 60000).first())) await ev(DB, cid, k, x, now);
       return J({ ok: true, linked: n });
     }
+    if (p === '/c/wear' && m === 'POST') {        // s423: 자녀가 꾸민 모습을 알린다 — 바뀐 때만 저장하고 연결된 부모 앱에 조용한 알림
+      const w = String(body.w || '');
+      if (!wearOk(w)) return bad('형식이 맞지 않아요');
+      const old = await DB.prepare('SELECT w FROM wear WHERE cid=?').bind(cid).first();
+      if (!old || old.w !== w) {
+        await DB.prepare('INSERT INTO wear(cid,w,t) VALUES(?,?,?) ON CONFLICT(cid) DO UPDATE SET w=excluded.w,t=excluded.t').bind(cid, w, now).run();
+        if ((await linkedCount(DB, cid)) > 0) later(wearPush(env, DB, cid, w));
+      }
+      return J({ ok: true });
+    }
     if (p === '/c/call' && m === 'POST') {        // 자녀가 긴급 호출 · 안전하게 도착 · 데리러 와줘 를 누른다(op:'cancel' 은 긴급 호출 · 데리러 와줘 취소)
       const r = await callRequest(env, DB, cid, body, now);
       return r.err ? bad(r.err) : J(r);
@@ -1587,7 +1613,11 @@ async function handle(req, env, url) {
       if (!(await gdOk(DB, pid))) rows.forEach((r) => { r.la = null; r.lo = null; r.acc = null; r.t = null; });          // 법정대리인 확인 전에는 위치를 주지 않는다
       return J({ ok: true, children: rows });
     }
-    if (p === '/p/setrow' && m === 'GET') return J({ ok: true, nodes: await settingsRow(DB, pid, url.searchParams.get('kn') === '1'), start: await startPref(DB, pid), tab: KIDS_TAB });     // 설정 탭에 끼울 한 줄(연결 없으면 null)
+    if (p === '/p/setrow' && m === 'GET') { const [nodes, start, wr] = await Promise.all([settingsRow(DB, pid, url.searchParams.get('kn') === '1'), startPref(DB, pid), wearFor(DB, pid, url.searchParams.get('cid') || '')]); return J({ ok: true, nodes, start, tab: KIDS_TAB, w: wr.w }); }          // s423: 같이 꾸민 모습(w)도 — 앱을 켤 때마다 하던 이 한 번의 통신으로 받는다     // 설정 탭에 끼울 한 줄(연결 없으면 null)
+    if (p === '/p/wear' && m === 'GET') {         // s423: 연결된 자녀가 꾸민 모습(없으면 빈 글) — 부모 앱이 홈 장면에 입힌다
+      const wr = await wearFor(DB, pid, url.searchParams.get('cid') || '');
+      return J({ ok: true, cid: wr.cid, w: wr.w });
+    }
     if (p === '/p/screen' && m === 'GET') {       // 부모 화면 묶음: v = hub · chat · quest · link
       const v = url.searchParams.get('v') || 'hub', cid0 = url.searchParams.get('cid') || '';
       if (v === 'link') return J({ ok: true, screen: await linkSheet(DB, pid, '') });

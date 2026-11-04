@@ -177,6 +177,54 @@ final class Engine {
             public void run() {
                 store.put("wear", Dress.I.export());
                 WearImg.warmAll();                    // 꾸민 모습에 필요한 시트를 미리 읽어 둔다(친구가 나올 때 시트가 읽히는 사이 그림이 바뀌지 않게)
+                wearTell();                           // s423: 연결된 부모 앱 홈 장면에도 같은 모습으로(바꿀 때마다가 아니라 멈춘 뒤 한 번)
+            }
+        });
+        wearTell();                                   // 앱을 켠 뒤에도 한 번: 서버가 모르는 모습이면 올린다(옛 앱에서 꾸민 것 · 지난번 통신이 끊겼던 것)
+    }
+
+    private long wearChg = 0L, wearTry = 0L;
+    private volatile boolean wearBusy = false;
+
+    /** 꾸민 모습이 바뀌었다 — 멈춘 뒤(1.2초) 한 번 올리도록 시각만 적는다(올리는 일은 시계 틱의 wearPoll). */
+    private void wearTell() {
+        wearChg = System.currentTimeMillis();
+        wearTry = 0L;
+    }
+
+    /** 꾸민 모습이 서버가 아는 것과 다르면 올린다(바꾼 직후 · 앱을 켠 뒤 · 지난번 통신이 끊겼던 것은 10초 간격으로 다시). */
+    private void wearPoll(long now) {
+        if (wearBusy || !consented()) return;
+        if (now - wearChg < 1200L || now - wearTry < 10000L) return;
+        if (wearKey().equals(store.get("wear_sent", ""))) return;
+        wearTry = now;
+        wearSend();
+    }
+
+    /** 서버에 올리는 글: 꾸미기 화면에서 고른 친구 · 탭은 빼고(0,0) 입은 것만 — 고르기만 바꿔서는 다시 올리지 않는다. */
+    private static String wearKey() {
+        String e = Dress.I.export();
+        int i = e.indexOf(';');
+        return i < 0 ? e : "0,0" + e.substring(i);
+    }
+
+    private void wearSend() {
+        final String w = wearKey();
+        wearBusy = true;
+        Wire.EX.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (!ensureReg()) return;
+                    JSONObject o = new JSONObject();
+                    o.put("w", w);
+                    String r = Kid.call("POST", "/c/wear", o.toString(), cid, csec);
+                    if (r != null && new JSONObject(r).optBoolean("ok", false)) store.put("wear_sent", w);          // 못 올렸으면 적지 않는다 — 다음에 다시
+                } catch (Exception e) {
+                    // 다음에 다시 올린다
+                } finally {
+                    wearBusy = false;
+                }
             }
         });
     }
@@ -545,6 +593,7 @@ final class Engine {
             pruneChat(now);
         }
         remPoll(now);
+        wearPoll(now);
         Push.ping(consented());
         if (fg && !waitRun && consented()) setFg(true);
         if (pairExp != 0L && now > pairExp) {

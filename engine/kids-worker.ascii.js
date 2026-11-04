@@ -283,6 +283,21 @@ function gdScreen(nm) {
   ], { dlg: dlg() });          // s415: \ud0a4\uc988 \ud654\uba74 \uc704 \uac00\uc6b4\ub370 \ud31d\uc5c5(\uc571\uc774 '\ud0a4\uc988 \ud654\uba74'\uc774 \uc544\ub2c8\ub77c \ud31d\uc5c5\uc73c\ub85c \ub744\uc6b4\ub2e4)
 }
 /** \uc5f0\uacb0\ub41c \ubd80\ubaa8\ub9c8\ub2e4(\uc790\ub140 \uc774\ub984\uc740 \ubd80\ubaa8\uac00 \uc815\ud55c \uc774\ub984) \uae00\uc744 \ub530\ub85c \ub9cc\ub4e4\uc5b4 \ubcf4\ub0b8\ub2e4. mk(nm) => data */
+/** \uafb8\ubbf8\uae30 \uc800\uc7a5 \uae00: "\uace0\ub978\uce5c\uad6c,\ud0ed;\ubaa8\uc790,\uc637,\uc18c\uc9c0\ud488;\u2026(8\uba85)" \u2014 \uc774 \ubaa8\uc591\ub9cc \ubc1b\ub294\ub2e4(\ubc88\ud638\ub294 -1 ~ 19). */
+const WEAR_RE = /^[0-7],[0-2](;-?\d{1,2},-?\d{1,2},-?\d{1,2}){8}$/;
+const wearOk = (w) => typeof w === 'string' && w.length <= 120 && WEAR_RE.test(w) && w.split(';').slice(1).every((t) => t.split(',').every((x) => +x >= -1 && +x <= 19));
+/** \uc774 \ubd80\ubaa8\uc5d0\uac8c \uc5f0\uacb0\ub41c \uc790\ub140(\uc694\uccad\ud55c \uc790\ub140\uac00 \uc544\ub2c8\uba74 \uccab \uc790\ub140)\uac00 \uafb8\ubbfc \ubaa8\uc2b5 \u2014 \uc5c6\uc73c\uba74 \ube48 \uae00. */
+async function wearFor(DB, pid, cid0) {
+  const kids = await childrenOf(DB, pid);
+  const cid = kids.some((k) => k.cid === cid0) ? cid0 : kids[0] ? kids[0].cid : '';
+  const r = cid ? await DB.prepare('SELECT w FROM wear WHERE cid=?').bind(cid).first() : null;
+  return { cid, w: r ? r.w : '' };
+}
+/** \ubd80\ubaa8 \uc571 \ud648 \uc7a5\uba74\uc774 \ubc14\ub85c \ubc14\ub00c\ub3c4\ub85d \uc870\uc6a9\ud55c \uc54c\ub9bc(k:'wear')\uc744 \ubcf4\ub0b8\ub2e4 \u2014 \ud654\uba74\uc5d0 \uc54c\ub9bc \uce74\ub4dc\ub294 \ub728\uc9c0 \uc54a\ub294\ub2e4. */
+async function wearPush(env, DB, cid, w) {
+  const rs = (await DB.prepare('SELECT d.id id,d.ft ft FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>\'\'').bind(GD_VER, cid).all()).results || [];
+  if (rs.length) await pushRows(env, DB, rs.map((r) => ({ id: r.id, ft: r.ft, data: { k: 'wear', cid, w } })));
+}
 async function notifyParents(env, DB, cid, mk, all) {      // all: \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc778 \ubd80\ubaa8\uc5d0\uac8c\ub3c4 \ubcf4\ub0b8\ub2e4(\uae34\uae09 \ud638\ucd9c \u2014 \uc54c\ub9bc\uc5d0\ub294 \uc704\uce58\uac00 \uc5c6\uace0, \uc704\uce58\ub294 \ud655\uc778\uc744 \ub9c8\uccd0\uc57c \ubcf4\uc778\ub2e4)
   const rs = (all
     ? await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.ft<>''").bind(cid).all()
@@ -506,6 +521,7 @@ async function init(DB) {
     DB.prepare('CREATE TABLE IF NOT EXISTS routes(id INTEGER PRIMARY KEY AUTOINCREMENT, cid TEXT NOT NULL, t0 INTEGER NOT NULL, t1 INTEGER NOT NULL, m INTEGER NOT NULL, sn TEXT NOT NULL DEFAULT \'\', en TEXT NOT NULL DEFAULT \'\', pts TEXT NOT NULL)'),      // \uc9c0\ub09c \uacbd\ub85c(s391): \uc790\ub140\ub2f9 RT_KEEP \uac1c
     DB.prepare('CREATE INDEX IF NOT EXISTS routes_c ON routes(cid, id)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS cst(cid TEXT PRIMARY KEY, sh INTEGER NOT NULL DEFAULT 1, stl INTEGER NOT NULL DEFAULT 0, lb INTEGER NOT NULL DEFAULT 0, wx TEXT NOT NULL DEFAULT \'\')'),      // \uc548\uc804 \uc54c\ub9bc \uc0c1\ud0dc: \uc704\uce58 \uacf5\uc720(1 \ucf2c \u00b7 0 \ub054) \u00b7 \ub04a\uae40 \uc54c\ub9bc\uc744 \ubcf4\ub0c8\ub098 \u00b7 \ubc30\ud130\ub9ac \uc54c\ub9bc \uc2dc\uac01 \u00b7 \ub0a0\uc528 \uc54c\ub9bc\uc744 \ubcf4\ub0b8 \ub0a0
+    DB.prepare('CREATE TABLE IF NOT EXISTS wear(cid TEXT PRIMARY KEY, w TEXT NOT NULL, t INTEGER NOT NULL)'),      // s423: \uc790\ub140\uac00 \uafb8\ubbfc \uae38\ub3d9\ubb34 \uce5c\uad6c\ub4e4(\uc785\uc740 \ubaa8\uc790 \u00b7 \uc637 \u00b7 \uc18c\uc9c0\ud488 \ubc88\ud638) \u2014 \ubd80\ubaa8 \uc571 \ud648 \uc7a5\uba74\uc774 \uac19\uc740 \ubaa8\uc2b5\uc73c\ub85c \ubcf4\uc778\ub2e4
     DB.prepare('CREATE TABLE IF NOT EXISTS zt(k TEXT PRIMARY KEY, t INTEGER NOT NULL)'),      // \uc7a5\uc18c \ub3c4\ucc29/\ucd9c\ubc1c \uc54c\ub9bc\uc744 \ub9c8\uc9c0\ub9c9\uc73c\ub85c \ubcf4\ub0b8 \uc2dc\uac01(\uc790\ub140:\uc7a5\uc18c:\uc885\ub958 \u2192 5\ubd84\uc5d0 \ud55c \ubc88 \u2014 \uc6cc\ucee4\uac00 \ubc14\ub00c\uc5b4\ub3c4 \uc720\uc9c0)
     DB.prepare('CREATE TABLE IF NOT EXISTS gd(pid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \ub3d9\uc758(\ubd80\ubaa8 \uae30\uae30\ubcc4 \u00b7 \ubc84\uc804 \u00b7 \uc2dc\uac01) \u2014 \uc774 \ub3d9\uc758\uac00 \uc788\uc5b4\uc57c \uc790\ub140 \uc704\uce58\uac00 \ubcf4\uc778\ub2e4
     DB.prepare('CREATE TABLE IF NOT EXISTS lbs(id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, cid TEXT NOT NULL, pid TEXT NOT NULL, k TEXT NOT NULL)'),      // \uc704\uce58\uc815\ubcf4\ubc95 \uc81c16\uc870 \uc774\uc6a9\u00b7\uc81c\uacf5\uc0ac\uc2e4 \ud655\uc778\uc790\ub8cc: \uc5b8\uc81c \u00b7 \ub204\uac00 \u00b7 \ub204\uad6c\uc758 \uc704\uce58\ub97c \ubc1b\uc558\ub098(\uc88c\ud45c\ub294 \uc5c6\ub2e4) \u00b7 6\uac1c\uc6d4 \ub118\uac8c \ubcf4\uad00
@@ -1475,6 +1491,16 @@ async function handle(req, env, url) {
       if (n > 0 && !(await DB.prepare('SELECT 1 a FROM evs WHERE cid=? AND k=? AND x=? AND t>? LIMIT 1').bind(cid, k, x, now - 60000).first())) await ev(DB, cid, k, x, now);
       return J({ ok: true, linked: n });
     }
+    if (p === '/c/wear' && m === 'POST') {        // s423: \uc790\ub140\uac00 \uafb8\ubbfc \ubaa8\uc2b5\uc744 \uc54c\ub9b0\ub2e4 \u2014 \ubc14\ub010 \ub54c\ub9cc \uc800\uc7a5\ud558\uace0 \uc5f0\uacb0\ub41c \ubd80\ubaa8 \uc571\uc5d0 \uc870\uc6a9\ud55c \uc54c\ub9bc
+      const w = String(body.w || '');
+      if (!wearOk(w)) return bad('\ud615\uc2dd\uc774 \ub9de\uc9c0 \uc54a\uc544\uc694');
+      const old = await DB.prepare('SELECT w FROM wear WHERE cid=?').bind(cid).first();
+      if (!old || old.w !== w) {
+        await DB.prepare('INSERT INTO wear(cid,w,t) VALUES(?,?,?) ON CONFLICT(cid) DO UPDATE SET w=excluded.w,t=excluded.t').bind(cid, w, now).run();
+        if ((await linkedCount(DB, cid)) > 0) later(wearPush(env, DB, cid, w));
+      }
+      return J({ ok: true });
+    }
     if (p === '/c/call' && m === 'POST') {        // \uc790\ub140\uac00 \uae34\uae09 \ud638\ucd9c \u00b7 \uc548\uc804\ud558\uac8c \ub3c4\ucc29 \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \ub97c \ub204\ub978\ub2e4(op:'cancel' \uc740 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \ucde8\uc18c)
       const r = await callRequest(env, DB, cid, body, now);
       return r.err ? bad(r.err) : J(r);
@@ -1587,7 +1613,11 @@ async function handle(req, env, url) {
       if (!(await gdOk(DB, pid))) rows.forEach((r) => { r.la = null; r.lo = null; r.acc = null; r.t = null; });          // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc5d0\ub294 \uc704\uce58\ub97c \uc8fc\uc9c0 \uc54a\ub294\ub2e4
       return J({ ok: true, children: rows });
     }
-    if (p === '/p/setrow' && m === 'GET') return J({ ok: true, nodes: await settingsRow(DB, pid, url.searchParams.get('kn') === '1'), start: await startPref(DB, pid), tab: KIDS_TAB });     // \uc124\uc815 \ud0ed\uc5d0 \ub07c\uc6b8 \ud55c \uc904(\uc5f0\uacb0 \uc5c6\uc73c\uba74 null)
+    if (p === '/p/setrow' && m === 'GET') { const [nodes, start, wr] = await Promise.all([settingsRow(DB, pid, url.searchParams.get('kn') === '1'), startPref(DB, pid), wearFor(DB, pid, url.searchParams.get('cid') || '')]); return J({ ok: true, nodes, start, tab: KIDS_TAB, w: wr.w }); }          // s423: \uac19\uc774 \uafb8\ubbfc \ubaa8\uc2b5(w)\ub3c4 \u2014 \uc571\uc744 \ucf24 \ub54c\ub9c8\ub2e4 \ud558\ub358 \uc774 \ud55c \ubc88\uc758 \ud1b5\uc2e0\uc73c\ub85c \ubc1b\ub294\ub2e4     // \uc124\uc815 \ud0ed\uc5d0 \ub07c\uc6b8 \ud55c \uc904(\uc5f0\uacb0 \uc5c6\uc73c\uba74 null)
+    if (p === '/p/wear' && m === 'GET') {         // s423: \uc5f0\uacb0\ub41c \uc790\ub140\uac00 \uafb8\ubbfc \ubaa8\uc2b5(\uc5c6\uc73c\uba74 \ube48 \uae00) \u2014 \ubd80\ubaa8 \uc571\uc774 \ud648 \uc7a5\uba74\uc5d0 \uc785\ud78c\ub2e4
+      const wr = await wearFor(DB, pid, url.searchParams.get('cid') || '');
+      return J({ ok: true, cid: wr.cid, w: wr.w });
+    }
     if (p === '/p/screen' && m === 'GET') {       // \ubd80\ubaa8 \ud654\uba74 \ubb36\uc74c: v = hub \u00b7 chat \u00b7 quest \u00b7 link
       const v = url.searchParams.get('v') || 'hub', cid0 = url.searchParams.get('cid') || '';
       if (v === 'link') return J({ ok: true, screen: await linkSheet(DB, pid, '') });
