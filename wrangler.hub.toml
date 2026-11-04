@@ -1,0 +1,14 @@
+# 실시간 깨우기 허브(Durable Object) — 한 번만 배포한다: npx wrangler deploy -c wrangler.hub.toml
+# 그다음 본 워커(gildongmu-kids) 설정 → 바인딩 → Durable Object 바인딩 추가: 변수 이름 FAM · 워커 gildongmu-kids-hub · 클래스 FamHub.
+# 바인딩을 추가하기 전에는 본 엔진이 예전 방식으로 그대로 돈다(안전). 비용 · 켜는 때는 HANDOFF s425 참고.
+name = "gildongmu-kids-hub"
+main = "engine/kids-hub-do.js"
+compatibility_date = "2026-10-01"
+
+[[durable_objects.bindings]]
+name = "FAM"
+class_name = "FamHub"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["FamHub"]

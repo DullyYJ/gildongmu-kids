@@ -9,7 +9,7 @@
 //   자녀 [확인](그냥 끔 'seen') / [출발]('go') -> 남은 거리 알약 -> 도착점 100m 안에서 [도착 확인] -> 'done' + 10 길동무포인트.
 // 실시간: 모든 바뀜은 rev(cid) 를 올리고, 앱은 /c/wait · /p/wait 로 '바뀔 때까지' 붙들어 두었다가 곧바로 새 화면을 받는다(0.6초 안).
 const DAY = 86400000, KST = 9 * 3600000, CHAT_KEEP = 7 * DAY, PAIR_TTL = 10 * 60000, MAX_PARENTS = 4, MAX_TXT = 300, MAX_CHAT = 300, MAX_QUEST = 100, MAX_PT = 5, MAX_PLACES = 12, MAX_CHEER = 20, CHEER_LEN = 40;
-const LEAD = 30 * 60000, STAY = 120 * 60000, PROMPT_AFTER = 60 * 60000, ARR_M = 100, ARR_AUTO_M = 50, HERE_M = 150, LOC_FRESH = 90000, ARRIVE_PT = 10, WAIT_MS = 15000, WAIT_STEP = 600;
+const LEAD = 30 * 60000, STAY = 120 * 60000, PROMPT_AFTER = 60 * 60000, ARR_M = 100, ARR_AUTO_M = 50, HERE_M = 150, LOC_FRESH = 90000, ARRIVE_PT = 10, WAIT_MS = 15000, WAIT_STEP = 600, HUB_SLICE = 5000;
 const KEYS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const WD = ['월', '화', '수', '목', '금', '토', '일'];
 
@@ -20,7 +20,7 @@ const bad = (m, s) => J({ ok: false, err: m }, s || 400);
 // ───────── 푸시(FCM HTTP v1) — 앱이 꺼져 있어도 알림이 가도록, 바뀐 일을 기기 토큰으로 보낸다 ─────────
 // 서비스 계정 키(JSON 전체)는 워커 비밀값 FCM_SA 에 넣는다. 없으면 푸시만 건너뛰고 나머지는 그대로 돈다.
 const MISS_AFTER = 5 * 60000;
-let CTX = null;
+let CTX = null, ENVG = null;                    // ENVG: 지금 요청의 바인딩(허브 FAM 이 있으면 실시간 깨우기에 쓴다)
 function later(p) { const q = Promise.resolve(p).catch(() => {}); try { if (CTX && CTX.waitUntil) CTX.waitUntil(q); } catch (e) { /* 이미 끝난 요청의 핸들이면 그냥 돌아가게 둔다 */ } return q; }
 const locBumpAt = new Map();
 const locHold = new Map();                      // 튄 것으로 보고 보류한 위치(cid → {la,lo,t}) — 곧바로 같은 곳에서 또 오면 진짜로 본다
@@ -703,9 +703,14 @@ function sleepOrWake(cid, ms) {
     const tm = setTimeout(done, ms); w.add(done);
   });
 }
+// s425: 허브(Durable Object, 선택)가 연결돼 있으면 바뀐 rev 를 알려 기다리는 쪽을 서버가 달라도 곧바로 깨운다. 없으면 이전과 똑같다.
+const famHub = (cid) => { const e = ENVG; return e && e.FAM && e.FAM.idFromName ? e.FAM.get(e.FAM.idFromName(cid)) : null; };
 async function bump(DB, cid) {
-  await DB.prepare('INSERT INTO rev(cid,n) VALUES(?,1) ON CONFLICT(cid) DO UPDATE SET n=n+1').bind(cid).run();
+  const hub = famHub(cid);
+  if (!hub) { await DB.prepare('INSERT INTO rev(cid,n) VALUES(?,1) ON CONFLICT(cid) DO UPDATE SET n=n+1').bind(cid).run(); wakeAll(cid); return; }
+  const r = await DB.prepare('INSERT INTO rev(cid,n) VALUES(?,1) ON CONFLICT(cid) DO UPDATE SET n=n+1 RETURNING n').bind(cid).first();
   wakeAll(cid);
+  later(hub.fetch('https://hub/bump?rev=' + (r ? r.n : 0)));
 }
 /** 읽음(카톡의 '1'): 부모(p)·자녀(c)가 대화방을 실제로 보는 동안 가장 최근 글(chat.id)까지 읽은 것으로 적는다. 바뀌었을 때만 true(그리고 화면 갱신 신호). */
 async function rdMap(DB, cid) {
@@ -731,6 +736,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitRev(DB, cid, since, now0) {
   const end = Date.now() + WAIT_MS;
   let n = await revOf(DB, cid), i = 0;
+  const hub = n === since ? famHub(cid) : null;
+  if (hub) {                                                // s425: 허브에서 기다린다 — 기다리는 동안 DB 읽기 없음(5초에 한 번 안전 확인), 바뀌면 서버가 달라도 곧바로 깨어난다
+    let bad = 0;
+    while (n === since && Date.now() < end) {
+      const slice = Math.min(HUB_SLICE, end - Date.now());
+      let woke = false;
+      try { const r = await hub.fetch('https://hub/wait?rev=' + n + '&ms=' + slice); const j = await r.json(); woke = !!(j && j.woke); bad = 0; }
+      catch (e) { bad++; await sleepOrWake(cid, WAIT_STEP); }                          // 허브가 응답하지 않으면 그 사이는 예전처럼
+      if (bad >= 3) break;                                  // 허브가 계속 안 되면 아래 예전 방식으로
+      n = await revOf(DB, cid);
+      if (n === since && woke) await sleepOrWake(cid, WAIT_STEP);       // 허브는 바뀌었다는데 DB 값은 그대로(허브 값이 어긋남) — 빙빙 돌지 않게 잠깐 쉰다
+      await tripsSync(DB, cid, Date.now());
+    }
+    if (n !== since || bad < 3) return n;
+  }
   while (n === since && Date.now() < end) {
     await sleepOrWake(cid, WAIT_STEP);
     i++;
@@ -1977,11 +1997,11 @@ async function handle(req, env, url) {
 export { gdScreen };          // s415: 부모 앱이 첫 화면(보호자 확인 팝업)을 통신 없이 바로 띄우려고 이 모양을 복사해 간다 — 시험이 같은지 확인한다
 export default {
   async scheduled(event, env, ctx) {
-    CTX = ctx;
+    CTX = ctx; ENVG = env;
     ctx.waitUntil(cron(env).catch(() => {}));
   },
   async fetch(req, env, ctx) {
-    CTX = ctx;
+    CTX = ctx; ENVG = env;
     try {
       return await handle(req, env, new URL(req.url));
     } catch (e) {

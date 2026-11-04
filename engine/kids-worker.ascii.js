@@ -9,7 +9,7 @@
 //   \uc790\ub140 [\ud655\uc778](\uadf8\ub0e5 \ub054 'seen') / [\ucd9c\ubc1c]('go') -> \ub0a8\uc740 \uac70\ub9ac \uc54c\uc57d -> \ub3c4\ucc29\uc810 100m \uc548\uc5d0\uc11c [\ub3c4\ucc29 \ud655\uc778] -> 'done' + 10 \uae38\ub3d9\ubb34\ud3ec\uc778\ud2b8.
 // \uc2e4\uc2dc\uac04: \ubaa8\ub4e0 \ubc14\ub01c\uc740 rev(cid) \ub97c \uc62c\ub9ac\uace0, \uc571\uc740 /c/wait \u00b7 /p/wait \ub85c '\ubc14\ub014 \ub54c\uae4c\uc9c0' \ubd99\ub4e4\uc5b4 \ub450\uc5c8\ub2e4\uac00 \uace7\ubc14\ub85c \uc0c8 \ud654\uba74\uc744 \ubc1b\ub294\ub2e4(0.6\ucd08 \uc548).
 const DAY = 86400000, KST = 9 * 3600000, CHAT_KEEP = 7 * DAY, PAIR_TTL = 10 * 60000, MAX_PARENTS = 4, MAX_TXT = 300, MAX_CHAT = 300, MAX_QUEST = 100, MAX_PT = 5, MAX_PLACES = 12, MAX_CHEER = 20, CHEER_LEN = 40;
-const LEAD = 30 * 60000, STAY = 120 * 60000, PROMPT_AFTER = 60 * 60000, ARR_M = 100, ARR_AUTO_M = 50, HERE_M = 150, LOC_FRESH = 90000, ARRIVE_PT = 10, WAIT_MS = 15000, WAIT_STEP = 600;
+const LEAD = 30 * 60000, STAY = 120 * 60000, PROMPT_AFTER = 60 * 60000, ARR_M = 100, ARR_AUTO_M = 50, HERE_M = 150, LOC_FRESH = 90000, ARRIVE_PT = 10, WAIT_MS = 15000, WAIT_STEP = 600, HUB_SLICE = 5000;
 const KEYS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const WD = ['\uc6d4', '\ud654', '\uc218', '\ubaa9', '\uae08', '\ud1a0', '\uc77c'];
 
@@ -20,7 +20,7 @@ const bad = (m, s) => J({ ok: false, err: m }, s || 400);
 // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \ud478\uc2dc(FCM HTTP v1) \u2014 \uc571\uc774 \uaebc\uc838 \uc788\uc5b4\ub3c4 \uc54c\ub9bc\uc774 \uac00\ub3c4\ub85d, \ubc14\ub010 \uc77c\uc744 \uae30\uae30 \ud1a0\ud070\uc73c\ub85c \ubcf4\ub0b8\ub2e4 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 // \uc11c\ube44\uc2a4 \uacc4\uc815 \ud0a4(JSON \uc804\uccb4)\ub294 \uc6cc\ucee4 \ube44\ubc00\uac12 FCM_SA \uc5d0 \ub123\ub294\ub2e4. \uc5c6\uc73c\uba74 \ud478\uc2dc\ub9cc \uac74\ub108\ub6f0\uace0 \ub098\uba38\uc9c0\ub294 \uadf8\ub300\ub85c \ub3c8\ub2e4.
 const MISS_AFTER = 5 * 60000;
-let CTX = null;
+let CTX = null, ENVG = null;                    // ENVG: \uc9c0\uae08 \uc694\uccad\uc758 \ubc14\uc778\ub529(\ud5c8\ube0c FAM \uc774 \uc788\uc73c\uba74 \uc2e4\uc2dc\uac04 \uae68\uc6b0\uae30\uc5d0 \uc4f4\ub2e4)
 function later(p) { const q = Promise.resolve(p).catch(() => {}); try { if (CTX && CTX.waitUntil) CTX.waitUntil(q); } catch (e) { /* \uc774\ubbf8 \ub05d\ub09c \uc694\uccad\uc758 \ud578\ub4e4\uc774\uba74 \uadf8\ub0e5 \ub3cc\uc544\uac00\uac8c \ub454\ub2e4 */ } return q; }
 const locBumpAt = new Map();
 const locHold = new Map();                      // \ud284 \uac83\uc73c\ub85c \ubcf4\uace0 \ubcf4\ub958\ud55c \uc704\uce58(cid \u2192 {la,lo,t}) \u2014 \uace7\ubc14\ub85c \uac19\uc740 \uacf3\uc5d0\uc11c \ub610 \uc624\uba74 \uc9c4\uc9dc\ub85c \ubcf8\ub2e4
@@ -703,9 +703,14 @@ function sleepOrWake(cid, ms) {
     const tm = setTimeout(done, ms); w.add(done);
   });
 }
+// s425: \ud5c8\ube0c(Durable Object, \uc120\ud0dd)\uac00 \uc5f0\uacb0\ub3fc \uc788\uc73c\uba74 \ubc14\ub010 rev \ub97c \uc54c\ub824 \uae30\ub2e4\ub9ac\ub294 \ucabd\uc744 \uc11c\ubc84\uac00 \ub2ec\ub77c\ub3c4 \uace7\ubc14\ub85c \uae68\uc6b4\ub2e4. \uc5c6\uc73c\uba74 \uc774\uc804\uacfc \ub611\uac19\ub2e4.
+const famHub = (cid) => { const e = ENVG; return e && e.FAM && e.FAM.idFromName ? e.FAM.get(e.FAM.idFromName(cid)) : null; };
 async function bump(DB, cid) {
-  await DB.prepare('INSERT INTO rev(cid,n) VALUES(?,1) ON CONFLICT(cid) DO UPDATE SET n=n+1').bind(cid).run();
+  const hub = famHub(cid);
+  if (!hub) { await DB.prepare('INSERT INTO rev(cid,n) VALUES(?,1) ON CONFLICT(cid) DO UPDATE SET n=n+1').bind(cid).run(); wakeAll(cid); return; }
+  const r = await DB.prepare('INSERT INTO rev(cid,n) VALUES(?,1) ON CONFLICT(cid) DO UPDATE SET n=n+1 RETURNING n').bind(cid).first();
   wakeAll(cid);
+  later(hub.fetch('https://hub/bump?rev=' + (r ? r.n : 0)));
 }
 /** \uc77d\uc74c(\uce74\ud1a1\uc758 '1'): \ubd80\ubaa8(p)\u00b7\uc790\ub140(c)\uac00 \ub300\ud654\ubc29\uc744 \uc2e4\uc81c\ub85c \ubcf4\ub294 \ub3d9\uc548 \uac00\uc7a5 \ucd5c\uadfc \uae00(chat.id)\uae4c\uc9c0 \uc77d\uc740 \uac83\uc73c\ub85c \uc801\ub294\ub2e4. \ubc14\ub00c\uc5c8\uc744 \ub54c\ub9cc true(\uadf8\ub9ac\uace0 \ud654\uba74 \uac31\uc2e0 \uc2e0\ud638). */
 async function rdMap(DB, cid) {
@@ -731,6 +736,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitRev(DB, cid, since, now0) {
   const end = Date.now() + WAIT_MS;
   let n = await revOf(DB, cid), i = 0;
+  const hub = n === since ? famHub(cid) : null;
+  if (hub) {                                                // s425: \ud5c8\ube0c\uc5d0\uc11c \uae30\ub2e4\ub9b0\ub2e4 \u2014 \uae30\ub2e4\ub9ac\ub294 \ub3d9\uc548 DB \uc77d\uae30 \uc5c6\uc74c(5\ucd08\uc5d0 \ud55c \ubc88 \uc548\uc804 \ud655\uc778), \ubc14\ub00c\uba74 \uc11c\ubc84\uac00 \ub2ec\ub77c\ub3c4 \uace7\ubc14\ub85c \uae68\uc5b4\ub09c\ub2e4
+    let bad = 0;
+    while (n === since && Date.now() < end) {
+      const slice = Math.min(HUB_SLICE, end - Date.now());
+      let woke = false;
+      try { const r = await hub.fetch('https://hub/wait?rev=' + n + '&ms=' + slice); const j = await r.json(); woke = !!(j && j.woke); bad = 0; }
+      catch (e) { bad++; await sleepOrWake(cid, WAIT_STEP); }                          // \ud5c8\ube0c\uac00 \uc751\ub2f5\ud558\uc9c0 \uc54a\uc73c\uba74 \uadf8 \uc0ac\uc774\ub294 \uc608\uc804\ucc98\ub7fc
+      if (bad >= 3) break;                                  // \ud5c8\ube0c\uac00 \uacc4\uc18d \uc548 \ub418\uba74 \uc544\ub798 \uc608\uc804 \ubc29\uc2dd\uc73c\ub85c
+      n = await revOf(DB, cid);
+      if (n === since && woke) await sleepOrWake(cid, WAIT_STEP);       // \ud5c8\ube0c\ub294 \ubc14\ub00c\uc5c8\ub2e4\ub294\ub370 DB \uac12\uc740 \uadf8\ub300\ub85c(\ud5c8\ube0c \uac12\uc774 \uc5b4\uae0b\ub0a8) \u2014 \ube59\ube59 \ub3cc\uc9c0 \uc54a\uac8c \uc7a0\uae50 \uc270\ub2e4
+      await tripsSync(DB, cid, Date.now());
+    }
+    if (n !== since || bad < 3) return n;
+  }
   while (n === since && Date.now() < end) {
     await sleepOrWake(cid, WAIT_STEP);
     i++;
@@ -1977,11 +1997,11 @@ async function handle(req, env, url) {
 export { gdScreen };          // s415: \ubd80\ubaa8 \uc571\uc774 \uccab \ud654\uba74(\ubcf4\ud638\uc790 \ud655\uc778 \ud31d\uc5c5)\uc744 \ud1b5\uc2e0 \uc5c6\uc774 \ubc14\ub85c \ub744\uc6b0\ub824\uace0 \uc774 \ubaa8\uc591\uc744 \ubcf5\uc0ac\ud574 \uac04\ub2e4 \u2014 \uc2dc\ud5d8\uc774 \uac19\uc740\uc9c0 \ud655\uc778\ud55c\ub2e4
 export default {
   async scheduled(event, env, ctx) {
-    CTX = ctx;
+    CTX = ctx; ENVG = env;
     ctx.waitUntil(cron(env).catch(() => {}));
   },
   async fetch(req, env, ctx) {
-    CTX = ctx;
+    CTX = ctx; ENVG = env;
     try {
       return await handle(req, env, new URL(req.url));
     } catch (e) {

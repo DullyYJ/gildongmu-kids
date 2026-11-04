@@ -40,3 +40,6 @@ Cloudflare 대시보드 → Workers → `gildongmu-kids` → 코드 편집에 `e
 
 ## 앱 쪽
 `Kid.java` 가 서버와 말하고(뒤 스레드), `Engine.java` 가 받은 화면을 저장해 두었다가 그리게 넘긴다(저장해 둔 것을 먼저 보이고 4초마다 갱신). 서버에 닿지 못하면 마지막으로 받은 화면을 그대로 보인다.
+
+## 실시간 허브(선택, s425)
+`engine/kids-hub-do.js` 는 별도 워커 `gildongmu-kids-hub`(Durable Object `FamHub`)로 wrangler 로 한 번 배포한다(`wrangler.hub.toml`). 본 워커에 변수 `FAM` 으로 바인딩하면 기다리는 요청이 DB 대신 허브에서 기다린다. 바인딩이 없으면 아무것도 달라지지 않는다. 언제 켤지 · 비용은 HANDOFF s425.
