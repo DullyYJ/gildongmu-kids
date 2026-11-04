@@ -1529,19 +1529,45 @@ function mdHtml(md) {
   closeList(); closeTbl();
   return out.join('\n');
 }
+/** /legal/delete \u2014 \ub370\uc774\ud130 \uc0ad\uc81c \uc548\ub0b4(Play \ub370\uc774\ud130 \ubcf4\uc548 \uc591\uc2dd\uc758 "\uc0ad\uc81c \uc694\uccad \ubc29\ubc95" \uc8fc\uc18c). \uc22b\uc790\ub294 docs/legal/01 \ucc98\ub9ac\ubc29\uce68 \ud45c\uc640 \uac19\uac8c \uc720\uc9c0\ud55c\ub2e4. */
+const DELETE_MD = [
+  '# \uae38\ub3d9\ubb34 \u00b7 \uae38\ub3d9\ubb34 \ud0a4\uc988 \ub370\uc774\ud130 \uc0ad\uc81c \uc548\ub0b4',
+  '',
+  '\uc6b4\uc601\uc790: {{OP_NAME}} \u00b7 \ubb38\uc758: {{OP_CONTACT}}',
+  '',
+  '## 1. \uae38\ub3d9\ubb34 \ud0a4\uc988(\uc790\ub140 \uc571)',
+  '- **\uc571\uc5d0\uc11c \ubc14\ub85c \uc0ad\uc81c**: \uc124\uc815 \u2192 \uad00\ub9ac \u2192 "\uc5f0\uacb0 \ubaa8\ub450 \ub04a\uae30". \uc11c\ubc84\uc5d0 \uc788\ub294 \ub0b4 \uc704\uce58, \uc9c0\ub09c \uae38, \uba38\ubb38 \uacf3, \ub4f1\ub85d\ud55c \uc7a5\uc18c, \ub300\ud654\u00b7\ubbf8\uc158\u00b7\uc54c\ub9bc \uae30\ub85d\uc774 \uc989\uc2dc \uc0ad\uc81c\ub429\ub2c8\ub2e4.',
+  '- **\ucc98\uc74c\ubd80\ud130 \ub2e4\uc2dc**: \uc124\uc815 \u2192 \uad00\ub9ac \u2192 "\ub3d9\uc758 \ucca0\ud68c\ud558\uace0 \ucc98\uc74c\uc73c\ub85c". \uc704\uce58 \uacf5\uc720 \ub3d9\uc758\ub97c \uac70\ub450\uace0 \ucc98\uc74c \ud654\uba74\uc73c\ub85c \ub3cc\uc544\uac11\ub2c8\ub2e4.',
+  '- \uc571\ub9cc \uc9c0\uc6b0\uba74 \uc704\uce58 \uc804\uc1a1\uc740 \uba48\ucd94\uc9c0\ub9cc \uc11c\ubc84 \uae30\ub85d\uc740 \uc704 \ubc29\ubc95\uc774\ub098 \uc774\uba54\uc77c \uc694\uccad\uc73c\ub85c \uc9c0\uc6cc\uc57c \ud569\ub2c8\ub2e4.',
+  '',
+  '## 2. \uae38\ub3d9\ubb34(\ubd80\ubaa8\u00b7\uc77c\ubc18 \uc571)',
+  '- \uc791\uc131\ud55c \uac8c\uc2dc\uae00\u00b7\ub313\uae00\uc740 \uc571\uc5d0\uc11c \uc9c1\uc811 \uc0ad\uc81c\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4.',
+  '- \uc571\uc744 \uc0ad\uc81c\ud558\uba74 \uae30\uae30\uc5d0 \uc800\uc7a5\ub41c \uac1c\uc778 \uc124\uc815\uc774 \ubaa8\ub450 \uc0ad\uc81c\ub429\ub2c8\ub2e4.',
+  '- \ub178\uc120 \ubc29 \ub300\ud654\ub294 14\uc77c\uc774 \uc9c0\ub098\uba74 \uc790\ub3d9 \uc0ad\uc81c\ub429\ub2c8\ub2e4.',
+  '- \ub3c4\ucc29 \uc624\ucc28 \uae30\ub85d\uc740 \uc774\uc6a9\uc790\ub97c \uc2dd\ubcc4\ud560 \uc218 \uc788\ub294 \uac12\uc774 \uc5c6\uc5b4 \uac1c\ubcc4 \uc0ad\uc81c \uc694\uccad\uc740 \ucc98\ub9ac\ud560 \uc218 \uc5c6\uc73c\uba70, 1\ub144\uc774 \uc9c0\ub098\uba74 \uc790\ub3d9 \uc0ad\uc81c\ub429\ub2c8\ub2e4.',
+  '',
+  '## 3. \uc774\uba54\uc77c\ub85c \uc694\uccad',
+  '{{OP_CONTACT}} \ub85c "\ub370\uc774\ud130 \uc0ad\uc81c \uc694\uccad"\uc744 \ubcf4\ub0b4 \uc8fc\uc138\uc694. \uc571 \uc774\ub984, \uc0ad\uc81c\ub97c \uc6d0\ud558\ub294 \ub0b4\uc6a9, \ubcf8\uc778\uc784\uc744 \ud655\uc778\ud560 \uc218 \uc788\ub294 \uc5f0\uacb0 \uc815\ubcf4\ub97c \uc801\uc5b4 \uc8fc\uc2dc\uba74 10\uc77c \uc548\uc5d0 \ucc98\ub9ac\ud558\uace0 \ub2f5\ubcc0\ub4dc\ub9bd\ub2c8\ub2e4.',
+  '',
+  '## 4. \uc0ad\uc81c \ub4a4\uc5d0\ub3c4 \uc77c\uc815 \uae30\uac04 \ub0a8\ub294 \uc815\ubcf4',
+  '- \uac1c\uc778\uc704\uce58\uc815\ubcf4 \uc774\uc6a9\u00b7\uc81c\uacf5 \uc0ac\uc2e4 \ud655\uc778\uc790\ub8cc(\uc2dc\uac01, \uae30\uae30 \ubc88\ud638, \uc885\ub958\ub9cc \uc788\uace0 \uc88c\ud45c\ub294 \uc5c6\uc74c): \uc704\uce58\uc815\ubcf4\ubc95\uc5d0 \ub530\ub77c \uc57d 200\uc77c \ubcf4\uad00\ud55c \ub4a4 \uc0ad\uc81c\ud569\ub2c8\ub2e4.',
+  '- \uad6c\ub3c5 \uc815\ubcf4(\uad6c\ub9e4 \ud1a0\ud070, \uad6c\ub3c5 \uc0c1\ud0dc): \uad6c\ub3c5\uc774 \ub05d\ub09c \ub4a4 \uc57d 13\uac1c\uc6d4 \ubcf4\uad00\ud55c \ub4a4 \uc0ad\uc81c\ud569\ub2c8\ub2e4.',
+  ''
+].join('\n');
 /** /legal, /legal/privacy, /legal/terms \u2014 \ub85c\uadf8\uc778 \uc5c6\uc774 \uc77d\ub294 \uacf5\uac1c \ucabd. \uc6b4\uc601\uc790 \uc815\ubcf4\ub294 \uc6cc\ucee4 \ubcc0\uc218(OP_NAME \u00b7 OP_MGR \u00b7 OP_CONTACT \u00b7 LEGAL_DATE \u00b7 LBS_NO)\ub85c \ucc44\uc6b4\ub2e4. */
 function legalPage(url, env) {
   const p = url.pathname.replace(/\/+$/, ''), e = env || {};
-  const kind = p === '/legal/privacy' ? 'privacy' : p === '/legal/terms' ? 'terms' : '';
+  const kind = p === '/legal/privacy' ? 'privacy' : p === '/legal/terms' ? 'terms' : p === '/legal/delete' ? 'delete' : '';
   const css = '<style>body{font-family:-apple-system,"Noto Sans KR",sans-serif;background:#f6f8fb;margin:0;color:#16202e;line-height:1.65}main{max-width:720px;margin:0 auto;padding:20px 18px 60px}h1{font-size:22px}h2{font-size:17px;margin-top:28px}p,li{font-size:14.5px}table{border-collapse:collapse;width:100%;font-size:13px;margin:10px 0}th,td{border:1px solid #d5dbe5;padding:6px 8px;text-align:left;vertical-align:top}th{background:#eaf0f8}.q{background:#fff3cd;border-radius:8px;padding:8px 12px;font-size:13px}code{background:#e9eef6;padding:1px 4px;border-radius:4px}a{color:#1d6fd6}@media(prefers-color-scheme:dark){body{background:#121418;color:#e6ebf2}th{background:#1d2430}th,td{border-color:#2b3441}code{background:#1d2430}a{color:#7db4ff}}</style>';
   const head = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">';
   const page = (title, inner) => new Response(head + '<title>' + title + '</title>' + css + '</head><body><main>' + inner + '</main></body></html>', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' } });
-  if (!kind) return page('\uae38\ub3d9\ubb34 \ud0a4\uc988 \uc57d\uad00', '<h1>\uae38\ub3d9\ubb34 \ud0a4\uc988</h1><ul><li><a href="/legal/privacy">\uac1c\uc778\uc815\ubcf4 \ucc98\ub9ac\ubc29\uce68</a></li><li><a href="/legal/terms">\uc704\uce58\uae30\ubc18\uc11c\ube44\uc2a4 \uc774\uc6a9\uc57d\uad00</a></li></ul>');
+  if (!kind) return page('\uae38\ub3d9\ubb34 \ud0a4\uc988 \uc57d\uad00', '<h1>\uae38\ub3d9\ubb34 \ud0a4\uc988</h1><ul><li><a href="/legal/privacy">\uac1c\uc778\uc815\ubcf4 \ucc98\ub9ac\ubc29\uce68</a></li><li><a href="/legal/terms">\uc704\uce58\uae30\ubc18\uc11c\ube44\uc2a4 \uc774\uc6a9\uc57d\uad00</a></li><li><a href="/legal/delete">\ub370\uc774\ud130 \uc0ad\uc81c \uc548\ub0b4</a></li></ul>');
   const val = { OP_NAME: e.OP_NAME, OP_MGR: e.OP_MGR, OP_CONTACT: e.OP_CONTACT, LEGAL_DATE: e.LEGAL_DATE, LEGAL_URL: url.origin + '/legal/privacy' };
   const missing = ['OP_NAME', 'OP_MGR', 'OP_CONTACT', 'LEGAL_DATE'].filter((k) => !val[k]);
-  let md = LEGAL_DOCS[kind].replace(/\{\{(\w+)\}\}/g, (a, k) => (val[k] ? String(val[k]).slice(0, 200) : '(\uc785\ub825 \uc804)'));
+  let md = (kind === 'delete' ? DELETE_MD : LEGAL_DOCS[kind]).replace(/\{\{(\w+)\}\}/g, (a, k) => (val[k] ? String(val[k]).slice(0, 200) : '(\uc785\ub825 \uc804)'));
   if (kind === 'terms' && e.LBS_NO) md += '\n- \uc704\uce58\uae30\ubc18\uc11c\ube44\uc2a4\uc0ac\uc5c5 \uc2e0\uace0\ubc88\ud638: ' + String(e.LBS_NO).slice(0, 60) + '\n';
   const warn = missing.length ? '<p class="q">\uc6b4\uc601\uc790 \uc815\ubcf4\uac00 \uc544\uc9c1 \ubaa8\ub450 \uc785\ub825\ub418\uc9c0 \uc54a\uc740 \ubb38\uc11c\uc785\ub2c8\ub2e4. (\uc785\ub825 \uc804: ' + missing.join(', ') + ')</p>' : '';
+  if (kind === 'delete') return page('\ub370\uc774\ud130 \uc0ad\uc81c \uc548\ub0b4', warn + mdHtml(md) + '<p style="margin-top:28px"><a href="/legal/privacy">\uac1c\uc778\uc815\ubcf4 \ucc98\ub9ac\ubc29\uce68 \ubcf4\uae30</a></p>');
   return page(kind === 'privacy' ? '\uac1c\uc778\uc815\ubcf4 \ucc98\ub9ac\ubc29\uce68' : '\uc704\uce58\uae30\ubc18\uc11c\ube44\uc2a4 \uc774\uc6a9\uc57d\uad00', warn + mdHtml(md) + '<p style="margin-top:28px"><a href="/legal/' + (kind === 'privacy' ? 'terms' : 'privacy') + '">' + (kind === 'privacy' ? '\uc704\uce58\uae30\ubc18\uc11c\ube44\uc2a4 \uc774\uc6a9\uc57d\uad00 \ubcf4\uae30' : '\uac1c\uc778\uc815\ubcf4 \ucc98\ub9ac\ubc29\uce68 \ubcf4\uae30') + '</a></p>');
 }
 async function handle(req, env, url) {

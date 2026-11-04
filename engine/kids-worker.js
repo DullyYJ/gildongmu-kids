@@ -1529,19 +1529,45 @@ function mdHtml(md) {
   closeList(); closeTbl();
   return out.join('\n');
 }
+/** /legal/delete — 데이터 삭제 안내(Play 데이터 보안 양식의 "삭제 요청 방법" 주소). 숫자는 docs/legal/01 처리방침 표와 같게 유지한다. */
+const DELETE_MD = [
+  '# 길동무 · 길동무 키즈 데이터 삭제 안내',
+  '',
+  '운영자: {{OP_NAME}} · 문의: {{OP_CONTACT}}',
+  '',
+  '## 1. 길동무 키즈(자녀 앱)',
+  '- **앱에서 바로 삭제**: 설정 → 관리 → "연결 모두 끊기". 서버에 있는 내 위치, 지난 길, 머문 곳, 등록한 장소, 대화·미션·알림 기록이 즉시 삭제됩니다.',
+  '- **처음부터 다시**: 설정 → 관리 → "동의 철회하고 처음으로". 위치 공유 동의를 거두고 처음 화면으로 돌아갑니다.',
+  '- 앱만 지우면 위치 전송은 멈추지만 서버 기록은 위 방법이나 이메일 요청으로 지워야 합니다.',
+  '',
+  '## 2. 길동무(부모·일반 앱)',
+  '- 작성한 게시글·댓글은 앱에서 직접 삭제할 수 있습니다.',
+  '- 앱을 삭제하면 기기에 저장된 개인 설정이 모두 삭제됩니다.',
+  '- 노선 방 대화는 14일이 지나면 자동 삭제됩니다.',
+  '- 도착 오차 기록은 이용자를 식별할 수 있는 값이 없어 개별 삭제 요청은 처리할 수 없으며, 1년이 지나면 자동 삭제됩니다.',
+  '',
+  '## 3. 이메일로 요청',
+  '{{OP_CONTACT}} 로 "데이터 삭제 요청"을 보내 주세요. 앱 이름, 삭제를 원하는 내용, 본인임을 확인할 수 있는 연결 정보를 적어 주시면 10일 안에 처리하고 답변드립니다.',
+  '',
+  '## 4. 삭제 뒤에도 일정 기간 남는 정보',
+  '- 개인위치정보 이용·제공 사실 확인자료(시각, 기기 번호, 종류만 있고 좌표는 없음): 위치정보법에 따라 약 200일 보관한 뒤 삭제합니다.',
+  '- 구독 정보(구매 토큰, 구독 상태): 구독이 끝난 뒤 약 13개월 보관한 뒤 삭제합니다.',
+  ''
+].join('\n');
 /** /legal, /legal/privacy, /legal/terms — 로그인 없이 읽는 공개 쪽. 운영자 정보는 워커 변수(OP_NAME · OP_MGR · OP_CONTACT · LEGAL_DATE · LBS_NO)로 채운다. */
 function legalPage(url, env) {
   const p = url.pathname.replace(/\/+$/, ''), e = env || {};
-  const kind = p === '/legal/privacy' ? 'privacy' : p === '/legal/terms' ? 'terms' : '';
+  const kind = p === '/legal/privacy' ? 'privacy' : p === '/legal/terms' ? 'terms' : p === '/legal/delete' ? 'delete' : '';
   const css = '<style>body{font-family:-apple-system,"Noto Sans KR",sans-serif;background:#f6f8fb;margin:0;color:#16202e;line-height:1.65}main{max-width:720px;margin:0 auto;padding:20px 18px 60px}h1{font-size:22px}h2{font-size:17px;margin-top:28px}p,li{font-size:14.5px}table{border-collapse:collapse;width:100%;font-size:13px;margin:10px 0}th,td{border:1px solid #d5dbe5;padding:6px 8px;text-align:left;vertical-align:top}th{background:#eaf0f8}.q{background:#fff3cd;border-radius:8px;padding:8px 12px;font-size:13px}code{background:#e9eef6;padding:1px 4px;border-radius:4px}a{color:#1d6fd6}@media(prefers-color-scheme:dark){body{background:#121418;color:#e6ebf2}th{background:#1d2430}th,td{border-color:#2b3441}code{background:#1d2430}a{color:#7db4ff}}</style>';
   const head = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">';
   const page = (title, inner) => new Response(head + '<title>' + title + '</title>' + css + '</head><body><main>' + inner + '</main></body></html>', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' } });
-  if (!kind) return page('길동무 키즈 약관', '<h1>길동무 키즈</h1><ul><li><a href="/legal/privacy">개인정보 처리방침</a></li><li><a href="/legal/terms">위치기반서비스 이용약관</a></li></ul>');
+  if (!kind) return page('길동무 키즈 약관', '<h1>길동무 키즈</h1><ul><li><a href="/legal/privacy">개인정보 처리방침</a></li><li><a href="/legal/terms">위치기반서비스 이용약관</a></li><li><a href="/legal/delete">데이터 삭제 안내</a></li></ul>');
   const val = { OP_NAME: e.OP_NAME, OP_MGR: e.OP_MGR, OP_CONTACT: e.OP_CONTACT, LEGAL_DATE: e.LEGAL_DATE, LEGAL_URL: url.origin + '/legal/privacy' };
   const missing = ['OP_NAME', 'OP_MGR', 'OP_CONTACT', 'LEGAL_DATE'].filter((k) => !val[k]);
-  let md = LEGAL_DOCS[kind].replace(/\{\{(\w+)\}\}/g, (a, k) => (val[k] ? String(val[k]).slice(0, 200) : '(입력 전)'));
+  let md = (kind === 'delete' ? DELETE_MD : LEGAL_DOCS[kind]).replace(/\{\{(\w+)\}\}/g, (a, k) => (val[k] ? String(val[k]).slice(0, 200) : '(입력 전)'));
   if (kind === 'terms' && e.LBS_NO) md += '\n- 위치기반서비스사업 신고번호: ' + String(e.LBS_NO).slice(0, 60) + '\n';
   const warn = missing.length ? '<p class="q">운영자 정보가 아직 모두 입력되지 않은 문서입니다. (입력 전: ' + missing.join(', ') + ')</p>' : '';
+  if (kind === 'delete') return page('데이터 삭제 안내', warn + mdHtml(md) + '<p style="margin-top:28px"><a href="/legal/privacy">개인정보 처리방침 보기</a></p>');
   return page(kind === 'privacy' ? '개인정보 처리방침' : '위치기반서비스 이용약관', warn + mdHtml(md) + '<p style="margin-top:28px"><a href="/legal/' + (kind === 'privacy' ? 'terms' : 'privacy') + '">' + (kind === 'privacy' ? '위치기반서비스 이용약관 보기' : '개인정보 처리방침 보기') + '</a></p>');
 }
 async function handle(req, env, url) {
