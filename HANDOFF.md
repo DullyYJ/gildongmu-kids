@@ -471,6 +471,15 @@
 - 서버: 초인종 응답(`ws:1` 과 같이)에 `wa`(밀리초) — `WS_WAIT_MS=45000` · 허브 화면 `WS_HUB_WAIT_MS=WATCH_MS/2`. 자녀 앱 `waOf(r)` · 부모 앱 `o.optLong("wa",45000)` 로 따른다(없으면 45초). `Door.await` 는 서버가 이상한 값을 줘도 5초~2분 안으로 묶는다. **워커 다시 배포 + 양쪽 앱 새 빌드 필요. 기기 미확인.**
 - 시험 ws 30 · shell_native 125.
 
+## s431 (2026-11-04) — 구독 결제(기본 꺼짐) + 지표 수집(개인정보 없음)
+- **구독은 기본 꺼짐**: 워커 변수 `BILLING_MODE` 가 `on` 이 아니면 모든 게 지금과 똑같이 무료(구글에 아무것도 묻지 않는다). 시험·개발 중에는 결제가 필요 없다. 켜면 '자녀 위치 보기'(허브 지도 · /p/loc · /p/children · 지난 길 같은 위치 동작 · 보는 중 표시)만 구독자에게 열린다. **긴급 호출 · 데리러 와줘 알림과 확인(kx.*), 자녀 앱은 늘 무료.** `BILLING_FREE_UNTIL`(ms) 전까지는 켜져 있어도 모두 무료(출시 직후 체험 기간). 되돌리기: `BILLING_MODE` 를 지우거나 off.
+- 서버가 정한다: 앱이 `POST /p/sub {tk}` 로 구매 토큰을 보내면 서버가 구글 `purchases.subscriptionsv2.get` 으로 직접 확인(상품 `gildongmu_gps` 인 줄만 인정) → `subs` 표에 저장, 아직 acknowledge 전이면 서버가 acknowledge(3일 안에 안 하면 환불). 상태 ACTIVE · IN_GRACE_PERIOD · CANCELED(낸 기간 끝까지)만 열어 주고 끝난 줄은 10분에 한 번만 구글에 다시 묻는다(갱신 확인, 크론 없음). 구글이 오류를 내면 열어 주지 않는다. 3초 안 연타는 429. 한 구독을 기기 여러 대가 같이 쓸 수 있다(배우자 폰 포함).
+- 비밀값: `GP_SA`(Play 조회용 서비스 계정 JSON), `GP_PKG`(`com.dullyyj.subway`). 푸시용 `FCM_SA` 와는 다른 계정. `fcmAccess` 를 범위별 `gAccess(sa, scope)` 로 일반화(푸시 동작 그대로).
+- 화면: 구독이 필요하면 허브 자리에 `payScreen`(`kidpay`): 월 2,900원 · 연 24,900원 · 14일 무료 · 구매 복원. 단추는 `sub.buy`(id=상품 · t=요금제) · `sub.restore` — 앱이 가로채 결제 창을 띄운다. 가격 글은 엔진 상수(실제 청구 가격은 Play Console 이 정한다 — 둘을 맞춰야 한다).
+- **지표(개인정보 없음)**: `mx(d,k,n)` 하루·항목별 횟수만. 드문 일에만 +1(reg_p/reg_c · pair · guardian_p · consent_c · call_sos/pick/arr · sub). 위치 보고 길(/c/loc)에는 아무것도 더하지 않는다. 크론이 30분에 한 번 전체·오늘 활동 수(tot_p/c/fam/sub · act_c/p)를 덮어쓴다. 읽기: `GET /admin/mx?days=30` + 헤더 `x-admin-key`(워커 비밀값 `ADMIN_KEY`; 없으면 길 자체가 404).
+- 스키마 `SCHEMA_V` s431-1 (subs · mx 표). 시험 billing 47 · 전체 통과. **구글 호출은 모의로만 시험 — 실제 영수증 확인은 Play Console 설정 뒤 라이선스 테스터로 확인 필요. 기기 미확인.**
+- Play Console 쪽 해야 할 일(사용자): 앱 등록 → 구독 상품 `gildongmu_gps` 생성 → 기본 요금제 `monthly`(₩2,900/월) · `yearly`(₩24,900/년) → 각 요금제에 14일 무료 체험 혜택 → 서비스 계정 만들어 Play Console 에서 '재무 데이터 조회/주문 관리' 권한 → 워커에 `GP_SA` · `GP_PKG` 비밀값 → 라이선스 테스터 등록 후 비공개 테스트 트랙 업로드.
+
 ## s430 (2026-11-04) — 법적 점검 이어서: 처리방침·약관 공개 쪽 + 앱 안 링크 + 날씨 좌표 낮춤
 - 날씨(Open-Meteo)로 가는 좌표를 소수 3자리(약 100m) → 2자리(약 1km). 시험 safety 80.
 - 서버 `GET /legal`, `/legal/privacy`, `/legal/terms`: 로그인 없이 읽는 공개 쪽(DB 를 건드리지 않고 `init` 앞에서 처리). 글은 `docs/legal/01·02` 마크다운을 `python3 tools/embed-legal.py` 가 워커 안(`// LEGAL-BEGIN … // LEGAL-END`)에 문자열로 넣는다 — **문서를 고치면 embed-legal → to-ascii 순서로 다시 돌린다.** 운영자 정보는 워커 변수 `OP_NAME` · `OP_MGR` · `OP_CONTACT` · `LEGAL_DATE` · `LBS_NO`(신고번호, 약관 끝에 표시)로 채우며, 비면 문서에 '입력 전' 과 안내 문구가 뜬다(값은 HTML 이스케이프). 검토용 메모(`[사실이면 유지]` 등)는 공개 글에서 빠진다.

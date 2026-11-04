@@ -235,22 +235,25 @@ const b64s = (x) => b64u(new TextEncoder().encode(x));
 function saOf(env) {
   try { const j = JSON.parse(env.FCM_SA || ''); return j && j.client_email && j.private_key && j.project_id ? j : null; } catch (e) { return null; }
 }
-let fcmTok = null;
-async function fcmAccess(sa) {
+const gTok = new Map();          // \ubc94\uc704(scope)\ubcc4 \uc811\uadfc \ud1a0\ud070 \uce90\uc2dc \u2014 \ud478\uc2dc(FCM)\uc640 \uacb0\uc81c \ud655\uc778(Play)\uc774 \uac19\uc740 \ucf54\ub4dc\ub97c \uc4f4\ub2e4 (s431)
+const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
+async function gAccess(sa, scope) {
   const now = Date.now();
-  if (fcmTok && fcmTok.exp > now + 60000) return fcmTok.t;
+  const hit = gTok.get(scope + sa.client_email);
+  if (hit && hit.exp > now + 60000) return hit.t;
   const h = b64s(JSON.stringify({ alg: 'RS256', typ: 'JWT' })), iat = Math.floor(now / 1000);
-  const c = b64s(JSON.stringify({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/firebase.messaging', aud: 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 }));
+  const c = b64s(JSON.stringify({ iss: sa.client_email, scope, aud: 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 }));
   const pem = sa.private_key.replace(/-----[A-Z ]+-----/g, '').replace(/\s+/g, '');
   const der = Uint8Array.from(atob(pem), (ch) => ch.charCodeAt(0));
   const key = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(h + '.' + c));
   const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=' + h + '.' + c + '.' + b64u(sig) });
   const j = await r.json().catch(() => ({}));
-  if (!j.access_token) throw new Error('fcm auth ' + r.status);
-  fcmTok = { t: j.access_token, exp: now + (j.expires_in || 3000) * 1000 };
-  return fcmTok.t;
+  if (!j.access_token) throw new Error('google auth ' + r.status);
+  gTok.set(scope + sa.client_email, { t: j.access_token, exp: now + (j.expires_in || 3000) * 1000 });
+  return j.access_token;
 }
+const fcmAccess = (sa) => gAccess(sa, FCM_SCOPE);
 /** rows: [{id, ft, data}] \u2014 \ub370\uc774\ud130 \uba54\uc2dc\uc9c0(\ub192\uc740 \uc6b0\uc120\uc21c\uc704)\ub97c \ud55c \uae30\uae30\uc529 \ubcf4\ub0b8\ub2e4. \uc8fd\uc740 \ud1a0\ud070\uc740 \uc9c0\uc6b4\ub2e4. */
 async function pushRows(env, DB, rows) {
   const sa = saOf(env);
@@ -294,6 +297,84 @@ function gdScreen(nm) {
     { t: 'row', gap: 8, pad: [12, 0, 12, 0], kids: [btn('\ucc98\ub9ac\ubc29\uce68 \ubcf4\uae30', { a: 'open', url: LEGAL_BASE + '/legal/privacy' }, { h: 34, size: 12, bold: false }), btn('\uc774\uc6a9\uc57d\uad00 \ubcf4\uae30', { a: 'open', url: LEGAL_BASE + '/legal/terms' }, { h: 34, size: 12, bold: false })] },          // s430
     { t: 'row', gap: 8, pad: [12, 12, 12, 16], kids: [btn('\ubaa8\ub450 \ud655\uc778\ud588\uc5b4\uc694', call('kg.ok'), gold)] },
   ], { dlg: dlg() });          // s415: \ud0a4\uc988 \ud654\uba74 \uc704 \uac00\uc6b4\ub370 \ud31d\uc5c5(\uc571\uc774 '\ud0a4\uc988 \ud654\uba74'\uc774 \uc544\ub2c8\ub77c \ud31d\uc5c5\uc73c\ub85c \ub744\uc6b4\ub2e4)
+}
+// ===== s431: \uc9c0\ud45c(\uac1c\uc778\uc815\ubcf4 \uc5c6\uc74c) =====
+// \ud558\ub8e8 \u00b7 \ud56d\ubaa9\ubcc4 '\ud69f\uc218'\ub9cc \uc13c\ub2e4(\ub204\uac00 \ud588\ub294\uc9c0\ub294 \ub0a8\uae30\uc9c0 \uc54a\ub294\ub2e4). \ub4dc\ubb38 \uc77c(\uac00\uc785 \u00b7 \uc5f0\uacb0 \u00b7 \ub3d9\uc758 \u00b7 \ud638\ucd9c \u00b7 \uad6c\ub3c5)\uc5d0\ub9cc \ud55c \uc904\uc744 \ub354\ud558\uace0, \uc704\uce58 \ubcf4\uace0 \uac19\uc740 \uc7a6\uc740 \uae38\uc5d0\ub294 \uc544\ubb34\uac83\ub3c4 \ub354\ud558\uc9c0 \uc54a\ub294\ub2e4 \u2014 \uc18d\ub3c4 \uadf8\ub300\ub85c.
+// \ud558\ub8e8 \ud65c\ub3d9 \uc218 \u00b7 \uc804\uccb4 \uc218\ub294 \ud06c\ub860\uc774 30\ubd84\uc5d0 \ud55c \ubc88 \ud45c\ub97c \uc138\uc5b4 \uadf8\ub0a0 \uc904\uc5d0 '\ub36e\uc5b4\uc4f4\ub2e4'(snap).
+const mxDay = (t) => Math.floor((t + KST) / DAY);
+async function mxAdd(DB, k, now) {
+  try { await DB.prepare('INSERT INTO mx(d,k,n) VALUES(?,?,1) ON CONFLICT(d,k) DO UPDATE SET n=n+1').bind(mxDay(now), k).run(); } catch (e) { /* \uc9c0\ud45c \uc2e4\ud328\ub294 \ubcf8 \uc77c\uc5d0 \uc601\ud5a5 \uc5c6\ub2e4 */ }
+}
+async function mxSnap(DB, now) {
+  const last = await DB.prepare("SELECT v FROM meta WHERE k='mxsnap'").first();
+  if (last && now - (+last.v || 0) < 30 * 60000) return;
+  await DB.prepare("INSERT INTO meta(k,v) VALUES('mxsnap',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").bind(String(now)).run();
+  const d0 = dayStart(now), d = mxDay(now);
+  const r = await DB.prepare("SELECT (SELECT COUNT(*) FROM devices WHERE role='p') tp, (SELECT COUNT(*) FROM devices WHERE role='c') tc, (SELECT COUNT(DISTINCT cid) FROM links) fam, (SELECT COUNT(*) FROM loc WHERE t>=?1) ac, (SELECT COUNT(*) FROM devices WHERE role='p' AND wt>=?1) ap, (SELECT COUNT(*) FROM subs WHERE exp>?2) sb").bind(d0, now).first();
+  if (!r) return;
+  await DB.batch(Object.entries({ tot_p: r.tp, tot_c: r.tc, tot_fam: r.fam, act_c: r.ac, act_p: r.ap, tot_sub: r.sb }).map(([k, n]) => DB.prepare('INSERT INTO mx(d,k,n) VALUES(?,?,?) ON CONFLICT(d,k) DO UPDATE SET n=excluded.n').bind(d, k, n | 0)));
+}
+/** \uad00\ub9ac\uc790 \uc77d\uae30: \ud5e4\ub354 x-admin-key \uac00 \uc6cc\ucee4 \ube44\ubc00\uac12 ADMIN_KEY \uc640 \uac19\uc744 \ub54c\ub9cc(\uc5c6\uc73c\uba74 \uc774 \uae38 \uc790\uccb4\uac00 \uc5c6\ub2e4). \ucd5c\uadfc days \uc77c\uc758 \ub0a0\uc9dc\ubcc4 \ud56d\ubaa9 \ud69f\uc218 */
+async function mxRead(DB, days) {
+  const n = Math.max(1, Math.min(120, days | 0 || 30)), d = mxDay(Date.now());
+  const rows = (await DB.prepare('SELECT d,k,n FROM mx WHERE d>? ORDER BY d DESC, k').bind(d - n).all()).results || [];
+  const out = {};
+  for (const r of rows) { const day = new Date(r.d * DAY - KST + KST).toISOString().slice(0, 10); (out[day] = out[day] || {})[r.k] = r.n; }
+  return out;
+}
+// ===== s431: \uad6c\ub3c5(\uae30\ubcf8 \uaebc\uc9d0) =====
+// \uc6cc\ucee4 \ubcc0\uc218 BILLING_MODE: off(\uae30\ubcf8 \u00b7 \ubaa8\ub450 \ubb34\ub8cc \u2014 \uc9c0\uae08\uacfc \ub611\uac19\ub2e4) | on(\uc790\ub140 \uc704\uce58 \ubcf4\uae30\ub9cc \uad6c\ub3c5\uc790\uc5d0\uac8c). BILLING_FREE_UNTIL: \uc774 \uc2dc\uac01(ms)\uae4c\uc9c0\ub294 \ubaa8\ub450 \ubb34\ub8cc(\ucd9c\uc2dc \uc9c1\ud6c4 \uccb4\ud5d8 \uae30\uac04).
+// \uacb0\uc81c\uac00 \ub418\ub294\uc9c0\ub294 \uad6c\uae00\uc774 \uc815\ud55c\ub2e4 \u2014 \uc571\uc740 \uacb0\uc81c \ucc3d\ub9cc \ub744\uc6b0\uace0, \uc601\uc218\uc99d(\uad6c\ub9e4 \ud1a0\ud070)\uc744 \uc11c\ubc84\uac00 \uad6c\uae00\uc5d0 \uc9c1\uc811 \ubb3c\uc5b4 \ud655\uc778\ud55c\ub2e4. \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \uc54c\ub9bc\uacfc \uc790\ub140 \uc571\uc740 \uad6c\ub3c5\uacfc \uc0c1\uad00\uc5c6\uc774 \ub298 \ubb34\ub8cc.
+const SUB_PRODUCT = 'gildongmu_gps', SUB_RECHECK_MS = 10 * 60000, SUB_GAP_MS = 3000;
+const SUB_LIVE = ['SUBSCRIPTION_STATE_ACTIVE', 'SUBSCRIPTION_STATE_IN_GRACE_PERIOD', 'SUBSCRIPTION_STATE_CANCELED'];          // \ucde8\uc18c\ud574\ub3c4 \ub0b8 \uae30\uac04 \ub05d\uae4c\uc9c0\ub294 \uc4f4\ub2e4
+const GP_SCOPE = 'https://www.googleapis.com/auth/androidpublisher';
+let BILL = { on: false, until: 0, env: null };
+const subLast = new Map();
+function billInit(env) { BILL = { on: String(env.BILLING_MODE || '') === 'on', until: +env.BILLING_FREE_UNTIL || 0, env }; }
+const billGated = (now) => BILL.on && now >= BILL.until;
+function gpSa(env) { try { const j = JSON.parse(env.GP_SA || ''); return j && j.client_email && j.private_key ? j : null; } catch (e) { return null; } }
+/** \uc774 \ubd80\ubaa8\uac00 \uc790\ub140 \uc704\uce58\ub97c \ubd10\ub3c4 \ub418\ub098 \u2014 \uaebc\uc838 \uc788\uc73c\uba74 \ub298 \uc608. \ucf1c\uc838 \uc788\uc73c\uba74 \ub05d\ub098\ub294 \uc2dc\uac01\uc774 \ub0a8\uc740 \uad6c\ub3c5\uc774 \uc788\uc5b4\uc57c \ud558\uace0, \uc9c0\ub0ac\uc73c\uba74 \uac00\ub054(10\ubd84\uc5d0 \ud55c \ubc88) \uad6c\uae00\uc5d0 \ub2e4\uc2dc \ubb3b\ub294\ub2e4(\uac31\uc2e0 \ud655\uc778). */
+async function subOk(DB, pid, now) {
+  if (!billGated(now)) return true;
+  const r = await DB.prepare('SELECT tk,exp,vt FROM subs WHERE pid=?').bind(pid).first();
+  if (!r) return false;
+  if (r.exp > now) return true;
+  if (now - r.vt < SUB_RECHECK_MS) return false;
+  const v = await subVerify(BILL.env, DB, pid, r.tk, now).catch(() => null);
+  return !!v && v.exp > now;
+}
+const locOk = async (DB, pid, now) => (await gdOk(DB, pid)) && (await subOk(DB, pid, now));
+/** \uad6c\uae00 Play \uc5d0 \uad6c\ub9e4 \ud1a0\ud070\uc744 \ubb3b\ub294\ub2e4 \u2192 {exp, st} \ub610\ub294 null(\ud655\uc778 \ubabb \ud568). \ub9de\ub294 \uad6c\ub3c5\uc774\uba74 \uc774 \uae30\uae30\uc5d0 \uc800\uc7a5\ud558\uace0, \uc544\uc9c1 '\ud655\uc778(acknowledge)' \uc804\uc774\uba74 \uc11c\ubc84\uac00 \ud655\uc778\ud55c\ub2e4(3\uc77c \uc548\uc5d0 \uc548 \ud558\uba74 \uad6c\uae00\uc774 \ud658\ubd88\ud55c\ub2e4). */
+async function subVerify(env, DB, pid, tk, now) {
+  const sa = gpSa(env), pkg = String(env.GP_PKG || '');
+  if (!sa || !pkg || typeof tk !== 'string' || tk.length < 10 || tk.length > 600) return null;
+  const at = await gAccess(sa, GP_SCOPE);
+  const base = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/' + encodeURIComponent(pkg);
+  const r = await fetch(base + '/purchases/subscriptionsv2/tokens/' + encodeURIComponent(tk), { headers: { authorization: 'Bearer ' + at } });
+  if (!r.ok) return null;
+  const j = await r.json().catch(() => null);
+  const li = j && Array.isArray(j.lineItems) ? j.lineItems.find((x) => x && x.productId === SUB_PRODUCT) : null;
+  if (!li) return null;
+  const st = String(j.subscriptionState || ''), live = SUB_LIVE.includes(st);
+  const exp = live ? Date.parse(li.expiryTime) || 0 : 0;
+  await DB.prepare('INSERT INTO subs(pid,tk,st,exp,vt,t) VALUES(?,?,?,?,?,?) ON CONFLICT(pid) DO UPDATE SET tk=excluded.tk,st=excluded.st,exp=excluded.exp,vt=excluded.vt').bind(pid, tk, st.replace('SUBSCRIPTION_STATE_', '').slice(0, 24), exp, now, now).run();
+  if (live && j.acknowledgementState === 'ACKNOWLEDGEMENT_STATE_PENDING')
+    await fetch(base + '/purchases/subscriptions/' + SUB_PRODUCT + '/tokens/' + encodeURIComponent(tk) + ':acknowledge', { method: 'POST', headers: { authorization: 'Bearer ' + at, 'content-type': 'application/json' }, body: '{}' }).catch(() => null);
+  return { exp, st };
+}
+/** \uad6c\ub3c5 \uc804 \ud654\uba74 \u2014 \uc790\ub140 \uc704\uce58 \uc790\ub9ac\uc5d0 \ub098\uc628\ub2e4. \uac12\uc740 \uc5ec\uae30(\uc5d4\uc9c4)\uc5d0\uc11c \uc815\ud558\uace0, \uc571\uc740 'sub.buy' \ub97c \ub204\ub974\uba74 \uacb0\uc81c \ucc3d\ub9cc \ub744\uc6b4\ub2e4(id = \uc0c1\ud488 \u00b7 t = \uc694\uae08\uc81c). */
+function payScreen(nm) {
+  return scr('kidpay', [], [
+    tx('\uc2e4\uc2dc\uac04 \uc704\uce58 \ubcf4\uae30', { size: 16, bold: true, pad: [16, 24, 16, 6] }),
+    tx(nm + '\uc758 \uc704\uce58\ub97c \uc2e4\uc2dc\uac04\uc73c\ub85c \ubcf4\ub824\uba74 \uad6c\ub3c5\uc774 \ud544\uc694\ud574\uc694. \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \uc54c\ub9bc\uacfc \uc790\ub140 \uc571\uc740 \uacc4\uc18d \ubb34\ub8cc\uc608\uc694.', { size: 12.5, color: 'sub', pad: [16, 0, 16, 8] }),
+    panel([tx('\u2022 \ucc98\uc74c 14\uc77c\uc740 \ubb34\ub8cc\uc608\uc694 (\uae30\uac04 \uc548\uc5d0 \ud574\uc9c0\ud558\uba74 \uc694\uae08\uc774 \ub098\uac00\uc9c0 \uc54a\uc544\uc694)', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('\u2022 \uc6d4 2,900\uc6d0 \u00b7 \uc5f0 24,900\uc6d0 (\ubd80\uac00\uc138 \ud3ec\ud568)', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('\u2022 \uad6c\uae00 Play \uc124\uc815 > \uc815\uae30\uacb0\uc81c\uc5d0\uc11c \uc5b8\uc81c\ub4e0 \ud574\uc9c0\ud560 \uc218 \uc788\uc5b4\uc694', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('\u2022 \uac19\uc740 \uad6c\uae00 \uacc4\uc815\uc73c\ub85c \ub2e4\ub978 \ud3f0\uc5d0\uc11c\ub3c4 \uad6c\ub9e4 \ubcf5\uc6d0\uc744 \ud560 \uc218 \uc788\uc5b4\uc694', { size: 13, pad: [0, 4, 0, 4] })], { pad: [12, 8, 12, 0], ip: [14, 10, 14, 10] }),
+    { t: 'row', gap: 8, pad: [12, 12, 12, 0], kids: [btn('\uc6d4 2,900\uc6d0 \u00b7 14\uc77c \ubb34\ub8cc', call('sub.buy', SUB_PRODUCT, 'monthly'), gold)] },
+    { t: 'row', gap: 8, pad: [12, 8, 12, 0], kids: [btn('\uc5f0 24,900\uc6d0 \u00b7 14\uc77c \ubb34\ub8cc', call('sub.buy', SUB_PRODUCT, 'yearly'), { fill: 'card2', tc: 'text', line: 'border' })] },
+    { t: 'row', gap: 8, pad: [12, 8, 12, 16], kids: [btn('\uad6c\ub9e4 \ubcf5\uc6d0', call('sub.restore'), { fill: 'card2', tc: 'text', line: 'border', h: 34, size: 12, bold: false })] },
+  ]);
 }
 /** \uc5f0\uacb0\ub41c \ubd80\ubaa8\ub9c8\ub2e4(\uc790\ub140 \uc774\ub984\uc740 \ubd80\ubaa8\uac00 \uc815\ud55c \uc774\ub984) \uae00\uc744 \ub530\ub85c \ub9cc\ub4e4\uc5b4 \ubcf4\ub0b8\ub2e4. mk(nm) => data */
 /** \uafb8\ubbf8\uae30 \uc800\uc7a5 \uae00: "\uace0\ub978\uce5c\uad6c,\ud0ed;\ubaa8\uc790,\uc637,\uc18c\uc9c0\ud488;\u2026(8\uba85)" \u2014 \uc774 \ubaa8\uc591\ub9cc \ubc1b\ub294\ub2e4(\ubc88\ud638\ub294 -1 ~ 19). */
@@ -388,6 +469,7 @@ async function callRequest(env, DB, cid, body, now) {
     id = rid();
     await DB.prepare('INSERT INTO calls(id,cid,k,t,la,lo,pl,st,at) VALUES(?,?,?,?,?,?,?,0,0)').bind(id, cid, k, now, keep ? la : 0, keep ? lo : 0, place).run();
   }
+  if (!opened) await mxAdd(DB, 'call_' + k, now);
   await ev(DB, cid, k, place, now);
   const near = place ? ' \u00b7 ' + place + ' \uadfc\ucc98' : '';
   const pc = { id, k, t: now, la: keep ? la : 0, lo: keep ? lo : 0, pl: place, st: 0 };
@@ -482,6 +564,7 @@ async function cron(env) {
   await init(DB);
   await tripsCron(env, DB, now);
   try { await pruneOld(DB, now); } catch (e) { /* \uc815\ub9ac\uac00 \uc54c\ub9bc\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ }
+  try { await mxSnap(DB, now); } catch (e) { /* \uc9c0\ud45c \uc810\uac80\uc774 \uc54c\ub9bc\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ }
   try { await safetyCron(env, DB, now, (u) => fetch(u)); } catch (e) { /* \uc548\uc804 \uc810\uac80\uc774 \uc77c\uc815 \uc54c\ub9bc\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ }
 }
 /** n \uac1c\uc529 \ud55c\uaebc\ubc88\uc5d0(\ub3d9\uc2dc\uc5d0) \ucc98\ub9ac\ud55c\ub2e4 \u2014 \uc0ac\ub78c\uc774 \ub9ce\uc544\ub3c4 \ucc28\ub840\ub85c \uc904\uc904\uc774 \uae30\ub2e4\ub9ac\uc9c0 \uc54a\uace0, \ud55c \ubc88\uc5d0 \ub108\ubb34 \ub9ce\uc774 \uc5f4\uc9c0\ub3c4 \uc54a\ub294\ub2e4. */
@@ -512,7 +595,7 @@ async function addCol(DB, table, col, ddl) {              // \uc61b \ud45c\uc5d0
   try { await DB.prepare('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + ddl).run(); } catch (e) { /* \ub2e4\ub978 \uc694\uccad\uc774 \uba3c\uc800 \ub367\ubd99\uc600\ub2e4 */ }
 }
 // s424: \uc11c\ubc84\uac00 \uc0c8\ub85c \ub730 \ub54c\ub9c8\ub2e4 \ud45c \u00b7 \uc5f4 \ud655\uc778(\uc57d 70\ubc88)\uc744 \ud558\ub358 \uac83\uc744 '\ubc84\uc804 \ud55c \uc904 \ud655\uc778'\uc73c\ub85c \ubc14\uafe8\ub2e4. \ud45c \u00b7 \uc5f4\uc744 \uace0\uce58\uba74(\uc544\ub798 migrate) SCHEMA_V \ub3c4 \uc62c\ub824\uc57c \uc0c8 \uc11c\ubc84\uac00 \ub2e4\uc2dc \uc900\ube44\ud55c\ub2e4(\uc2dc\ud5d8\uc774 \uc9c0\ucf1c \uc900\ub2e4).
-const SCHEMA_V = 's424-1';
+const SCHEMA_V = 's431-1';
 async function init(DB) {
   if (ready) return;
   try {
@@ -553,6 +636,8 @@ async function migrate(DB) {
     DB.prepare('CREATE TABLE IF NOT EXISTS cst(cid TEXT PRIMARY KEY, sh INTEGER NOT NULL DEFAULT 1, stl INTEGER NOT NULL DEFAULT 0, lb INTEGER NOT NULL DEFAULT 0, wx TEXT NOT NULL DEFAULT \'\')'),      // \uc548\uc804 \uc54c\ub9bc \uc0c1\ud0dc: \uc704\uce58 \uacf5\uc720(1 \ucf2c \u00b7 0 \ub054) \u00b7 \ub04a\uae40 \uc54c\ub9bc\uc744 \ubcf4\ub0c8\ub098 \u00b7 \ubc30\ud130\ub9ac \uc54c\ub9bc \uc2dc\uac01 \u00b7 \ub0a0\uc528 \uc54c\ub9bc\uc744 \ubcf4\ub0b8 \ub0a0
     DB.prepare('CREATE TABLE IF NOT EXISTS wear(cid TEXT PRIMARY KEY, w TEXT NOT NULL, t INTEGER NOT NULL)'),      // s423: \uc790\ub140\uac00 \uafb8\ubbfc \uae38\ub3d9\ubb34 \uce5c\uad6c\ub4e4(\uc785\uc740 \ubaa8\uc790 \u00b7 \uc637 \u00b7 \uc18c\uc9c0\ud488 \ubc88\ud638) \u2014 \ubd80\ubaa8 \uc571 \ud648 \uc7a5\uba74\uc774 \uac19\uc740 \ubaa8\uc2b5\uc73c\ub85c \ubcf4\uc778\ub2e4
     DB.prepare('CREATE TABLE IF NOT EXISTS zt(k TEXT PRIMARY KEY, t INTEGER NOT NULL)'),      // \uc7a5\uc18c \ub3c4\ucc29/\ucd9c\ubc1c \uc54c\ub9bc\uc744 \ub9c8\uc9c0\ub9c9\uc73c\ub85c \ubcf4\ub0b8 \uc2dc\uac01(\uc790\ub140:\uc7a5\uc18c:\uc885\ub958 \u2192 5\ubd84\uc5d0 \ud55c \ubc88 \u2014 \uc6cc\ucee4\uac00 \ubc14\ub00c\uc5b4\ub3c4 \uc720\uc9c0)
+    DB.prepare('CREATE TABLE IF NOT EXISTS subs(pid TEXT PRIMARY KEY, tk TEXT NOT NULL, st TEXT NOT NULL, exp INTEGER NOT NULL, vt INTEGER NOT NULL, t INTEGER NOT NULL)'),      // \uad6c\ub3c5(s431): \ubd80\ubaa8 \uae30\uae30\ubcc4 \u2014 \uad6c\uae00 \ud655\uc778 \uacb0\uacfc(\uad6c\ub9e4 \ud1a0\ud070 \u00b7 \uc0c1\ud0dc \u00b7 \ub05d\ub098\ub294 \uc2dc\uac01 \u00b7 \ub9c8\uc9c0\ub9c9\uc73c\ub85c \uad6c\uae00\uc5d0 \ubb3c\uc740 \uc2dc\uac01). \uac1c\uc778\uc815\ubcf4 \uc5c6\uc74c
+    DB.prepare('CREATE TABLE IF NOT EXISTS mx(d INTEGER NOT NULL, k TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(d, k))'),      // \uc9c0\ud45c(s431): \ud558\ub8e8 \u00b7 \ud56d\ubaa9\ubcc4 \ud69f\uc218\ub9cc \uc13c\ub2e4 \u2014 \ub204\uad6c\uc778\uc9c0\ub294 \ub0a8\uae30\uc9c0 \uc54a\ub294\ub2e4
     DB.prepare('CREATE TABLE IF NOT EXISTS gd(pid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \ub3d9\uc758(\ubd80\ubaa8 \uae30\uae30\ubcc4 \u00b7 \ubc84\uc804 \u00b7 \uc2dc\uac01) \u2014 \uc774 \ub3d9\uc758\uac00 \uc788\uc5b4\uc57c \uc790\ub140 \uc704\uce58\uac00 \ubcf4\uc778\ub2e4
     DB.prepare('CREATE TABLE IF NOT EXISTS lbs(id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, cid TEXT NOT NULL, pid TEXT NOT NULL, k TEXT NOT NULL)'),      // \uc704\uce58\uc815\ubcf4\ubc95 \uc81c16\uc870 \uc774\uc6a9\u00b7\uc81c\uacf5\uc0ac\uc2e4 \ud655\uc778\uc790\ub8cc: \uc5b8\uc81c \u00b7 \ub204\uac00 \u00b7 \ub204\uad6c\uc758 \uc704\uce58\ub97c \ubc1b\uc558\ub098(\uc88c\ud45c\ub294 \uc5c6\ub2e4) \u00b7 6\uac1c\uc6d4 \ub118\uac8c \ubcf4\uad00
     DB.prepare('CREATE INDEX IF NOT EXISTS lbs_c ON lbs(cid, pid, k, t)'),
@@ -999,8 +1084,9 @@ async function hubScreen(DB, pid, cid, now) {
   const nm = nmOf(cur);
   // s421: \uc11c\ub85c \uae30\ub300\uc9c0 \uc54a\ub294 \uc870\ud68c\ub294 \ud55c\uaebc\ubc88\uc5d0 \ubb3b\ub294\ub2e4(\uc608\uc804\uc5d4 16\ubc88\uc744 \uc904\uc904\uc774 \uae30\ub2e4\ub824 \uc9c0\ub09c \uacbd\ub85c\ub97c \uace0\ub97c \ub54c\ub9c8\ub2e4 1~2\ucd08\uac00 \uac78\ub838\ub2e4). \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778\uc774 \uc548 \ub41c \uc0ac\ub78c\uc5d0\uac8c\ub294 \uc77d\uc740 \uac12\uc744 \uc4f0\uc9c0 \uc54a\uace0 \ub3cc\ub824\ubcf4\ub0b8\ub2e4.
   const ALL = (q) => q.all().then((r) => (r && r.results) || []);
-  const [gok, loc, wch, cs0, pls, calls, trailRows, rts, vs, qs, msgs0, rd, sync0] = await Promise.all([
+  const [gok, sok, loc, wch, cs0, pls, calls, trailRows, rts, vs, qs, msgs0, rd, sync0] = await Promise.all([
     gdOk(DB, pid),
+    subOk(DB, pid, now),
     DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch,hd,hdt,mt FROM loc WHERE cid=?').bind(cid).first(),
     watchOf(DB, cid, now),
     DB.prepare('SELECT sh FROM cst WHERE cid=?').bind(cid).first(),
@@ -1015,6 +1101,7 @@ async function hubScreen(DB, pid, cid, now) {
     tripsSync(DB, cid, now).then(() => Promise.all([todayTrips(DB, cid, now), ALL(DB.prepare('SELECT k,x,t FROM evs WHERE cid=? AND t>=? AND k NOT IN ' + EV_HIDE + ' ORDER BY id DESC LIMIT ?').bind(cid, now - EV_KEEP, EV_SHOW + 1))])),
   ]);
   if (!gok) return gdScreen(nm);                                   // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc5d0\ub294 \uc790\ub140 \uc704\uce58\ub97c \ubcf4\uc5ec \uc8fc\uc9c0 \uc54a\ub294\ub2e4
+  if (!sok) return payScreen(nm);                                  // s431: \uad6c\ub3c5\uc774 \uaebc\uc838 \uc788\uc73c\uba74 \ub298 \ud1b5\uacfc \u00b7 \ucf1c\uc838 \uc788\uc73c\uba74 \uad6c\ub3c5\uc790\ub9cc
   const watching = !!wch;
   const cs = cs0 || { sh: 1 };
   const trips = sync0[0], evr = sync0[1];
@@ -1461,6 +1548,12 @@ async function handle(req, env, url) {
   const DB = env.DB, now = Date.now(), p = url.pathname, m = req.method;
   if (m === 'GET' && (p === '/legal' || p.startsWith('/legal/'))) return legalPage(url, env);          // s430: \uacf5\uac1c \ucabd(DB \ub97c \uac74\ub4dc\ub9ac\uc9c0 \uc54a\ub294\ub2e4)
   await init(DB);
+  billInit(env);
+  if (p === '/admin/mx' && m === 'GET' && env.ADMIN_KEY) {          // s431: \uad00\ub9ac\uc790 \uc9c0\ud45c(\ud0a4\uac00 \uc5c6\uc73c\uba74 \uc774 \uae38\uc774 \uc5c6\ub2e4)
+    const k = req.headers.get('x-admin-key') || '';
+    if (k.length !== String(env.ADMIN_KEY).length || (await sha(k)) !== (await sha(String(env.ADMIN_KEY)))) return bad('\uc5c6\uc5b4\uc694', 404);
+    return J({ ok: true, days: await mxRead(DB, +url.searchParams.get('days')) });
+  }
   if (p === '/' || p === '/health') return J({ ok: true, name: 'gildongmu-kids', t: now });
   if (p === '/q' && m === 'GET') {              // \uc790\ub140 \ud3f0 QR \uc744 \uae30\ubcf8 \uce74\uba54\ub77c\ub85c \ucc0d\uc73c\uba74 \uc5f4\ub9ac\ub294 \uc548\ub0b4 \ucabd: '\uae38\ub3d9\ubb34\ub85c \uc5f4\uae30' \ud55c \ubc88\uc774\uba74 \ubd80\ubaa8 \uc571\uc774 \ubc14\ub85c \uc5f0\uacb0\ud55c\ub2e4
     const k = String(url.searchParams.get('k') || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 11);
@@ -1482,6 +1575,7 @@ async function handle(req, env, url) {
     const ex = await DB.prepare('SELECT sh,role FROM devices WHERE id=?').bind(id).first();
     if (ex) return ex.sh === sh && ex.role === role ? J({ ok: true }) : bad('\uc774\ubbf8 \uc4f0\ub294 \uc544\uc774\ub514\uc608\uc694', 403);
     await DB.prepare('INSERT INTO devices(id,role,sh,t) VALUES(?,?,?,?)').bind(id, role, sh, now).run();
+    await mxAdd(DB, 'reg_' + role, now);
     return J({ ok: true });
   }
 
@@ -1500,6 +1594,7 @@ async function handle(req, env, url) {
       const cv = Math.round(+body.v) || 0;
       if (cv < 1 || cv > 99) return bad('\uc798\ubabb\ub41c \uc694\uccad\uc774\uc5d0\uc694');
       await DB.prepare('INSERT INTO cons(cid,v,t) VALUES(?,?,?) ON CONFLICT(cid) DO UPDATE SET v=excluded.v,t=excluded.t').bind(cid, cv, now).run();
+      await mxAdd(DB, 'consent_c', now);
       return J({ ok: true });
     }
     if (p === '/c/loc' && m === 'POST') {         // \uc704\uce58\ub294 \uc5f0\uacb0\ub41c \ubd80\ubaa8\uac00 \uc788\uc744 \ub54c\ub9cc, \uac00\uc7a5 \ucd5c\uadfc \ud55c \uac74\ub9cc \uc800\uc7a5(\ubc14\ub85c \uc55e \uc704\uce58\ub3c4 \ud558\ub098 \ub454\ub2e4: \uac00\ub294 \uc911\uc778\uc9c0 \ubcf4\ub824\uace0)
@@ -1715,6 +1810,7 @@ async function handle(req, env, url) {
       if (!(await isLinked(DB, row.cid, pid)) && (await linkedCount(DB, row.cid)) >= MAX_PARENTS) return bad('\uc5f0\uacb0\ud560 \uc218 \uc788\ub294 \ubd80\ubaa8 \uc218\ub97c \ub118\uc5c8\uc5b4\uc694', 409);
       const nm = typeof body.nm === 'string' ? body.nm.replace(/\s+/g, '').slice(0, 8) : '';
       await DB.batch([DB.prepare('INSERT OR IGNORE INTO links(cid,pid,t,nm) VALUES(?,?,?,?)').bind(row.cid, pid, now, nm), DB.prepare('DELETE FROM codes WHERE code=?').bind(code)]);
+      await mxAdd(DB, 'pair', now);
       if (nm) await DB.prepare('UPDATE links SET nm=? WHERE cid=? AND pid=?').bind(nm, row.cid, pid).run();
       await bump(DB, row.cid);                   // \uc790\ub140 \uc571\uc774 \uace7\ubc14\ub85c '\uc5f0\uacb0\ub410\uc5b4\uc694' \ub97c \ubc1b\ub294\ub2e4
       later(notifyChild(env, DB, row.cid, { k: 'link', title: '\uae38\ub3d9\ubb34 \ud0a4\uc988', body: '\ubd80\ubaa8\ub2d8\uacfc \uc5f0\uacb0\ub410\uc5b4\uc694', tag: 'link' }));
@@ -1725,9 +1821,16 @@ async function handle(req, env, url) {
     const pid = await auth(req, DB, 'p');
     if (!pid) return bad('\uc778\uc99d\uc774 \ud544\uc694\ud574\uc694', 401);
     if (p === '/p/ft' && m === 'POST') return J(await saveFt(DB, pid, body.tk, now));
+    if (p === '/p/sub' && m === 'POST') {         // s431: \uc571\uc774 \uacb0\uc81c \ub4a4 \ubc1b\uc740 \uad6c\ub9e4 \ud1a0\ud070 \u2014 \uad6c\uae00\uc5d0 \uc9c1\uc811 \ubb3c\uc5b4 \ud655\uc778\ud55c\ub2e4(\uc571\uc774 \ubcf4\ub0b8 '\uc0c0\ub2e4'\ub294 \ub9d0\uc740 \ubbff\uc9c0 \uc54a\ub294\ub2e4)
+      if (now - (subLast.get(pid) || 0) < SUB_GAP_MS) return bad('\uc7a0\uc2dc \ub4a4\uc5d0 \ub2e4\uc2dc \ud574 \uc8fc\uc138\uc694', 429);
+      subLast.set(pid, now); if (subLast.size > 2000) subLast.clear();
+      const v = await subVerify(env, DB, pid, body.tk, now).catch(() => null);
+      if (v && v.exp > now) await mxAdd(DB, 'sub', now);
+      return J({ ok: true, sub: v && v.exp > now ? 1 : 0, exp: v ? v.exp : 0 });
+    }
     if (p === '/p/children' && m === 'GET') {
       const rows = (await DB.prepare('SELECT l.cid cid, l.nm nm, o.la la, o.lo lo, o.acc acc, o.t t, COALESCE(s.n,0) stars FROM links l LEFT JOIN loc o ON o.cid=l.cid LEFT JOIN stars s ON s.cid=l.cid WHERE l.pid=?').bind(pid).all()).results || [];
-      if (!(await gdOk(DB, pid))) rows.forEach((r) => { r.la = null; r.lo = null; r.acc = null; r.t = null; });          // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc5d0\ub294 \uc704\uce58\ub97c \uc8fc\uc9c0 \uc54a\ub294\ub2e4
+      if (!(await locOk(DB, pid, now))) rows.forEach((r) => { r.la = null; r.lo = null; r.acc = null; r.t = null; });          // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc5d0\ub294 \uc704\uce58\ub97c \uc8fc\uc9c0 \uc54a\ub294\ub2e4
       return J({ ok: true, children: rows });
     }
     if (p === '/p/setrow' && m === 'GET') { const [nodes, start, wr] = await Promise.all([settingsRow(DB, pid, url.searchParams.get('kn') === '1'), startPref(DB, pid), wearFor(DB, pid, url.searchParams.get('cid') || '')]); return J({ ok: true, nodes, start, tab: KIDS_TAB, w: wr.w }); }          // s423: \uac19\uc774 \uafb8\ubbfc \ubaa8\uc2b5(w)\ub3c4 \u2014 \uc571\uc744 \ucf24 \ub54c\ub9c8\ub2e4 \ud558\ub358 \uc774 \ud55c \ubc88\uc758 \ud1b5\uc2e0\uc73c\ub85c \ubc1b\ub294\ub2e4     // \uc124\uc815 \ud0ed\uc5d0 \ub07c\uc6b8 \ud55c \uc904(\uc5f0\uacb0 \uc5c6\uc73c\uba74 null)
@@ -1746,7 +1849,7 @@ async function handle(req, env, url) {
       if (v === 'chat') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await chatSheet(DB, pid, cid, now) });
       if (v === 'fam') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await famScreen(DB, pid, cid, now) });
       if (v === 'quest') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await questSheet(DB, pid, cid, url.searchParams.get('qt')) });
-      if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                // \ubcf4\ub294 \uc911 \ud45c\uc2dc(+ \uc0c8\ub85c \ubcf4\uae30 \uc2dc\uc791\ud558\uba74 \uc790\ub140 \ud3f0\uc5d0 watch \ud478\uc2dc) \u00b7 \uc704\uce58\uac00 \uc5c6\uac70\ub098 \uc624\ub798\ub410\uc73c\uba74 \uc790\ub140 \ud3f0\uc5d0 \ud55c \ubc88 \uc694\uccad
+      if (v === 'hub' && await locOk(DB, pid, now)) { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                // \ubcf4\ub294 \uc911 \ud45c\uc2dc(+ \uc0c8\ub85c \ubcf4\uae30 \uc2dc\uc791\ud558\uba74 \uc790\ub140 \ud3f0\uc5d0 watch \ud478\uc2dc) \u00b7 \uc704\uce58\uac00 \uc5c6\uac70\ub098 \uc624\ub798\ub410\uc73c\uba74 \uc790\ub140 \ud3f0\uc5d0 \ud55c \ubc88 \uc694\uccad
       return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await hubScreen(DB, pid, cid, now), pop: v === 'hub' ? await popOf(DB, pid, cid, now) : null });
     }
     if (p === '/p/ws' && m === 'GET') {           // s426: \ucd08\uc778\uc885 \uc5f0\uacb0(\ubd80\ubaa8) \u2014 \uc774 \ubd80\ubaa8\uc5d0\uac8c \uc5f0\uacb0\ub41c \uc790\ub140\ub9cc, \ucf1c\uc838 \uc788\uace0 \ub300\uc0c1\uc77c \ub54c\ub9cc. \uc544\ub2c8\uba74 404
@@ -1761,7 +1864,7 @@ async function handle(req, env, url) {
       const cid = kids0.some((k) => k.cid === cid0) ? cid0 : kids0[0] ? kids0[0].cid : '';
       if (!cid) return J({ ok: true, linked: 0, rev: 0 });
       if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');         // \ubd80\ubaa8 \uc571\uc774 \ud0a4\uc988 \ud654\uba74\uc744 \ubcf4\ub294 \ub3d9\uc548\uc5d0\ub9cc \uae34 \ub300\uae30\ub97c \uac74\ub2e4 \u2014 \uadf8\ub3d9\uc548\uc740 \uc790\ub140 \uae00\uc744 \uc77d\ub294 \uc911
-      if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // \uc2e4\uc2dc\uac04 \ubcf4\uae30(s393): \ub300\uae30\uac00 \uc774\uc5b4\uc838 \uc788\ub294 \ub3d9\uc548 '\ubcf4\ub294 \uc911'
+      if (v === 'hub' && await locOk(DB, pid, now)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // \uc2e4\uc2dc\uac04 \ubcf4\uae30(s393): \ub300\uae30\uac00 \uc774\uc5b4\uc838 \uc788\ub294 \ub3d9\uc548 '\ubcf4\ub294 \uc911'
       const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // s426: nw=1 \u2014 \ucd08\uc778\uc885\uc774 \uc774\uc5b4\uc838 \uc788\ub2e4. \ubd99\ub4e4\uc9c0 \uc54a\uace0 \uc9c0\uae08 \uac12\uc73c\ub85c \ubc14\ub85c \ub2f5\ud55c\ub2e4(\ubcf4\ub294 \uc911 \ud45c\uc2dc \u00b7 \uc77d\uc74c\uc740 \uc704\uc5d0\uc11c \uadf8\ub300\ub85c \ucc98\ub9ac)
       const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
       if (nw && rev === since) return J({ ok: true, rev, cid, same: 1, ws: 1, wa: v === 'hub' ? WS_HUB_WAIT_MS : WS_WAIT_MS });
@@ -1781,10 +1884,12 @@ async function handle(req, env, url) {
       if (v === 'kg.ok') {
         if (!cid) return R({ close: true });
         await DB.prepare('INSERT INTO gd(pid,v,t) VALUES(?,?,?) ON CONFLICT(pid) DO UPDATE SET v=excluded.v,t=excluded.t').bind(pid, GD_VER, now).run();
+        await mxAdd(DB, 'guardian_p', now);
         await bump(DB, cid);
         return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
       }
       if (/^k(r|pg|p|pl|ps|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
+      if (/^k(r|pg|p|pl|ps|d)\./.test(v) && !(await subOk(DB, pid, now))) return R({ close: true, hub: 1 });          // s431: \uad6c\ub3c5\uc774 \ud544\uc694\ud55c \ub54c \uc9c0\ub09c \uae38 \u00b7 \uc7a5\uc18c \uac19\uc740 \uc704\uce58 \ub3d9\uc791\ub3c4 \ubc1b\uc9c0 \uc54a\ub294\ub2e4(\uae34\uae09 \ud638\ucd9c \ud655\uc778 kx.* \ub294 \ub298 \ubc1b\ub294\ub2e4)
       if (v === 'kx.open') {                          // s415: \ud5c8\ube0c\uc758 \ud638\ucd9c \uc904\uc744 \ub20c\ub800\ub2e4 \u2014 \uadf8 \ud638\ucd9c\uc758 \ud31d\uc5c5(\uc571\uc774 \uadf8\ub9bc)
         const pop = await popOf(DB, pid, cid, now);
         return R(pop ? { pop, cid } : { hub: 1 });
@@ -1819,6 +1924,7 @@ async function handle(req, env, url) {
         if (!(await isLinked(DB, row.cid, pid)) && (await linkedCount(DB, row.cid)) >= MAX_PARENTS) return R({ screen: await linkSheet(DB, pid, '\uc5f0\uacb0\ud560 \uc218 \uc788\ub294 \ubd80\ubaa8 \uc218\ub97c \ub118\uc5c8\uc5b4\uc694') });
         const nm = String(f.kln || '').replace(/\s+/g, '').slice(0, 8);
         await DB.batch([DB.prepare('INSERT OR IGNORE INTO links(cid,pid,t,nm) VALUES(?,?,?,?)').bind(row.cid, pid, now, nm), DB.prepare('DELETE FROM codes WHERE code=?').bind(code)]);
+      await mxAdd(DB, 'pair', now);
         if (nm) await DB.prepare('UPDATE links SET nm=? WHERE cid=? AND pid=?').bind(nm, row.cid, pid).run();
         const pn0 = String(f.kpn || '').replace(/\s+/g, ' ').trim().slice(0, 8);
         if (pn0) await DB.prepare('UPDATE links SET pnm=? WHERE pid=?').bind(pn0, pid).run();
@@ -2041,7 +2147,7 @@ async function handle(req, env, url) {
     const cid = body.cid || url.searchParams.get('cid');
     if (!okId(cid) || !(await isLinked(DB, cid, pid))) return bad('\uc5f0\uacb0\ub418\uc9c0 \uc54a\uc740 \uc790\ub140\uc608\uc694', 403);
     if (p === '/p/loc' && m === 'GET') {
-      if (!(await gdOk(DB, pid))) return J({ ok: true, loc: null });
+      if (!(await locOk(DB, pid, now))) return J({ ok: true, loc: null });
       const r = await DB.prepare('SELECT la,lo,acc,t FROM loc WHERE cid=?').bind(cid).first();
       if (r) await lbsLog(DB, cid, pid, 'v', now, 60000);
       return J({ ok: true, loc: r || null });

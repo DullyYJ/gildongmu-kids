@@ -235,22 +235,25 @@ const b64s = (x) => b64u(new TextEncoder().encode(x));
 function saOf(env) {
   try { const j = JSON.parse(env.FCM_SA || ''); return j && j.client_email && j.private_key && j.project_id ? j : null; } catch (e) { return null; }
 }
-let fcmTok = null;
-async function fcmAccess(sa) {
+const gTok = new Map();          // 범위(scope)별 접근 토큰 캐시 — 푸시(FCM)와 결제 확인(Play)이 같은 코드를 쓴다 (s431)
+const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
+async function gAccess(sa, scope) {
   const now = Date.now();
-  if (fcmTok && fcmTok.exp > now + 60000) return fcmTok.t;
+  const hit = gTok.get(scope + sa.client_email);
+  if (hit && hit.exp > now + 60000) return hit.t;
   const h = b64s(JSON.stringify({ alg: 'RS256', typ: 'JWT' })), iat = Math.floor(now / 1000);
-  const c = b64s(JSON.stringify({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/firebase.messaging', aud: 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 }));
+  const c = b64s(JSON.stringify({ iss: sa.client_email, scope, aud: 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 }));
   const pem = sa.private_key.replace(/-----[A-Z ]+-----/g, '').replace(/\s+/g, '');
   const der = Uint8Array.from(atob(pem), (ch) => ch.charCodeAt(0));
   const key = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(h + '.' + c));
   const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=' + h + '.' + c + '.' + b64u(sig) });
   const j = await r.json().catch(() => ({}));
-  if (!j.access_token) throw new Error('fcm auth ' + r.status);
-  fcmTok = { t: j.access_token, exp: now + (j.expires_in || 3000) * 1000 };
-  return fcmTok.t;
+  if (!j.access_token) throw new Error('google auth ' + r.status);
+  gTok.set(scope + sa.client_email, { t: j.access_token, exp: now + (j.expires_in || 3000) * 1000 });
+  return j.access_token;
 }
+const fcmAccess = (sa) => gAccess(sa, FCM_SCOPE);
 /** rows: [{id, ft, data}] — 데이터 메시지(높은 우선순위)를 한 기기씩 보낸다. 죽은 토큰은 지운다. */
 async function pushRows(env, DB, rows) {
   const sa = saOf(env);
@@ -294,6 +297,84 @@ function gdScreen(nm) {
     { t: 'row', gap: 8, pad: [12, 0, 12, 0], kids: [btn('처리방침 보기', { a: 'open', url: LEGAL_BASE + '/legal/privacy' }, { h: 34, size: 12, bold: false }), btn('이용약관 보기', { a: 'open', url: LEGAL_BASE + '/legal/terms' }, { h: 34, size: 12, bold: false })] },          // s430
     { t: 'row', gap: 8, pad: [12, 12, 12, 16], kids: [btn('모두 확인했어요', call('kg.ok'), gold)] },
   ], { dlg: dlg() });          // s415: 키즈 화면 위 가운데 팝업(앱이 '키즈 화면'이 아니라 팝업으로 띄운다)
+}
+// ===== s431: 지표(개인정보 없음) =====
+// 하루 · 항목별 '횟수'만 센다(누가 했는지는 남기지 않는다). 드문 일(가입 · 연결 · 동의 · 호출 · 구독)에만 한 줄을 더하고, 위치 보고 같은 잦은 길에는 아무것도 더하지 않는다 — 속도 그대로.
+// 하루 활동 수 · 전체 수는 크론이 30분에 한 번 표를 세어 그날 줄에 '덮어쓴다'(snap).
+const mxDay = (t) => Math.floor((t + KST) / DAY);
+async function mxAdd(DB, k, now) {
+  try { await DB.prepare('INSERT INTO mx(d,k,n) VALUES(?,?,1) ON CONFLICT(d,k) DO UPDATE SET n=n+1').bind(mxDay(now), k).run(); } catch (e) { /* 지표 실패는 본 일에 영향 없다 */ }
+}
+async function mxSnap(DB, now) {
+  const last = await DB.prepare("SELECT v FROM meta WHERE k='mxsnap'").first();
+  if (last && now - (+last.v || 0) < 30 * 60000) return;
+  await DB.prepare("INSERT INTO meta(k,v) VALUES('mxsnap',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").bind(String(now)).run();
+  const d0 = dayStart(now), d = mxDay(now);
+  const r = await DB.prepare("SELECT (SELECT COUNT(*) FROM devices WHERE role='p') tp, (SELECT COUNT(*) FROM devices WHERE role='c') tc, (SELECT COUNT(DISTINCT cid) FROM links) fam, (SELECT COUNT(*) FROM loc WHERE t>=?1) ac, (SELECT COUNT(*) FROM devices WHERE role='p' AND wt>=?1) ap, (SELECT COUNT(*) FROM subs WHERE exp>?2) sb").bind(d0, now).first();
+  if (!r) return;
+  await DB.batch(Object.entries({ tot_p: r.tp, tot_c: r.tc, tot_fam: r.fam, act_c: r.ac, act_p: r.ap, tot_sub: r.sb }).map(([k, n]) => DB.prepare('INSERT INTO mx(d,k,n) VALUES(?,?,?) ON CONFLICT(d,k) DO UPDATE SET n=excluded.n').bind(d, k, n | 0)));
+}
+/** 관리자 읽기: 헤더 x-admin-key 가 워커 비밀값 ADMIN_KEY 와 같을 때만(없으면 이 길 자체가 없다). 최근 days 일의 날짜별 항목 횟수 */
+async function mxRead(DB, days) {
+  const n = Math.max(1, Math.min(120, days | 0 || 30)), d = mxDay(Date.now());
+  const rows = (await DB.prepare('SELECT d,k,n FROM mx WHERE d>? ORDER BY d DESC, k').bind(d - n).all()).results || [];
+  const out = {};
+  for (const r of rows) { const day = new Date(r.d * DAY - KST + KST).toISOString().slice(0, 10); (out[day] = out[day] || {})[r.k] = r.n; }
+  return out;
+}
+// ===== s431: 구독(기본 꺼짐) =====
+// 워커 변수 BILLING_MODE: off(기본 · 모두 무료 — 지금과 똑같다) | on(자녀 위치 보기만 구독자에게). BILLING_FREE_UNTIL: 이 시각(ms)까지는 모두 무료(출시 직후 체험 기간).
+// 결제가 되는지는 구글이 정한다 — 앱은 결제 창만 띄우고, 영수증(구매 토큰)을 서버가 구글에 직접 물어 확인한다. 긴급 호출 · 데리러 와줘 알림과 자녀 앱은 구독과 상관없이 늘 무료.
+const SUB_PRODUCT = 'gildongmu_gps', SUB_RECHECK_MS = 10 * 60000, SUB_GAP_MS = 3000;
+const SUB_LIVE = ['SUBSCRIPTION_STATE_ACTIVE', 'SUBSCRIPTION_STATE_IN_GRACE_PERIOD', 'SUBSCRIPTION_STATE_CANCELED'];          // 취소해도 낸 기간 끝까지는 쓴다
+const GP_SCOPE = 'https://www.googleapis.com/auth/androidpublisher';
+let BILL = { on: false, until: 0, env: null };
+const subLast = new Map();
+function billInit(env) { BILL = { on: String(env.BILLING_MODE || '') === 'on', until: +env.BILLING_FREE_UNTIL || 0, env }; }
+const billGated = (now) => BILL.on && now >= BILL.until;
+function gpSa(env) { try { const j = JSON.parse(env.GP_SA || ''); return j && j.client_email && j.private_key ? j : null; } catch (e) { return null; } }
+/** 이 부모가 자녀 위치를 봐도 되나 — 꺼져 있으면 늘 예. 켜져 있으면 끝나는 시각이 남은 구독이 있어야 하고, 지났으면 가끔(10분에 한 번) 구글에 다시 묻는다(갱신 확인). */
+async function subOk(DB, pid, now) {
+  if (!billGated(now)) return true;
+  const r = await DB.prepare('SELECT tk,exp,vt FROM subs WHERE pid=?').bind(pid).first();
+  if (!r) return false;
+  if (r.exp > now) return true;
+  if (now - r.vt < SUB_RECHECK_MS) return false;
+  const v = await subVerify(BILL.env, DB, pid, r.tk, now).catch(() => null);
+  return !!v && v.exp > now;
+}
+const locOk = async (DB, pid, now) => (await gdOk(DB, pid)) && (await subOk(DB, pid, now));
+/** 구글 Play 에 구매 토큰을 묻는다 → {exp, st} 또는 null(확인 못 함). 맞는 구독이면 이 기기에 저장하고, 아직 '확인(acknowledge)' 전이면 서버가 확인한다(3일 안에 안 하면 구글이 환불한다). */
+async function subVerify(env, DB, pid, tk, now) {
+  const sa = gpSa(env), pkg = String(env.GP_PKG || '');
+  if (!sa || !pkg || typeof tk !== 'string' || tk.length < 10 || tk.length > 600) return null;
+  const at = await gAccess(sa, GP_SCOPE);
+  const base = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/' + encodeURIComponent(pkg);
+  const r = await fetch(base + '/purchases/subscriptionsv2/tokens/' + encodeURIComponent(tk), { headers: { authorization: 'Bearer ' + at } });
+  if (!r.ok) return null;
+  const j = await r.json().catch(() => null);
+  const li = j && Array.isArray(j.lineItems) ? j.lineItems.find((x) => x && x.productId === SUB_PRODUCT) : null;
+  if (!li) return null;
+  const st = String(j.subscriptionState || ''), live = SUB_LIVE.includes(st);
+  const exp = live ? Date.parse(li.expiryTime) || 0 : 0;
+  await DB.prepare('INSERT INTO subs(pid,tk,st,exp,vt,t) VALUES(?,?,?,?,?,?) ON CONFLICT(pid) DO UPDATE SET tk=excluded.tk,st=excluded.st,exp=excluded.exp,vt=excluded.vt').bind(pid, tk, st.replace('SUBSCRIPTION_STATE_', '').slice(0, 24), exp, now, now).run();
+  if (live && j.acknowledgementState === 'ACKNOWLEDGEMENT_STATE_PENDING')
+    await fetch(base + '/purchases/subscriptions/' + SUB_PRODUCT + '/tokens/' + encodeURIComponent(tk) + ':acknowledge', { method: 'POST', headers: { authorization: 'Bearer ' + at, 'content-type': 'application/json' }, body: '{}' }).catch(() => null);
+  return { exp, st };
+}
+/** 구독 전 화면 — 자녀 위치 자리에 나온다. 값은 여기(엔진)에서 정하고, 앱은 'sub.buy' 를 누르면 결제 창만 띄운다(id = 상품 · t = 요금제). */
+function payScreen(nm) {
+  return scr('kidpay', [], [
+    tx('실시간 위치 보기', { size: 16, bold: true, pad: [16, 24, 16, 6] }),
+    tx(nm + '의 위치를 실시간으로 보려면 구독이 필요해요. 긴급 호출 · 데리러 와줘 알림과 자녀 앱은 계속 무료예요.', { size: 12.5, color: 'sub', pad: [16, 0, 16, 8] }),
+    panel([tx('• 처음 14일은 무료예요 (기간 안에 해지하면 요금이 나가지 않아요)', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('• 월 2,900원 · 연 24,900원 (부가세 포함)', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('• 구글 Play 설정 > 정기결제에서 언제든 해지할 수 있어요', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('• 같은 구글 계정으로 다른 폰에서도 구매 복원을 할 수 있어요', { size: 13, pad: [0, 4, 0, 4] })], { pad: [12, 8, 12, 0], ip: [14, 10, 14, 10] }),
+    { t: 'row', gap: 8, pad: [12, 12, 12, 0], kids: [btn('월 2,900원 · 14일 무료', call('sub.buy', SUB_PRODUCT, 'monthly'), gold)] },
+    { t: 'row', gap: 8, pad: [12, 8, 12, 0], kids: [btn('연 24,900원 · 14일 무료', call('sub.buy', SUB_PRODUCT, 'yearly'), { fill: 'card2', tc: 'text', line: 'border' })] },
+    { t: 'row', gap: 8, pad: [12, 8, 12, 16], kids: [btn('구매 복원', call('sub.restore'), { fill: 'card2', tc: 'text', line: 'border', h: 34, size: 12, bold: false })] },
+  ]);
 }
 /** 연결된 부모마다(자녀 이름은 부모가 정한 이름) 글을 따로 만들어 보낸다. mk(nm) => data */
 /** 꾸미기 저장 글: "고른친구,탭;모자,옷,소지품;…(8명)" — 이 모양만 받는다(번호는 -1 ~ 19). */
@@ -388,6 +469,7 @@ async function callRequest(env, DB, cid, body, now) {
     id = rid();
     await DB.prepare('INSERT INTO calls(id,cid,k,t,la,lo,pl,st,at) VALUES(?,?,?,?,?,?,?,0,0)').bind(id, cid, k, now, keep ? la : 0, keep ? lo : 0, place).run();
   }
+  if (!opened) await mxAdd(DB, 'call_' + k, now);
   await ev(DB, cid, k, place, now);
   const near = place ? ' · ' + place + ' 근처' : '';
   const pc = { id, k, t: now, la: keep ? la : 0, lo: keep ? lo : 0, pl: place, st: 0 };
@@ -482,6 +564,7 @@ async function cron(env) {
   await init(DB);
   await tripsCron(env, DB, now);
   try { await pruneOld(DB, now); } catch (e) { /* 정리가 알림을 막지 않는다 */ }
+  try { await mxSnap(DB, now); } catch (e) { /* 지표 점검이 알림을 막지 않는다 */ }
   try { await safetyCron(env, DB, now, (u) => fetch(u)); } catch (e) { /* 안전 점검이 일정 알림을 막지 않는다 */ }
 }
 /** n 개씩 한꺼번에(동시에) 처리한다 — 사람이 많아도 차례로 줄줄이 기다리지 않고, 한 번에 너무 많이 열지도 않는다. */
@@ -512,7 +595,7 @@ async function addCol(DB, table, col, ddl) {              // 옛 표에 열을 �
   try { await DB.prepare('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + ddl).run(); } catch (e) { /* 다른 요청이 먼저 덧붙였다 */ }
 }
 // s424: 서버가 새로 뜰 때마다 표 · 열 확인(약 70번)을 하던 것을 '버전 한 줄 확인'으로 바꿨다. 표 · 열을 고치면(아래 migrate) SCHEMA_V 도 올려야 새 서버가 다시 준비한다(시험이 지켜 준다).
-const SCHEMA_V = 's424-1';
+const SCHEMA_V = 's431-1';
 async function init(DB) {
   if (ready) return;
   try {
@@ -553,6 +636,8 @@ async function migrate(DB) {
     DB.prepare('CREATE TABLE IF NOT EXISTS cst(cid TEXT PRIMARY KEY, sh INTEGER NOT NULL DEFAULT 1, stl INTEGER NOT NULL DEFAULT 0, lb INTEGER NOT NULL DEFAULT 0, wx TEXT NOT NULL DEFAULT \'\')'),      // 안전 알림 상태: 위치 공유(1 켬 · 0 끔) · 끊김 알림을 보냈나 · 배터리 알림 시각 · 날씨 알림을 보낸 날
     DB.prepare('CREATE TABLE IF NOT EXISTS wear(cid TEXT PRIMARY KEY, w TEXT NOT NULL, t INTEGER NOT NULL)'),      // s423: 자녀가 꾸민 길동무 친구들(입은 모자 · 옷 · 소지품 번호) — 부모 앱 홈 장면이 같은 모습으로 보인다
     DB.prepare('CREATE TABLE IF NOT EXISTS zt(k TEXT PRIMARY KEY, t INTEGER NOT NULL)'),      // 장소 도착/출발 알림을 마지막으로 보낸 시각(자녀:장소:종류 → 5분에 한 번 — 워커가 바뀌어도 유지)
+    DB.prepare('CREATE TABLE IF NOT EXISTS subs(pid TEXT PRIMARY KEY, tk TEXT NOT NULL, st TEXT NOT NULL, exp INTEGER NOT NULL, vt INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 구독(s431): 부모 기기별 — 구글 확인 결과(구매 토큰 · 상태 · 끝나는 시각 · 마지막으로 구글에 물은 시각). 개인정보 없음
+    DB.prepare('CREATE TABLE IF NOT EXISTS mx(d INTEGER NOT NULL, k TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(d, k))'),      // 지표(s431): 하루 · 항목별 횟수만 센다 — 누구인지는 남기지 않는다
     DB.prepare('CREATE TABLE IF NOT EXISTS gd(pid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 법정대리인 확인 동의(부모 기기별 · 버전 · 시각) — 이 동의가 있어야 자녀 위치가 보인다
     DB.prepare('CREATE TABLE IF NOT EXISTS lbs(id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, cid TEXT NOT NULL, pid TEXT NOT NULL, k TEXT NOT NULL)'),      // 위치정보법 제16조 이용·제공사실 확인자료: 언제 · 누가 · 누구의 위치를 받았나(좌표는 없다) · 6개월 넘게 보관
     DB.prepare('CREATE INDEX IF NOT EXISTS lbs_c ON lbs(cid, pid, k, t)'),
@@ -999,8 +1084,9 @@ async function hubScreen(DB, pid, cid, now) {
   const nm = nmOf(cur);
   // s421: 서로 기대지 않는 조회는 한꺼번에 묻는다(예전엔 16번을 줄줄이 기다려 지난 경로를 고를 때마다 1~2초가 걸렸다). 법정대리인 확인이 안 된 사람에게는 읽은 값을 쓰지 않고 돌려보낸다.
   const ALL = (q) => q.all().then((r) => (r && r.results) || []);
-  const [gok, loc, wch, cs0, pls, calls, trailRows, rts, vs, qs, msgs0, rd, sync0] = await Promise.all([
+  const [gok, sok, loc, wch, cs0, pls, calls, trailRows, rts, vs, qs, msgs0, rd, sync0] = await Promise.all([
     gdOk(DB, pid),
+    subOk(DB, pid, now),
     DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch,hd,hdt,mt FROM loc WHERE cid=?').bind(cid).first(),
     watchOf(DB, cid, now),
     DB.prepare('SELECT sh FROM cst WHERE cid=?').bind(cid).first(),
@@ -1015,6 +1101,7 @@ async function hubScreen(DB, pid, cid, now) {
     tripsSync(DB, cid, now).then(() => Promise.all([todayTrips(DB, cid, now), ALL(DB.prepare('SELECT k,x,t FROM evs WHERE cid=? AND t>=? AND k NOT IN ' + EV_HIDE + ' ORDER BY id DESC LIMIT ?').bind(cid, now - EV_KEEP, EV_SHOW + 1))])),
   ]);
   if (!gok) return gdScreen(nm);                                   // 법정대리인 확인 전에는 자녀 위치를 보여 주지 않는다
+  if (!sok) return payScreen(nm);                                  // s431: 구독이 꺼져 있으면 늘 통과 · 켜져 있으면 구독자만
   const watching = !!wch;
   const cs = cs0 || { sh: 1 };
   const trips = sync0[0], evr = sync0[1];
@@ -1461,6 +1548,12 @@ async function handle(req, env, url) {
   const DB = env.DB, now = Date.now(), p = url.pathname, m = req.method;
   if (m === 'GET' && (p === '/legal' || p.startsWith('/legal/'))) return legalPage(url, env);          // s430: 공개 쪽(DB 를 건드리지 않는다)
   await init(DB);
+  billInit(env);
+  if (p === '/admin/mx' && m === 'GET' && env.ADMIN_KEY) {          // s431: 관리자 지표(키가 없으면 이 길이 없다)
+    const k = req.headers.get('x-admin-key') || '';
+    if (k.length !== String(env.ADMIN_KEY).length || (await sha(k)) !== (await sha(String(env.ADMIN_KEY)))) return bad('없어요', 404);
+    return J({ ok: true, days: await mxRead(DB, +url.searchParams.get('days')) });
+  }
   if (p === '/' || p === '/health') return J({ ok: true, name: 'gildongmu-kids', t: now });
   if (p === '/q' && m === 'GET') {              // 자녀 폰 QR 을 기본 카메라로 찍으면 열리는 안내 쪽: '길동무로 열기' 한 번이면 부모 앱이 바로 연결한다
     const k = String(url.searchParams.get('k') || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 11);
@@ -1482,6 +1575,7 @@ async function handle(req, env, url) {
     const ex = await DB.prepare('SELECT sh,role FROM devices WHERE id=?').bind(id).first();
     if (ex) return ex.sh === sh && ex.role === role ? J({ ok: true }) : bad('이미 쓰는 아이디예요', 403);
     await DB.prepare('INSERT INTO devices(id,role,sh,t) VALUES(?,?,?,?)').bind(id, role, sh, now).run();
+    await mxAdd(DB, 'reg_' + role, now);
     return J({ ok: true });
   }
 
@@ -1500,6 +1594,7 @@ async function handle(req, env, url) {
       const cv = Math.round(+body.v) || 0;
       if (cv < 1 || cv > 99) return bad('잘못된 요청이에요');
       await DB.prepare('INSERT INTO cons(cid,v,t) VALUES(?,?,?) ON CONFLICT(cid) DO UPDATE SET v=excluded.v,t=excluded.t').bind(cid, cv, now).run();
+      await mxAdd(DB, 'consent_c', now);
       return J({ ok: true });
     }
     if (p === '/c/loc' && m === 'POST') {         // 위치는 연결된 부모가 있을 때만, 가장 최근 한 건만 저장(바로 앞 위치도 하나 둔다: 가는 중인지 보려고)
@@ -1715,6 +1810,7 @@ async function handle(req, env, url) {
       if (!(await isLinked(DB, row.cid, pid)) && (await linkedCount(DB, row.cid)) >= MAX_PARENTS) return bad('연결할 수 있는 부모 수를 넘었어요', 409);
       const nm = typeof body.nm === 'string' ? body.nm.replace(/\s+/g, '').slice(0, 8) : '';
       await DB.batch([DB.prepare('INSERT OR IGNORE INTO links(cid,pid,t,nm) VALUES(?,?,?,?)').bind(row.cid, pid, now, nm), DB.prepare('DELETE FROM codes WHERE code=?').bind(code)]);
+      await mxAdd(DB, 'pair', now);
       if (nm) await DB.prepare('UPDATE links SET nm=? WHERE cid=? AND pid=?').bind(nm, row.cid, pid).run();
       await bump(DB, row.cid);                   // 자녀 앱이 곧바로 '연결됐어요' 를 받는다
       later(notifyChild(env, DB, row.cid, { k: 'link', title: '길동무 키즈', body: '부모님과 연결됐어요', tag: 'link' }));
@@ -1725,9 +1821,16 @@ async function handle(req, env, url) {
     const pid = await auth(req, DB, 'p');
     if (!pid) return bad('인증이 필요해요', 401);
     if (p === '/p/ft' && m === 'POST') return J(await saveFt(DB, pid, body.tk, now));
+    if (p === '/p/sub' && m === 'POST') {         // s431: 앱이 결제 뒤 받은 구매 토큰 — 구글에 직접 물어 확인한다(앱이 보낸 '샀다'는 말은 믿지 않는다)
+      if (now - (subLast.get(pid) || 0) < SUB_GAP_MS) return bad('잠시 뒤에 다시 해 주세요', 429);
+      subLast.set(pid, now); if (subLast.size > 2000) subLast.clear();
+      const v = await subVerify(env, DB, pid, body.tk, now).catch(() => null);
+      if (v && v.exp > now) await mxAdd(DB, 'sub', now);
+      return J({ ok: true, sub: v && v.exp > now ? 1 : 0, exp: v ? v.exp : 0 });
+    }
     if (p === '/p/children' && m === 'GET') {
       const rows = (await DB.prepare('SELECT l.cid cid, l.nm nm, o.la la, o.lo lo, o.acc acc, o.t t, COALESCE(s.n,0) stars FROM links l LEFT JOIN loc o ON o.cid=l.cid LEFT JOIN stars s ON s.cid=l.cid WHERE l.pid=?').bind(pid).all()).results || [];
-      if (!(await gdOk(DB, pid))) rows.forEach((r) => { r.la = null; r.lo = null; r.acc = null; r.t = null; });          // 법정대리인 확인 전에는 위치를 주지 않는다
+      if (!(await locOk(DB, pid, now))) rows.forEach((r) => { r.la = null; r.lo = null; r.acc = null; r.t = null; });          // 법정대리인 확인 전에는 위치를 주지 않는다
       return J({ ok: true, children: rows });
     }
     if (p === '/p/setrow' && m === 'GET') { const [nodes, start, wr] = await Promise.all([settingsRow(DB, pid, url.searchParams.get('kn') === '1'), startPref(DB, pid), wearFor(DB, pid, url.searchParams.get('cid') || '')]); return J({ ok: true, nodes, start, tab: KIDS_TAB, w: wr.w }); }          // s423: 같이 꾸민 모습(w)도 — 앱을 켤 때마다 하던 이 한 번의 통신으로 받는다     // 설정 탭에 끼울 한 줄(연결 없으면 null)
@@ -1746,7 +1849,7 @@ async function handle(req, env, url) {
       if (v === 'chat') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await chatSheet(DB, pid, cid, now) });
       if (v === 'fam') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await famScreen(DB, pid, cid, now) });
       if (v === 'quest') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await questSheet(DB, pid, cid, url.searchParams.get('qt')) });
-      if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                // 보는 중 표시(+ 새로 보기 시작하면 자녀 폰에 watch 푸시) · 위치가 없거나 오래됐으면 자녀 폰에 한 번 요청
+      if (v === 'hub' && await locOk(DB, pid, now)) { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                // 보는 중 표시(+ 새로 보기 시작하면 자녀 폰에 watch 푸시) · 위치가 없거나 오래됐으면 자녀 폰에 한 번 요청
       return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await hubScreen(DB, pid, cid, now), pop: v === 'hub' ? await popOf(DB, pid, cid, now) : null });
     }
     if (p === '/p/ws' && m === 'GET') {           // s426: 초인종 연결(부모) — 이 부모에게 연결된 자녀만, 켜져 있고 대상일 때만. 아니면 404
@@ -1761,7 +1864,7 @@ async function handle(req, env, url) {
       const cid = kids0.some((k) => k.cid === cid0) ? cid0 : kids0[0] ? kids0[0].cid : '';
       if (!cid) return J({ ok: true, linked: 0, rev: 0 });
       if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');         // 부모 앱이 키즈 화면을 보는 동안에만 긴 대기를 건다 — 그동안은 자녀 글을 읽는 중
-      if (v === 'hub' && await gdOk(DB, pid)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // 실시간 보기(s393): 대기가 이어져 있는 동안 '보는 중'
+      if (v === 'hub' && await locOk(DB, pid, now)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // 실시간 보기(s393): 대기가 이어져 있는 동안 '보는 중'
       const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // s426: nw=1 — 초인종이 이어져 있다. 붙들지 않고 지금 값으로 바로 답한다(보는 중 표시 · 읽음은 위에서 그대로 처리)
       const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
       if (nw && rev === since) return J({ ok: true, rev, cid, same: 1, ws: 1, wa: v === 'hub' ? WS_HUB_WAIT_MS : WS_WAIT_MS });
@@ -1781,10 +1884,12 @@ async function handle(req, env, url) {
       if (v === 'kg.ok') {
         if (!cid) return R({ close: true });
         await DB.prepare('INSERT INTO gd(pid,v,t) VALUES(?,?,?) ON CONFLICT(pid) DO UPDATE SET v=excluded.v,t=excluded.t').bind(pid, GD_VER, now).run();
+        await mxAdd(DB, 'guardian_p', now);
         await bump(DB, cid);
         return R({ screen: await hubScreen(DB, pid, cid, now), cid, hub: 1 });
       }
       if (/^k(r|pg|p|pl|ps|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
+      if (/^k(r|pg|p|pl|ps|d)\./.test(v) && !(await subOk(DB, pid, now))) return R({ close: true, hub: 1 });          // s431: 구독이 필요한 때 지난 길 · 장소 같은 위치 동작도 받지 않는다(긴급 호출 확인 kx.* 는 늘 받는다)
       if (v === 'kx.open') {                          // s415: 허브의 호출 줄을 눌렀다 — 그 호출의 팝업(앱이 그림)
         const pop = await popOf(DB, pid, cid, now);
         return R(pop ? { pop, cid } : { hub: 1 });
@@ -1819,6 +1924,7 @@ async function handle(req, env, url) {
         if (!(await isLinked(DB, row.cid, pid)) && (await linkedCount(DB, row.cid)) >= MAX_PARENTS) return R({ screen: await linkSheet(DB, pid, '연결할 수 있는 부모 수를 넘었어요') });
         const nm = String(f.kln || '').replace(/\s+/g, '').slice(0, 8);
         await DB.batch([DB.prepare('INSERT OR IGNORE INTO links(cid,pid,t,nm) VALUES(?,?,?,?)').bind(row.cid, pid, now, nm), DB.prepare('DELETE FROM codes WHERE code=?').bind(code)]);
+      await mxAdd(DB, 'pair', now);
         if (nm) await DB.prepare('UPDATE links SET nm=? WHERE cid=? AND pid=?').bind(nm, row.cid, pid).run();
         const pn0 = String(f.kpn || '').replace(/\s+/g, ' ').trim().slice(0, 8);
         if (pn0) await DB.prepare('UPDATE links SET pnm=? WHERE pid=?').bind(pn0, pid).run();
@@ -2041,7 +2147,7 @@ async function handle(req, env, url) {
     const cid = body.cid || url.searchParams.get('cid');
     if (!okId(cid) || !(await isLinked(DB, cid, pid))) return bad('연결되지 않은 자녀예요', 403);
     if (p === '/p/loc' && m === 'GET') {
-      if (!(await gdOk(DB, pid))) return J({ ok: true, loc: null });
+      if (!(await locOk(DB, pid, now))) return J({ ok: true, loc: null });
       const r = await DB.prepare('SELECT la,lo,acc,t FROM loc WHERE cid=?').bind(cid).first();
       if (r) await lbsLog(DB, cid, pid, 'v', now, 60000);
       return J({ ok: true, loc: r || null });
