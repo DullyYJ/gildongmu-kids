@@ -612,12 +612,14 @@ public class MainActivity extends Activity {
             android.os.PowerManager pm = (android.os.PowerManager) getSystemService(android.content.Context.POWER_SERVICE);
             if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName()) && !sp.getBoolean("batt", false)) {
                 sp.edit().putBoolean("batt", true).apply();
-                // 시스템 요청 창(ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)과 그 권한은 쓰지 않는다 —
-                // 배터리 최적화 목록 화면만 열고, 허용은 사용자가 직접 고른다.
                 try {
-                    startActivity(new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
-                } catch (Throwable t2) {
-                    // 설정 화면을 못 열어도 앱은 계속 쓴다
+                    startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:" + getPackageName())));
+                } catch (Throwable t) {
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                    } catch (Throwable t2) {
+                        // 설정 화면을 못 열어도 앱은 계속 쓴다
+                    }
                 }
             }
         } catch (Throwable t) {

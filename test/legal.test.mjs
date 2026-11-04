@@ -31,7 +31,7 @@ chk(li > 0 && w.slice(li - 400, li).includes('async function handle') && w.index
   chk(!/import android\./.test(eng), '엔진은 안드로이드를 모른다(주소만 명령으로 돌려준다)');
   const man = fs.readFileSync(new URL('../app/src/main/AndroidManifest.xml', import.meta.url).pathname, 'utf8');
   chk(/앱을 닫아도 계속돼요/.test(eng) && /집·학교 도착·출발 알림/.test(eng), '동의 화면: 앱을 닫아도 위치를 계속 쓴다는 고지(Play 공개 고지)');
-  chk(!/REQUEST_IGNORE_BATTERY_OPTIMIZATIONS/.test(man) && !/new Intent\(\s*android\.provider\.Settings\.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS/.test(main) && /ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS/.test(main), '배터리 최적화: 권한 없이 설정 화면만 연다');
+  chk(/uses-permission[^>]*REQUEST_IGNORE_BATTERY_OPTIMIZATIONS/.test(man) && /ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS/.test(main) && /ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS/.test(main), '배터리 최적화: 제외 요청 창을 먼저 띄우고, 안 되면 설정 화면을 연다');
   chk(/"open"\.equals\(cmd\)/.test(main) && /startsWith\(Kid\.BASE \+ "\/legal\/"\)/.test(main), '앱은 우리 서버의 /legal/ 주소만 연다');
   const w = fs.readFileSync(file, 'utf8');
   chk(/btn\('처리방침 보기', \{ a: 'open', url: LEGAL_BASE \+ '\/legal\/privacy' \}/.test(w) && /LEGAL_BASE = 'https:\/\/gildongmu-kids\.phg0643\.workers\.dev'/.test(w), '부모 확인 화면에 처리방침 · 약관 보기 버튼이 있다');
