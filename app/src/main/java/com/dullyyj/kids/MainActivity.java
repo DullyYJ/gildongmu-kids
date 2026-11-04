@@ -550,6 +550,28 @@ public class MainActivity extends Activity {
                     stopLoc();
                 }
             });
+        } else if ("open".equals(cmd)) {
+            final String u = optUrl(res);
+            if (u.startsWith(Kid.BASE + "/legal/")) {                 // 처리방침 · 이용약관 — 우리 서버 주소만 연다
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(u)));
+                        } catch (Throwable t) {
+                            // 열 앱이 없으면 그대로
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    private static String optUrl(String res) {
+        try {
+            return new JSONObject(res).optString("url", "");
+        } catch (Exception e) {
+            return "";
         }
     }
 

@@ -1496,6 +1496,7 @@ final class Engine {
         a.put(b("card", "title", "누가 보나요", "text", "내가 QR이나 비밀키로 연결한 부모님만 볼 수 있어요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "언제든 끌 수 있어요", "text", "설정에서 위치 공유를 끄거나 동의를 거둘 수 있어요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "보관", "text", "위치 기록은 3일, 지난 길은 7일, 오래 머문 곳은 30일 뒤에 지워져요. 연결을 끊으면 바로 모두 지워져요.", "thumb", "", "act", ""));
+        a.put(legalLinks());
         a.put(b("gap", "h", "8"));
         a.put(b("switch", "label", "보호자(부모님)가 위 내용을 확인하고 동의했어요", "on", store.get("cp2", "0"), "act", "consent.parent"));
         a.put(b("switch", "label", "나도 위 내용을 이해했고 동의해요", "on", store.get("cc2", "0"), "act", "consent.child"));
@@ -1744,6 +1745,7 @@ final class Engine {
         a.put(bt);
         a.put(b("text", "text", pairErr.isEmpty() ? (linked > 0 ? "연결된 부모님 " + linked + "명이 내 위치를 볼 수 있어요." : "아직 연결된 부모님이 없어요. 연결되기 전에는 위치가 서버에 저장되지 않아요.") : "서버에 연결하지 못했어요. 잠시 뒤에 다시 눌러 주세요.", "sub", "1"));
         a.put(b("gap", "h", "10"));
+        a.put(legalLinks());
         JSONArray it2 = new JSONArray();
         it2.put(b("i", "label", "동의 철회하고 처음으로", "act", "consent.reset", "on", "0"));
         JSONObject bt2 = b("btns");
@@ -1758,6 +1760,16 @@ final class Engine {
     }
 
     // ───────── 눌림 처리 ─────────
+    /** 개인정보 처리방침 · 위치기반서비스 이용약관 보기 — 동의 창과 설정에 같은 줄. 글은 서버(/legal/…)가 갖고 있다. */
+    private JSONObject legalLinks() {
+        JSONArray it = new JSONArray();
+        it.put(b("i", "label", "개인정보 처리방침 보기", "act", "legal.privacy", "on", "1"));
+        it.put(b("i", "label", "이용약관 보기", "act", "legal.terms", "on", "1"));
+        JSONObject bt = b("btns");
+        put(bt, "items", it);
+        return bt;
+    }
+
     private String cmd(String c) {
         return "{\"cmd\":\"" + c + "\"}";
     }
@@ -1790,6 +1802,8 @@ final class Engine {
             remAskT = 0L;
         } else if (v.equals("theme.toggle")) {
             store.put("theme", "dark".equals(theme()) ? "pastel" : "dark");
+        } else if (v.equals("legal.privacy") || v.equals("legal.terms")) {
+            res = "{\"cmd\":\"open\",\"url\":\"" + Kid.BASE + (v.equals("legal.privacy") ? "/legal/privacy" : "/legal/terms") + "\"}";
         } else if (v.equals("consent.parent")) {
             store.put("cp2", "1".equals(store.get("cp2", "0")) ? "0" : "1");
         } else if (v.equals("consent.child")) {

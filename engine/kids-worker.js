@@ -280,6 +280,7 @@ async function gdOk(DB, pid) { const r = await DB.prepare('SELECT v FROM gd WHER
 async function lbsLog(DB, cid, pid, k, now, gapMs) {
   await DB.prepare('INSERT INTO lbs(t,cid,pid,k) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM lbs WHERE cid=? AND pid=? AND k=? AND t>?)').bind(now, cid, pid, k, cid, pid, k, now - (gapMs || 0)).run();
 }
+const LEGAL_BASE = 'https://gildongmu-kids.phg0643.workers.dev';          // 앱이 쓰는 주소와 같다(앱 안 링크용)
 function gdScreen(nm) {
   return scr('kidgd', [], [
     tx('보호자 확인', { size: 16, bold: true, pad: [16, 24, 16, 6] }),
@@ -290,6 +291,7 @@ function gdScreen(nm) {
       tx('• 자녀의 안전을 지키는 데에만 쓰고, 다른 사람의 위치를 몰래 확인하는 데 쓰지 않아요', { size: 13, pad: [0, 4, 0, 4] }),
       tx('• 사실과 다르면 이용이 제한될 수 있고 법적 책임은 제게 있어요', { size: 13, pad: [0, 4, 0, 4] })], { pad: [12, 4, 12, 0], ip: [14, 10, 14, 10] }),
     tx('이 확인을 한 시각이 기록돼요. 자세한 내용은 개인정보 처리방침과 위치기반서비스 이용약관에 있어요.', { size: 11, color: 'sub', pad: [16, 10, 16, 6] }),
+    { t: 'row', gap: 8, pad: [12, 0, 12, 0], kids: [btn('처리방침 보기', { a: 'open', url: LEGAL_BASE + '/legal/privacy' }, { h: 34, size: 12, bold: false }), btn('이용약관 보기', { a: 'open', url: LEGAL_BASE + '/legal/terms' }, { h: 34, size: 12, bold: false })] },          // s430
     { t: 'row', gap: 8, pad: [12, 12, 12, 16], kids: [btn('모두 확인했어요', call('kg.ok'), gold)] },
   ], { dlg: dlg() });          // s415: 키즈 화면 위 가운데 팝업(앱이 '키즈 화면'이 아니라 팝업으로 띄운다)
 }
@@ -453,7 +455,7 @@ async function safetyCron(env, DB, now, fetchFn) {
     }
     if (kp.h * 60 + kp.mi >= WX_AT && kp.h < 11 && String(r.wx || '') !== String(kp.ds) && now - r.t < 24 * 3600000) {
       try {
-        const q = 'latitude=' + r.la.toFixed(3) + '&longitude=' + r.lo.toFixed(3) + '&timezone=Asia%2FSeoul&forecast_days=1';
+        const q = 'latitude=' + r.la.toFixed(2) + '&longitude=' + r.lo.toFixed(2) + '&timezone=Asia%2FSeoul&forecast_days=1';
         const [w, a] = await Promise.all([
           fetchFn('https://api.open-meteo.com/v1/forecast?' + q + '&hourly=precipitation_probability,precipitation,snowfall,apparent_temperature').then((x) => (x.ok ? x.json() : null)),
           fetchFn('https://air-quality-api.open-meteo.com/v1/air-quality?' + q + '&hourly=pm10,pm2_5').then((x) => (x.ok ? x.json() : null)).catch(() => null),
@@ -1409,8 +1411,55 @@ async function saveFt(DB, id, tk, now) {
   await DB.batch([DB.prepare("UPDATE devices SET ft='' WHERE ft=? AND id<>?").bind(tk, id), DB.prepare('UPDATE devices SET ft=?,fa=? WHERE id=?').bind(tk, now, id)]);
   return { ok: true };
 }
+// ───────── 개인정보 처리방침 · 위치기반서비스 이용약관 공개 쪽(s430) ─────────
+// LEGAL-BEGIN (tools/embed-legal.py 가 만든다 — 직접 고치지 말고 docs/legal 을 고친 뒤 다시 실행)
+const LEGAL_DOCS = {"privacy": "# 길동무 키즈 개인정보 처리방침\n\n> 시행일: {{LEGAL_DATE}} · 버전 1.0\n\n{{OP_NAME}}(이하 \"운영자\")는 「개인정보 보호법」 제30조와 「위치정보의 보호 및 이용 등에 관한 법률」(이하 \"위치정보법\")에 따라, \"길동무 키즈\"(자녀용 앱)와 \"길동무\"(부모용 앱)의 키즈 기능(이하 \"서비스\")을 이용하는 분의 개인정보와 개인위치정보를 어떻게 처리하는지 알려 드립니다.\n\n## 1. 서비스가 하는 일\n부모(보호자)가 연결한 자녀의 휴대폰 위치를 부모에게 보여 주고, 도착·출발·낯선 곳·날씨·배터리 같은 안전 알림과 가족 대화·미션 기능을 제공합니다.\n\n## 2. 처리하는 개인정보와 개인위치정보\n\n| 구분 | 항목 | 처리 목적 | 보유 기간 |\n|---|---|---|---|\n| 자녀 위치 | 현재 위치(위도·경도·정확도·시각), 이동 방향 | 부모에게 현재 위치 표시 | 새 위치로 바뀔 때까지(연결을 끊으면 즉시 삭제) |\n| 자녀 위치 기록 | 지난 위치 점 | 지난 길 표시, 낯선 곳 판단 | **3일** |\n| 지난 길 | 출발~도착 경로 | 지난 경로 보기 | **7일 · 최대 10개** |\n| 머문 곳 | 30분 넘게 머문 위치 | 낯선 곳 알림 판단 | **30일 · 최대 200개** |\n| 이벤트 | 도착·출발·알림 기록 | 부모에게 알림 기록 표시 | **3일 · 최대 150개** |\n| 동네 이름 | 자녀 기기가 위치로 알아낸 시·동 이름 | 부모 화면에 동네 표시 | 위치와 함께(새 위치로 바뀔 때까지) |\n| 기기 상태 | 배터리 잔량·충전 여부 | 배터리 부족 알림 | 최신 값만 보관 |\n| 긴급 호출·데리러 와줘 | 자녀가 누른 종류, 누른 시각, 그때의 위치와 가까운 장소 이름 | 보호자에게 알림 | **7일** |\n| 장소 등록 | 부모가 등록한 장소 이름·위치·시각 | 도착·출발 알림 | 부모가 삭제하거나 연결을 끊을 때까지 |\n| 대화 | 가족 대화 글 | 가족 소통 | **7일 · 최대 300개** |\n| 미션·응원문구 | 미션, 응원문구 | 가족 소통 | 최대 100개(미션) · 연결을 끊을 때까지 |\n| 법정대리인 확인 | 보호자 기기 번호, 확인한 시각·버전(\"법정대리인이며 자녀는 만 9세 이상\" 선언) | 자녀 위치를 보기 전 법정대리인 확인 | 보호자 기기가 삭제될 때까지 |\n| 동의 기록 | 자녀 기기 번호, 동의 버전·시각 | 보호자·자녀 동의 증빙 | 약 400일 |\n| 위치 이용·제공 사실 | 시각, 자녀 기기 번호, 보호자 기기 번호, 종류(화면 보기 · 알림). **좌표는 포함하지 않음** | 위치정보법 제16조 의무 이행 | **약 200일(6개월 이상)** — 연결을 끊어도 이 기간은 보관 |\n| 기기 식별 | 서비스가 만든 임의의 기기 번호·비밀키, 푸시 알림 토큰 | 기기 연결·알림 전송 | 연결을 끊을 때까지 |\n| 부모가 입력한 주소 | 장소 등록 때 검색한 주소·장소 이름 | 지도 위치 찾기 | 등록 작업 중에만 임시 보관(등록·취소 시 삭제, 쓰다 만 것은 1일 뒤 삭제) |\n\n- 이름, 전화번호, 이메일, 사진 같은 직접 식별정보는 **수집하지 않습니다**. (별명은 보호자가 정하는 이름입니다.)\n- 광고 식별자는 사용하지 않으며, 광고·분석 SDK를 넣지 않습니다.\n\n- **만 9세 이상**만 이용할 수 있습니다. 보호자는 법정대리인이어야 하며, 자녀 위치를 보기 전에 앱에서 이를 확인합니다. 확인 전에는 위치·알림이 보호자에게 제공되지 않습니다.\n\n## 3. 위치를 보내는 주기\n- 평소: 움직이는 중 약 3분, 멈춰 있으면 약 5분마다 보냅니다. 오래 가만히 있고 등록한 장소·약속과 멀리 떨어져 있으면 배터리를 아끼기 위해 약 8분마다 보낼 수 있습니다.\n- **긴급 호출·데리러 와줘**를 누른 뒤 30분 동안은 보호자가 지도를 보지 않아도 빠른 주기(2.5~15초)로 보냅니다.\n- **보호자가 지도를 보고 있는 동안**: 2.5~15초마다 보내 실시간처럼 보여 줍니다(보호자가 화면을 닫으면 곧 평소로 돌아갑니다). 이때 자녀 앱의 맨 위 줄과 알림에 \"부모님이 지금 내 위치를 보고 있어요\"가 표시됩니다.\n\n## 4. 개인정보를 제3자에게 제공하는 경우\n- 자녀의 위치는 **연결된 보호자에게만** 제공됩니다. 그 밖의 제3자에게 제공하지 않습니다. (법령에 따른 요청이 있는 경우는 제외)\n\n## 5. 처리 위탁 및 국외 이전\n서비스 운영을 위해 아래 사업자의 서비스를 사용합니다. 아래 사업자의 서버는 국외에 있을 수 있습니다.\n\n| 수탁자 | 위탁 업무 | 이전되는 항목 | 비고 |\n|---|---|---|---|\n| Cloudflare, Inc. | 서버 운영, 데이터베이스 보관 | 2항의 서버 보관 항목 전체 | 국외 처리 가능 |\n| Google LLC (Firebase Cloud Messaging) | 푸시 알림 전송 | 푸시 토큰, 알림 문구 | 국외 처리 가능 |\n| Open-Meteo | 날씨·대기질 조회 | 대략의 위치(좌표, 소수 2자리 · 약 1km 단위) | 개인 식별 정보 없음 |\n| OpenFreeMap / OpenStreetMap | 지도 이미지 | 보고 있는 지도 범위 | 개인 식별 정보 없음 |\n| Kakao (로컬 API, 운영자 서버 경유) | 주소·장소 검색 | 검색어 | 보호자가 장소 등록 때 검색한 때만. 같은 검색을 빠르게 하려고 운영자 서버가 검색어와 결과를 최대 90일 임시 저장할 수 있으며, 이용자 식별 정보는 함께 저장하지 않습니다 |\n| 기기 운영체제(안드로이드 위치 변환 기능) | 자녀 기기가 위치로 동네 이름을 알아내는 기능 | 기기 안에서 처리되며, 기기 제조사·구글 서비스로 위치가 전달될 수 있습니다 | 운영자 서버를 거치지 않음 |\n\n## 6. 보호자와 자녀의 권리\n- 보호자와 자녀는 언제든 연결을 끊을 수 있고, 끊으면 해당 자녀의 위치·경로·머문 곳·장소·대화·미션·알림 기록이 **즉시 삭제**됩니다(법정 보관 대상인 6항의 이용·제공 사실 자료는 제외).\n- 자녀는 자녀 앱 설정에서 위치 공유를 끄거나 동의를 철회할 수 있습니다.\n- 만 14세 미만 자녀의 개인정보는 법정대리인(보호자)의 동의를 받아 처리하며, 서비스는 자녀 본인의 동의도 함께 받습니다.\n- 열람·정정·삭제·처리정지 요청은 아래 연락처로 하실 수 있습니다. 10일 안에 답변드립니다.\n- 개인위치정보의 이용·제공 사실 확인 자료(시각·자녀·보호자·종류, 좌표 없음)는 위치정보법 제16조에 따라 약 200일 보관합니다. 연결을 끊거나 삭제를 요청하셔도 이 자료는 법정 기간 동안 남습니다.\n\n## 7. 파기\n보유 기간이 지나거나 목적을 이룬 개인정보는 지체 없이 삭제합니다. 서버는 10분마다 기간이 지난 기록을 지웁니다. 삭제된 정보는 복구하지 않습니다.\n\n## 8. 안전성 확보 조치\n- 기기와 서버 사이의 통신은 암호화(HTTPS)합니다.\n- 기기별 비밀키로 요청을 확인하고, 연결된 보호자만 해당 자녀의 정보를 볼 수 있습니다.\n- 기록은 위 기간이 지나면 자동으로 지웁니다.\n\n## 9. 개인정보 보호책임자 및 문의\n- 책임자: {{OP_MGR}}\n- 연락처: {{OP_CONTACT}}\n- 침해 신고·상담: 개인정보침해신고센터 (privacy.kisa.or.kr, 118), 개인정보분쟁조정위원회 (kopico.go.kr, 1833-6972)\n\n## 10. 변경\n이 방침이 바뀌면 시행 7일 전에 앱과 {{LEGAL_URL}}에 알립니다. 수집 항목이나 위치 보고 방식이 달라지는 중요한 변경은 보호자와 자녀의 동의를 다시 받습니다.\n", "terms": "# 길동무 키즈 위치기반서비스 이용약관\n\n> 시행일: {{LEGAL_DATE}} · 버전 1.0\n\n## 제1조 (목적)\n이 약관은 {{OP_NAME}}가 제공하는 길동무 키즈 서비스(이하 \"서비스\")의 이용과 관련해 운영자와 이용자(보호자·자녀)의 권리와 의무를 정합니다.\n\n## 제2조 (용어)\n1. \"보호자\": 자녀를 보호할 법적 권한이 있는 사람으로, 자녀 휴대폰과 연결한 사람.\n2. \"자녀\": 길동무 키즈 앱을 쓰며 위치를 알리는 사람.\n3. \"개인위치정보\": 자녀의 위치(위도·경도·시각)에 관한 정보.\n4. \"위치기반서비스\": 개인위치정보를 이용해 제공하는 이 서비스의 기능 일체.\n\n## 제3조 (서비스 내용)\n1. 자녀의 현재 위치와 지난 길 보기\n2. 장소 등록과 도착·출발·낯선 곳·날씨·배터리 알림, 긴급 호출·데리러 와줘\n3. 가족 대화, 미션, 응원문구\n\n## 제4조 (이용 자격과 동의)\n1. 보호자는 자녀의 법정대리인(친권자·후견인)이어야 합니다. 자녀 위치를 보기 전에 앱에서 \"법정대리인이며 자녀는 만 9세 이상이고, 자녀에게 알렸다\"는 사항을 확인하며, 확인한 시각이 기록됩니다. 사실과 다르면 이용이 제한되고 그 책임은 보호자에게 있습니다.\n2. 자녀 앱을 처음 켤 때 **보호자의 동의와 자녀 본인의 동의를 모두** 받습니다. 둘 중 하나라도 없으면 위치 공유는 시작되지 않습니다.\n3. 서비스는 **만 9세 이상**의 자녀만 이용할 수 있습니다. 만 8세 이하 아동에 대해서는 제공하지 않습니다.\n4. 동의는 설정에서 언제든지 철회할 수 있습니다. 일부(예: 제3자 제공)만 철회할 수도 있습니다.\n\n## 제5조 (개인위치정보의 수집·이용·제공)\n1. 수집 방법: 자녀 휴대폰의 위치 센서(GPS 등)로 앱이 직접 측정합니다.\n2. 이용 목적: 연결된 보호자에게 자녀 위치를 보여 주고 안전 알림을 보내기 위해서입니다. 다른 목적으로 쓰지 않습니다.\n3. 제공: 자녀가 연결한 보호자에게만 제공합니다. 제공할 때마다 자녀 앱의 맨 위 줄과 알림으로 \"부모님이 지금 내 위치를 보고 있어요\"를 알립니다.\n4. 보유: 개인정보 처리방침에 적은 기간이 지나면 지웁니다.\n5. 이용·제공 사실 확인 자료(시각·자녀·보호자·종류, 좌표 없음)는 법령에 따라 약 200일 보관합니다.\n\n## 제6조 (보호자의 의무)\n1. 자녀의 안전을 위한 목적으로만 서비스를 사용하고, 자녀가 아닌 사람(배우자·연인·직장 동료 등)의 위치를 몰래 확인하는 데 쓰지 않습니다.\n2. 자녀의 나이와 성숙도에 맞게 위치 확인의 이유와 방식을 자녀와 이야기합니다.\n3. 얻은 위치정보를 제3자에게 공개·전달하지 않습니다.\n\n## 제7조 (운영자의 의무)\n1. 개인위치정보를 목적 밖에 쓰거나 동의 없이 제3자에게 제공하지 않습니다.\n2. 개인위치정보를 안전하게 지키기 위해 기술적·관리적 조치를 합니다.\n3. 개인위치정보 관련 불만·요청은 {{OP_CONTACT}}에서 받고 신속히 처리합니다.\n\n## 제8조 (서비스의 한계)\n1. 위치는 GPS·네트워크 상태에 따라 오차가 있거나 늦을 수 있습니다.\n2. 서비스는 안전을 돕는 보조 수단이며, 사고·실종 등 긴급 상황에서는 **112·119에 먼저 신고**해야 합니다.\n3. 휴대폰 꺼짐·절전·권한 거부·통신 불량으로 위치가 오지 않을 수 있습니다.\n\n## 제9조 (서비스 중단·종료)\n운영자는 점검·장애·사업 사정으로 서비스를 중단할 수 있으며, 미리 알립니다. 종료할 때는 30일 전에 알리고 자료를 지웁니다.\n\n## 제10조 (연결 해제와 탈퇴)\n보호자와 자녀는 언제든 연결을 끊을 수 있고, 끊으면 해당 자녀의 위치 관련 자료가 즉시 삭제됩니다.\n\n## 제11조 (손해배상·면책)\n운영자의 고의·과실로 이용자에게 손해가 생기면 법령에 따라 배상합니다. 천재지변·통신사 장애 등 운영자가 통제할 수 없는 사유는 책임이 제한됩니다.\n\n## 제12조 (분쟁 해결)\n위치정보와 관련한 분쟁은 방송미디어통신위원회 또는 개인정보분쟁조정위원회에 조정을 신청할 수 있습니다. 관할 법원은 민사소송법에 따릅니다.\n\n## 부칙\n이 약관은 {{LEGAL_DATE}}부터 시행합니다.\n"};
+// LEGAL-END
+const escH = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const inlineMd = (t) => escH(t).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+/** 아주 작은 마크다운 → HTML (제목 · 목록 · 표 · 인용 · 굵게만) */
+function mdHtml(md) {
+  const out = []; let list = '', tbl = false, first = true;
+  const closeList = () => { if (list) { out.push('</' + list + '>'); list = ''; } };
+  const closeTbl = () => { if (tbl) { out.push('</table>'); tbl = false; first = true; } };
+  for (const ln of md.split('\n')) {
+    if (/^\|/.test(ln)) {
+      closeList();
+      if (/^\|[\s|:-]+\|?$/.test(ln)) continue;
+      const cells = ln.replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      if (!tbl) { out.push('<table>'); tbl = true; first = true; }
+      out.push('<tr>' + cells.map((c) => (first ? '<th>' : '<td>') + inlineMd(c) + (first ? '</th>' : '</td>')).join('') + '</tr>'); first = false; continue;
+    }
+    closeTbl();
+    let m;
+    if ((m = /^(#{1,3}) (.*)$/.exec(ln))) { closeList(); out.push('<h' + m[1].length + '>' + inlineMd(m[2]) + '</h' + m[1].length + '>'); }
+    else if ((m = /^- (.*)$/.exec(ln))) { if (list !== 'ul') { closeList(); out.push('<ul>'); list = 'ul'; } out.push('<li>' + inlineMd(m[1]) + '</li>'); }
+    else if ((m = /^\d+\. (.*)$/.exec(ln))) { if (list !== 'ol') { closeList(); out.push('<ol>'); list = 'ol'; } out.push('<li>' + inlineMd(m[1]) + '</li>'); }
+    else if ((m = /^> (.*)$/.exec(ln))) { closeList(); out.push('<p class="q">' + inlineMd(m[1]) + '</p>'); }
+    else if (ln.trim() === '') closeList();
+    else { closeList(); out.push('<p>' + inlineMd(ln) + '</p>'); }
+  }
+  closeList(); closeTbl();
+  return out.join('\n');
+}
+/** /legal, /legal/privacy, /legal/terms — 로그인 없이 읽는 공개 쪽. 운영자 정보는 워커 변수(OP_NAME · OP_MGR · OP_CONTACT · LEGAL_DATE · LBS_NO)로 채운다. */
+function legalPage(url, env) {
+  const p = url.pathname.replace(/\/+$/, ''), e = env || {};
+  const kind = p === '/legal/privacy' ? 'privacy' : p === '/legal/terms' ? 'terms' : '';
+  const css = '<style>body{font-family:-apple-system,"Noto Sans KR",sans-serif;background:#f6f8fb;margin:0;color:#16202e;line-height:1.65}main{max-width:720px;margin:0 auto;padding:20px 18px 60px}h1{font-size:22px}h2{font-size:17px;margin-top:28px}p,li{font-size:14.5px}table{border-collapse:collapse;width:100%;font-size:13px;margin:10px 0}th,td{border:1px solid #d5dbe5;padding:6px 8px;text-align:left;vertical-align:top}th{background:#eaf0f8}.q{background:#fff3cd;border-radius:8px;padding:8px 12px;font-size:13px}code{background:#e9eef6;padding:1px 4px;border-radius:4px}a{color:#1d6fd6}@media(prefers-color-scheme:dark){body{background:#121418;color:#e6ebf2}th{background:#1d2430}th,td{border-color:#2b3441}code{background:#1d2430}a{color:#7db4ff}}</style>';
+  const head = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">';
+  const page = (title, inner) => new Response(head + '<title>' + title + '</title>' + css + '</head><body><main>' + inner + '</main></body></html>', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' } });
+  if (!kind) return page('길동무 키즈 약관', '<h1>길동무 키즈</h1><ul><li><a href="/legal/privacy">개인정보 처리방침</a></li><li><a href="/legal/terms">위치기반서비스 이용약관</a></li></ul>');
+  const val = { OP_NAME: e.OP_NAME, OP_MGR: e.OP_MGR, OP_CONTACT: e.OP_CONTACT, LEGAL_DATE: e.LEGAL_DATE, LEGAL_URL: url.origin + '/legal/privacy' };
+  const missing = ['OP_NAME', 'OP_MGR', 'OP_CONTACT', 'LEGAL_DATE'].filter((k) => !val[k]);
+  let md = LEGAL_DOCS[kind].replace(/\{\{(\w+)\}\}/g, (a, k) => (val[k] ? String(val[k]).slice(0, 200) : '(입력 전)'));
+  if (kind === 'terms' && e.LBS_NO) md += '\n- 위치기반서비스사업 신고번호: ' + String(e.LBS_NO).slice(0, 60) + '\n';
+  const warn = missing.length ? '<p class="q">운영자 정보가 아직 모두 입력되지 않은 문서입니다. (입력 전: ' + missing.join(', ') + ')</p>' : '';
+  return page(kind === 'privacy' ? '개인정보 처리방침' : '위치기반서비스 이용약관', warn + mdHtml(md) + '<p style="margin-top:28px"><a href="/legal/' + (kind === 'privacy' ? 'terms' : 'privacy') + '">' + (kind === 'privacy' ? '위치기반서비스 이용약관 보기' : '개인정보 처리방침 보기') + '</a></p>');
+}
 async function handle(req, env, url) {
   const DB = env.DB, now = Date.now(), p = url.pathname, m = req.method;
+  if (m === 'GET' && (p === '/legal' || p.startsWith('/legal/'))) return legalPage(url, env);          // s430: 공개 쪽(DB 를 건드리지 않는다)
   await init(DB);
   if (p === '/' || p === '/health') return J({ ok: true, name: 'gildongmu-kids', t: now });
   if (p === '/q' && m === 'GET') {              // 자녀 폰 QR 을 기본 카메라로 찍으면 열리는 안내 쪽: '길동무로 열기' 한 번이면 부모 앱이 바로 연결한다

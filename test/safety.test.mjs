@@ -44,14 +44,14 @@ const DB = mkD1();
 const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const env = { DB, FCM_SA: JSON.stringify({ client_email: 'x@y.iam', project_id: 'p1', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) }) };
 const pushes = [];                                              // 받은 알림 [{token, data}]
-let wxMode = 'clear', wxCalls = 0, geoDocs = {}, geoFail = false, geo404 = false, osmCalls = 0, geoCalls = 0;
+let wxLastUrl = '', wxMode = 'clear', wxCalls = 0, geoDocs = {}, geoFail = false, geo404 = false, osmCalls = 0, geoCalls = 0;
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (u, init) => {
   u = String(u);
   if (u.startsWith('https://oauth2.googleapis.com/token')) return new Response(JSON.stringify({ access_token: 'at', expires_in: 3000 }), { status: 200 });
   if (u.startsWith('https://fcm.googleapis.com/')) { const b = JSON.parse(init.body); pushes.push({ token: b.message.token, data: b.message.data }); return new Response('{}', { status: 200 }); }
   if (u.includes('open-meteo.com/v1/forecast')) {
-    wxCalls++;
+    wxCalls++; wxLastUrl = u;
     if (wxMode === 'fail') return new Response('x', { status: 500 });
     const t = Array.from({ length: 24 }, (_, i) => '2026-11-03T' + String(i).padStart(2, '0') + ':00');
     const rain = wxMode === 'rain';
@@ -287,6 +287,7 @@ await loc();                                                     // 자녀 위�
   chk(wxCalls === c, '07:30 이전에는 날씨를 받지 않는다');
   wxMode = 'clear'; a = n0(); NOW += 31 * MIN; await loc({ bt: 80, ch: 0 }); await cron();
   chk(wxCalls > c && !kinds(a).includes('wx'), '다음 날 07:30 이후 받고, 맑으면 알리지 않는다');
+  chk(/latitude=\d+\.\d{2}&longitude=\d+\.\d{2}&/.test(wxLastUrl), '날씨에는 좌표를 소수 2자리(약 1km)로만 보낸다(개인정보 최소화)');
 }
 
 // ── 낯선 곳에서 오래 머묾 ──
