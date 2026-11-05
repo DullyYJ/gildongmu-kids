@@ -68,6 +68,7 @@ chk(h.ok && h.screen.screen !== 'kidpay' && hasMap(h), '기본(BILLING_MODE 없�
 chk(calls.length === 0, '기본: 구글(Play)에 아무것도 묻지 않는다');
 chk((await req('GET', '/p/loc?cid=' + CID, 'p')).loc !== null, '기본: 옛 위치 주소도 그대로 위치를 준다');
 env.BILLING_MODE = 'off';
+chk((await req('GET', '/bill', null)).g === 0, 'GET /bill: 꺼져 있으면 g=0');
 h = await hubOf();
 chk(h.screen.screen !== 'kidpay' && hasMap(h), 'BILLING_MODE=off: 그대로 무료');
 env.BILLING_MODE = 'xyz';
@@ -89,6 +90,24 @@ chk(ch.children.length === 1 && ch.children[0].la === null && ch.children[0].lo 
 const ro = await req('POST', '/p/act', 'p', { v: 'kr.open', cid: CID });
 chk(ro.ok && ro.close === true && !ro.screen, '지난 길 같은 위치 동작도 구독 없으면 받지 않는다');
 chk(rows('SELECT wt FROM devices WHERE id=?', PID)[0].wt === wtBefore, '구독 없으면 "보는 중" 표시도 하지 않는다(자녀 폰이 빠른 보고로 바뀌지 않는다)');
+// s445: 연동 자체가 구독 — 구독이 켜져 있고 구독자가 아니면 연결 화면이 열리지 않는다
+{
+  const bl = await req('GET', '/bill', null);
+  chk(bl.ok && bl.g === 1, 'GET /bill: 구독이 켜져 있으면 g=1(누구인지 묻지 않고 · 인증 없이)');
+  const sr = await req('GET', '/p/setrow?kn=1', 'p');
+  chk(sr.ok && sr.bg === 1 && sr.sb === 0, '/p/setrow: 구독 켜짐(bg=1) · 구독 아님(sb=0)을 앱에 알린다');
+  const ko = await req('POST', '/p/act', 'p', { v: 'kl.open', cid: CID });
+  chk(ko.ok && ko.screen && ko.screen.screen === 'kidpay' && /sub\.buy/.test(JSON.stringify(ko.screen)), '구독 없음: 연결 화면(kl.open) 대신 구독 화면');
+  const kj = await req('POST', '/p/act', 'p', { v: 'kl.join', cid: CID, t: 'ABCDE-FGHIJ' });
+  chk(kj.ok && kj.screen && kj.screen.screen === 'kidpay', '구독 없음: 시크릿 키로 연결(kl.join)도 받지 않는다');
+  const so = await req('POST', '/p/act', 'p', { v: 'sub.open', cid: CID });
+  chk(so.ok && so.screen && so.screen.screen === 'kidpay' && /"dlg"/.test(JSON.stringify(so.screen)) && /kl\.close/.test(JSON.stringify(so.screen)), 'sub.open: 구독 화면을 팝업으로(닫기 단추 있음)');
+  const kn = await req('POST', '/p/act', 'p', { v: 'kn.open', cid: CID });
+  chk(kn.screen && kn.screen.screen === 'kidpay', '구독 없음: 키즈 설정 팝업(kn.open)도 구독 화면');
+  const kp = await req('GET', '/p/screen?v=link', 'p');
+  chk(kp.screen && kp.screen.screen === 'kidpay', '구독 없음: /p/screen?v=link 도 구독 화면');
+  chk(/연동/.test(JSON.stringify(h.screen)), '구독 화면 문구: 연동 구독으로 안내');
+}
 // 긴급 호출은 늘 무료
 await req('POST', '/c/call', 'c', { k: 'sos', la: 37.5, lo: 126.84 });
 const hp = await hubOf();
@@ -112,6 +131,16 @@ chk(calls.some((c) => c.scope === 'gp'), 'Play 용 접근 토큰은 androidpubli
 h = await hubOf();
 chk(h.screen.screen !== 'kidpay' && hasMap(h), '구독 뒤: 지도가 보인다');
 chk((await req('GET', '/p/loc?cid=' + CID, 'p')).loc !== null, '구독 뒤: 옛 위치 주소도 위치를 준다');
+{
+  const sr = await req('GET', '/p/setrow?kn=1', 'p');
+  chk(sr.sb === 1 && sr.bg === 1, '구독 뒤: /p/setrow sb=1');
+  const ko = await req('POST', '/p/act', 'p', { v: 'kl.open', cid: CID });
+  chk(ko.screen && ko.screen.screen === 'kidlink', '구독 뒤: 연결 화면이 열린다');
+  const kj = await req('POST', '/p/act', 'p', { v: 'kl.join', cid: CID, t: 'ABCDE-FGHIJ' });
+  chk(kj.screen && kj.screen.screen === 'kidlink' && /키가 맞지 않/.test(JSON.stringify(kj.screen)), '구독 뒤: 연결(kl.join)은 원래대로(틀린 키는 안내)');
+  const so = await req('POST', '/p/act', 'p', { v: 'sub.open', cid: CID });
+  chk(so.ok && so.close === true, '구독 뒤: sub.open 은 이미 구독 중이라고 닫는다');
+}
 const n0 = calls.length;
 await hubOf(); await hubOf();
 chk(calls.length === n0, '구독 중에는 화면을 볼 때마다 구글에 묻지 않는다(0번)');
