@@ -75,15 +75,18 @@ NOW += 20 * SEC;
 r = await loc({ la: 37.5 + 120 * M, lo: 126.84, acc: 150 });
 chk(r.same === 1 && near(cur().la, 37.5), '오차 150m 위치(100m 초과 · 직전의 2배 넘게 부정확)도 덮지 않는다');
 NOW += 20 * SEC;
-r = await loc({ la: 37.5 + 30 * M, lo: 126.84, acc: 40 });
-chk(!r.same && near(cur().la, 37.5 + 30 * M), '오차 40m 위치(정상 범위)는 저장된다');
+r = await loc({ la: 37.5 + 70 * M, lo: 126.84, acc: 40 });
+chk(!r.same && near(cur().la, 37.5 + 70 * M), '오차 40m 위치(정상 범위 · 흔들림 반경 48m 밖)는 저장된다');
 
 // 오차가 컸던 위치가 기준이면 비슷한 오차의 위치는 받는다(실내에서 계속 부정확한 경우)
 NOW += 20 * SEC;
 await loc({ la: 37.5 + 30 * M, lo: 126.84, acc: 200 });      // 직전이 40m 라 건너뛰어진다
-NOW += 6 * MIN;                                               // 5분 넘게 새 위치가 없으면 부정확해도 받는다
-r = await loc({ la: 37.5 + 80 * M, lo: 126.84, acc: 200 });
-chk(!r.same && near(cur().la, 37.5 + 80 * M), '5분 넘게 정상 위치가 없으면 부정확한 위치라도 받는다(실내에서 위치가 아예 멈추지 않게)');
+NOW += 6 * MIN;                                               // s443: 5분이 아니라 12분 — 가만히 있을 땐 보고가 5~8분 간격이라 5분 기준은 늘 빠져나갔다
+r = await loc({ la: 37.5 + 80 * M + 40 * M, lo: 126.84, acc: 200 });
+chk(r.same === 1 && near(cur().la, 37.5 + 70 * M), '6분 뒤에도 정상 위치가 직전이면 부정확한 위치는 건너뛴다(s443: 12분 기준)');
+NOW += 15 * MIN;                                              // 12분 넘게 정상 위치가 없으면 부정확해도 받는다
+r = await loc({ la: 37.5 + 120 * M, lo: 126.84, acc: 200 });
+chk(!r.same && near(cur().la, 37.5 + 120 * M), '12분 넘게 정상 위치가 없으면 부정확한 위치라도 받는다(실내에서 위치가 아예 멈추지 않게)');
 
 // ② 순간이동: 몇 초 만에 1.5km 넘게 간 위치는 보류, 곧 그 근처에서 또 오면 진짜로 본다
 NOW += 5 * SEC;
@@ -91,8 +94,8 @@ const before = cur().la;
 r = await loc({ la: 37.5 + 5000 * M, lo: 126.84, acc: 20 });
 chk(r.same === 1 && near(cur().la, before), '5초 만에 4.9km 간 위치(오차 20m)는 보류한다');
 NOW += 15 * SEC;
-r = await loc({ la: before + 20 * M, lo: 126.84, acc: 15 });
-chk(!r.same && near(cur().la, before + 20 * M), '곧바로 원래 자리에서 오면 정상으로 받는다(튄 위치는 버려졌다)');
+r = await loc({ la: before + 40 * M, lo: 126.84, acc: 15 });
+chk(!r.same && near(cur().la, before + 40 * M), '곧바로 원래 자리에서 오면 정상으로 받는다(튄 위치는 버려졌다)');
 NOW += 15 * SEC;
 r = await loc({ la: 37.5 + 5000 * M, lo: 126.84, acc: 20 });
 chk(r.same === 1, '정상 위치가 이어진 뒤 다시 튀면 또 보류(앞의 튐을 확인으로 치지 않는다)');
@@ -104,6 +107,31 @@ chk(!r.same && near(cur().la, 37.5 + 5010 * M), '120초 안에 그 근처(300m �
 NOW += 5 * MIN;
 r = await loc({ la: 37.5 + 9000 * M, lo: 126.84, acc: 30 });
 chk(!r.same && near(cur().la, 37.5 + 9000 * M), '5분에 4km(13m/s)는 정상 이동이라 받는다');
+
+// ③ s443 제자리 흔들림: 오차 25m 넘는 위치가 직전 위치의 오차(×1.2, 80m 상한) 안쪽이면 점을 옮기지 않는다 · 오차 25m 이하(걷는 속도 따라가기)는 거르지 않는다
+NOW += 30 * MIN;
+la = 37.6; lo = 126.9;
+await loc({ acc: 40 });
+NOW += 40 * SEC; await loc({ acc: 40 });                                  // 한 곳에 가만히
+const base0 = cur().la, t0 = cur().t;
+NOW += 4 * SEC;
+r = await loc({ la: la + 30 * M, lo, acc: 40 });
+chk(near(cur().la, base0) && cur().t > t0, '가만히 있는데 30m 흔들린 위치(오차 40m)는 점을 그대로 두고 시각만 새로 한다');
+NOW += 4 * SEC;
+r = await loc({ la: la - 35 * M, lo: lo + 20 * M, acc: 45 });
+chk(near(cur().la, base0), '반대쪽으로 흔들려도 점은 그대로(지도가 흔들리지 않는다)');
+NOW += 4 * SEC;
+r = await loc({ la: la + 90 * M, lo, acc: 40 });
+chk(!r.same && near(cur().la, la + 90 * M), '오차 반경(48m) 밖으로 90m 가면 진짜 이동으로 받는다');
+NOW += 4 * SEC;
+r = await loc({ la: la + 90 * M + 12 * M, lo, acc: 10 });
+chk(!r.same && near(cur().la, la + 102 * M), '오차 10m 이하의 정확한 위치는 흔들림으로 거르지 않는다(걷는 속도를 따라간다)');
+// 더 정확한 새 위치는 부정확했던 직전 위치를 바로잡는다
+NOW += 30 * MIN;
+await loc({ la: la + 500 * M, lo, acc: 90 });
+NOW += 5 * SEC;
+r = await loc({ la: la + 530 * M, lo, acc: 8 });
+chk(!r.same && near(cur().la, la + 530 * M), '직전이 부정확(90m)했어도 오차 8m 새 위치는 받는다');
 
 console.log('\n' + ok + ' 통과, ' + bad + ' 실패');
 process.exit(bad ? 1 : 0);

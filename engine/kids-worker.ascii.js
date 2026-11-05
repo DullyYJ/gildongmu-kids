@@ -26,7 +26,10 @@ const locBumpAt = new Map();
 // s426: \uc544\ubb34\ub3c4 \uc548 \ubcf4\uace0 \u00b7 \uac00\ub9cc\ud788 \uc788\uace0 \u00b7 \ub4f1\ub85d \uc7a5\uc18c\uc640 \uba40\uace0 \u00b7 \uc57d\uc18d \uc2dc\uac04\ub300\uac00 \uc544\ub2c8\uba74 \uc790\ub140 \uc571\uc774 \ubcf4\uace0 \uc8fc\uae30\ub97c 8\ubd84(\uc571 \ucabd)\uc73c\ub85c \ub298\ub824\ub3c4 \ub41c\ub2e4\uace0 \uc751\ub2f5\uc5d0 sl:1 \uc744 \uc2e4\uc5b4 \uc900\ub2e4. \uc548\uc804 \uc810\uac80(\uc704\uce58 \ub04a\uae40 20\ubd84)\ubcf4\ub2e4 \uc9e7\uac8c.
 const SLOW_STILL_MS = 10 * 60000, SLOW_PLACE_M = 500, SLOW_LEAD_MS = 30 * 60000 + 10 * 60000;
 const locHold = new Map();                      // \ud284 \uac83\uc73c\ub85c \ubcf4\uace0 \ubcf4\ub958\ud55c \uc704\uce58(cid \u2192 {la,lo,t}) \u2014 \uace7\ubc14\ub85c \uac19\uc740 \uacf3\uc5d0\uc11c \ub610 \uc624\uba74 \uc9c4\uc9dc\ub85c \ubcf8\ub2e4
-const LOC_FRESH_MS = 5 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
+// s443 (YJ: \uac00\ub9cc\ud788 \uc788\ub294\ub370 \uc704\uce58\uac00 \ud284\ub2e4 \u00b7 \uc9c0\ub3c4\uac00 \ud754\ub4e4\ub9b0\ub2e4): \u2460 \ubd80\uc815\ud655\ud55c \uc704\uce58 \uac70\ub974\uae30\uac00 '5\ubd84 \uc548'\uc5d0\ub9cc \uac78\ub838\ub294\ub370 \uac00\ub9cc\ud788 \uc788\uc744 \ub550 \ubcf4\uace0\uac00 5~8\ubd84 \uac04\uaca9\uc774\ub77c \ub298 \ube60\uc838\ub098\uac14\ub2e4 \u2192 12\ubd84\uc73c\ub85c(\uc21c\uac04\uc774\ub3d9 \uac70\ub974\uae30\ub294 5\ubd84 \uadf8\ub300\ub85c \u2014 \uace0\uc18d\uc5f4\ucc28\ucc98\ub7fc \ube68\ub9ac \uac00\ub294 \uc911\uc5d4 \uc5bc\uc9c0 \uc54a\uac8c).
+//   \u2461 \uc81c\uc790\ub9ac \ud754\ub4e4\ub9bc: \uc624\ucc28\uac00 25m \ub118\ub294(\ud754\ub4e4\ub9ac\uae30 \uc26c\uc6b4) \uc704\uce58\uac00 \uc9c1\uc804\uc5d0 \ubcf4\uc5ec \uc900 \uc704\uce58\uc5d0\uc11c \uc624\ucc28(\u00d71.2, 80m \uc0c1\ud55c) \uc548\ucabd\uc5d0 \uc624\uba74 \uadf8 \uc704\uce58\ub85c \ubcf4\uc9c0 \uc54a\uace0 \uc9c1\uc804 \uc790\ub9ac\ub97c \uadf8\ub300\ub85c \uc4f4\ub2e4(\uc2dc\uac01 \u00b7 \ubc30\ud130\ub9ac \u00b7 \uac00\ub9cc\ud788 \uc788\uc74c \ud310\uc815\uc740 \uc0c8\ub85c \uc774\uc5b4\uc9c4\ub2e4). \uc624\ucc28 25m \uc774\ud558(\uac77\ub294 \uc18d\ub3c4 \ub530\ub77c\uac00\uae30)\ub294 \uac70\ub974\uc9c0 \uc54a\ub294\ub2e4.
+const LOC_FRESH_MS = 5 * 60000, LOC_POOR_FRESH_MS = 12 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
+const LOC_STAY_K = 1.2, LOC_STAY_MAX_M = 80, LOC_STAY_ACC_M = 25;
 // \ubd80\ubaa8\uac00 \ucc98\uc74c \uc5f4\uc5c8\ub294\ub370(\uc571\uc744 \uc0c8\ub85c \uae54\uc558\uac70\ub098 \ub9c9 \uc5f0\uacb0) \uc790\ub140 \uc704\uce58\uac00 \uc5c6\uac70\ub098 \uc624\ub798\ub410\uc73c\uba74, \uc790\ub140 \ud3f0\uc5d0 '\uc704\uce58 \ud55c \ubc88 \uc62c\ub824' \ud478\uc2dc\ub97c \ubcf4\ub0b8\ub2e4(s390).
 // \uc571\uc774 \uaebc\uc838 \uc788\uc5b4\ub3c4 \ud478\uc2dc\ub85c \uae68\uc5b4\ub098 \uc704\uce58\ub97c \ud55c \ubc88 \uc62c\ub9b0\ub2e4 \u2014 \uc704\uce58 \uacf5\uc720\uac00 \ucf1c\uc838 \uc788\uace0 \uc790\ub140 \ud3f0\uc774 \ub3d9\uc758\u00b7\uad8c\ud55c\uc744 \uc900 \uacbd\uc6b0\ub9cc. \uac19\uc740 \uc790\ub140\ub294 3\ubd84\uc5d0 \ud55c \ubc88\ub9cc \ubb3b\ub294\ub2e4.
 const locAskAt = new Map();
@@ -1624,7 +1627,8 @@ async function handle(req, env, url) {
       return J({ ok: true });
     }
     if (p === '/c/loc' && m === 'POST') {         // \uc704\uce58\ub294 \uc5f0\uacb0\ub41c \ubd80\ubaa8\uac00 \uc788\uc744 \ub54c\ub9cc, \uac00\uc7a5 \ucd5c\uadfc \ud55c \uac74\ub9cc \uc800\uc7a5(\ubc14\ub85c \uc55e \uc704\uce58\ub3c4 \ud558\ub098 \ub454\ub2e4: \uac00\ub294 \uc911\uc778\uc9c0 \ubcf4\ub824\uace0)
-      const la = +body.la, lo = +body.lo, acc = +body.acc || 0;
+      let la = +body.la, lo = +body.lo;
+      const acc = +body.acc || 0;
       if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180) || (la === 0 && lo === 0)) return bad('\uc704\uce58\uac00 \ub9de\uc9c0 \uc54a\uc544\uc694');
       const nl = await DB.prepare('SELECT (SELECT COUNT(*) FROM links WHERE cid=?) n, l.la la,l.lo lo,l.acc acc,l.t t,l.dn dn,l.hp hp,l.ap ap,l.mva mva,l.mvo mvo,l.mvt mvt,l.bt bt,l.mt mt,l.ha ha,l.hb hb,l.hat hat FROM (SELECT 1) x LEFT JOIN loc l ON l.cid=?').bind(cid, cid).first();          // s424: \uc5f0\uacb0 \uc218 + \uc774\uc804 \uc704\uce58\ub97c \ud55c \ubc88\uc5d0(\uacb0\uacfc\ub294 \uac19\uace0 DB \ud638\ucd9c\ub9cc 1\ubc88 \uc801\uac8c)
       const n = nl ? nl.n : 0;
@@ -1633,16 +1637,18 @@ async function handle(req, env, url) {
       const wch = n > 0 ? await watchOrCall(DB, cid, now) : null;                   // \uc2e4\uc2dc\uac04 \ubcf4\uae30(s393): \ubcf4\ub294 \uc911\uc774\uba74 \ubcf4\uace0\ub97c \ucd18\ucd18\ud788 \ubc1b\uace0 \uc751\ub2f5\uc5d0 \uc8fc\uae30 \uc885\ub958\ub97c \uc2e4\uc5b4 \uc900\ub2e4
       const bt = Number.isFinite(+body.bt) && +body.bt >= 0 && +body.bt <= 100 ? Math.round(+body.bt) : -1, ch = body.ch ? 1 : 0;
       if (last && now - last.t < (wch ? 1200 : 12000) && hav(last.la, last.lo, la, lo) < (wch ? 2 : 8)) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });     // \uac70\uc758 \uac19\uc740 \uc790\ub9ac \u00b7 \ubc29\uae08 \ubcf4\ub0c8\ub2e4 \u2014 \uc4f0\uc9c0\ub3c4 \uc54c\ub9ac\uc9c0\ub3c4 \uc54a\ub294\ub2e4
-      if (last && now - last.t < LOC_FRESH_MS) {   // \ud284 \uc704\uce58 \uac70\ub974\uae30(\uc9c0\ub3c4\uac00 \uac11\uc790\uae30 \uba40\ub9ac \uac14\ub2e4 \uc624\ub294 \uc77c): \u2460 \ubc29\uae08 \ubc1b\uc740 \uac83\ubcf4\ub2e4 \ud6e8\uc52c \ubd80\uc815\ud655\ud55c \uc704\uce58 \u2461 \uba87 \ucd08 \ub9cc\uc5d0 1.5km \ub118\uac8c \uc21c\uac04\uc774\ub3d9\ud55c \uc704\uce58\ub294 \ub36e\uc9c0 \uc54a\ub294\ub2e4(\u2461\ub294 120\ucd08 \uc548\uc5d0 \uadf8 \uadfc\ucc98\uc5d0\uc11c \ub610 \uc624\uba74 \uc9c4\uc9dc\ub85c \ubcf8\ub2e4)
+      if (last && now - last.t < LOC_POOR_FRESH_MS) {   // \ud284 \uc704\uce58 \uac70\ub974\uae30(\uc9c0\ub3c4\uac00 \uac11\uc790\uae30 \uba40\ub9ac \uac14\ub2e4 \uc624\ub294 \uc77c): \u2460 \ubc29\uae08 \ubc1b\uc740 \uac83\ubcf4\ub2e4 \ud6e8\uc52c \ubd80\uc815\ud655\ud55c \uc704\uce58 \u2461 \uba87 \ucd08 \ub9cc\uc5d0 1.5km \ub118\uac8c \uc21c\uac04\uc774\ub3d9\ud55c \uc704\uce58\ub294 \ub36e\uc9c0 \uc54a\ub294\ub2e4(\u2461\ub294 120\ucd08 \uc548\uc5d0 \uadf8 \uadfc\ucc98\uc5d0\uc11c \ub610 \uc624\uba74 \uc9c4\uc9dc\ub85c \ubcf8\ub2e4)
         const dd = hav(last.la, last.lo, la, lo), gap = Math.max(1, (now - last.t) / 1000);
         let skip = acc > LOC_POOR_M && acc > 2 * (last.acc || 0);
-        if (!skip && dd > LOC_JUMP_M && dd / gap > LOC_JUMP_MS) {
+        if (!skip && now - last.t < LOC_FRESH_MS && dd > LOC_JUMP_M && dd / gap > LOC_JUMP_MS) {
           const h = locHold.get(cid);
           if (h && now - h.t < LOC_CONFIRM_MS && hav(h.la, h.lo, la, lo) < 300) locHold.delete(cid);
           else { locHold.set(cid, { la, lo, t: now }); skip = true; }
         }
         if (skip) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });
         locHold.delete(cid);                       // \uc815\uc0c1 \uc704\uce58\uac00 \uc774\uc5b4\uc84c\ub2e4 \u2014 \ubcf4\ub958\ud574 \ub454 \ud284 \uc704\uce58\ub294 \uc78a\ub294\ub2e4(\uac19\uc740 \ud290\uc774 \ub418\ud480\uc774\ub3fc\ub3c4 \ud655\uc778\uc73c\ub85c \uce58\uc9c0 \uc54a\ub294\ub2e4)
+        // s443: \uc81c\uc790\ub9ac \ud754\ub4e4\ub9bc \u2014 \uc624\ucc28\uac00 \ud070(25m \ub118\ub294) \uc704\uce58\uac00 \uc9c1\uc804 \uc704\uce58\uc758 \uc624\ucc28 \uc548\ucabd\uc774\uba74 \uc810\uc744 \uc62e\uae30\uc9c0 \uc54a\ub294\ub2e4(\uc544\ub798 \ud750\ub984\uc740 \uadf8\ub300\ub85c \uc774\uc5b4\uc838 \uc2dc\uac01 \u00b7 \ubc30\ud130\ub9ac \u00b7 \uac00\ub9cc\ud788 \uc788\uc74c \ud310\uc815\uc740 \uc0c8\ub85c \ub41c\ub2e4)
+        if (acc > LOC_STAY_ACC_M && acc <= LOC_POOR_M && dd < Math.min(LOC_STAY_MAX_M, LOC_STAY_K * acc)) { la = last.la; lo = last.lo; }
       }
       let slowOk = false;
       if (n > 0) {

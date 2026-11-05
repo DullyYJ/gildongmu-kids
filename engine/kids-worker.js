@@ -26,7 +26,10 @@ const locBumpAt = new Map();
 // s426: 아무도 안 보고 · 가만히 있고 · 등록 장소와 멀고 · 약속 시간대가 아니면 자녀 앱이 보고 주기를 8분(앱 쪽)으로 늘려도 된다고 응답에 sl:1 을 실어 준다. 안전 점검(위치 끊김 20분)보다 짧게.
 const SLOW_STILL_MS = 10 * 60000, SLOW_PLACE_M = 500, SLOW_LEAD_MS = 30 * 60000 + 10 * 60000;
 const locHold = new Map();                      // 튄 것으로 보고 보류한 위치(cid → {la,lo,t}) — 곧바로 같은 곳에서 또 오면 진짜로 본다
-const LOC_FRESH_MS = 5 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
+// s443 (YJ: 가만히 있는데 위치가 튄다 · 지도가 흔들린다): ① 부정확한 위치 거르기가 '5분 안'에만 걸렸는데 가만히 있을 땐 보고가 5~8분 간격이라 늘 빠져나갔다 → 12분으로(순간이동 거르기는 5분 그대로 — 고속열차처럼 빨리 가는 중엔 얼지 않게).
+//   ② 제자리 흔들림: 오차가 25m 넘는(흔들리기 쉬운) 위치가 직전에 보여 준 위치에서 오차(×1.2, 80m 상한) 안쪽에 오면 그 위치로 보지 않고 직전 자리를 그대로 쓴다(시각 · 배터리 · 가만히 있음 판정은 새로 이어진다). 오차 25m 이하(걷는 속도 따라가기)는 거르지 않는다.
+const LOC_FRESH_MS = 5 * 60000, LOC_POOR_FRESH_MS = 12 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
+const LOC_STAY_K = 1.2, LOC_STAY_MAX_M = 80, LOC_STAY_ACC_M = 25;
 // 부모가 처음 열었는데(앱을 새로 깔았거나 막 연결) 자녀 위치가 없거나 오래됐으면, 자녀 폰에 '위치 한 번 올려' 푸시를 보낸다(s390).
 // 앱이 꺼져 있어도 푸시로 깨어나 위치를 한 번 올린다 — 위치 공유가 켜져 있고 자녀 폰이 동의·권한을 준 경우만. 같은 자녀는 3분에 한 번만 묻는다.
 const locAskAt = new Map();
@@ -1624,7 +1627,8 @@ async function handle(req, env, url) {
       return J({ ok: true });
     }
     if (p === '/c/loc' && m === 'POST') {         // 위치는 연결된 부모가 있을 때만, 가장 최근 한 건만 저장(바로 앞 위치도 하나 둔다: 가는 중인지 보려고)
-      const la = +body.la, lo = +body.lo, acc = +body.acc || 0;
+      let la = +body.la, lo = +body.lo;
+      const acc = +body.acc || 0;
       if (!(la >= -90 && la <= 90 && lo >= -180 && lo <= 180) || (la === 0 && lo === 0)) return bad('위치가 맞지 않아요');
       const nl = await DB.prepare('SELECT (SELECT COUNT(*) FROM links WHERE cid=?) n, l.la la,l.lo lo,l.acc acc,l.t t,l.dn dn,l.hp hp,l.ap ap,l.mva mva,l.mvo mvo,l.mvt mvt,l.bt bt,l.mt mt,l.ha ha,l.hb hb,l.hat hat FROM (SELECT 1) x LEFT JOIN loc l ON l.cid=?').bind(cid, cid).first();          // s424: 연결 수 + 이전 위치를 한 번에(결과는 같고 DB 호출만 1번 적게)
       const n = nl ? nl.n : 0;
@@ -1633,16 +1637,18 @@ async function handle(req, env, url) {
       const wch = n > 0 ? await watchOrCall(DB, cid, now) : null;                   // 실시간 보기(s393): 보는 중이면 보고를 촘촘히 받고 응답에 주기 종류를 실어 준다
       const bt = Number.isFinite(+body.bt) && +body.bt >= 0 && +body.bt <= 100 ? Math.round(+body.bt) : -1, ch = body.ch ? 1 : 0;
       if (last && now - last.t < (wch ? 1200 : 12000) && hav(last.la, last.lo, la, lo) < (wch ? 2 : 8)) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });     // 거의 같은 자리 · 방금 보냈다 — 쓰지도 알리지도 않는다
-      if (last && now - last.t < LOC_FRESH_MS) {   // 튄 위치 거르기(지도가 갑자기 멀리 갔다 오는 일): ① 방금 받은 것보다 훨씬 부정확한 위치 ② 몇 초 만에 1.5km 넘게 순간이동한 위치는 덮지 않는다(②는 120초 안에 그 근처에서 또 오면 진짜로 본다)
+      if (last && now - last.t < LOC_POOR_FRESH_MS) {   // 튄 위치 거르기(지도가 갑자기 멀리 갔다 오는 일): ① 방금 받은 것보다 훨씬 부정확한 위치 ② 몇 초 만에 1.5km 넘게 순간이동한 위치는 덮지 않는다(②는 120초 안에 그 근처에서 또 오면 진짜로 본다)
         const dd = hav(last.la, last.lo, la, lo), gap = Math.max(1, (now - last.t) / 1000);
         let skip = acc > LOC_POOR_M && acc > 2 * (last.acc || 0);
-        if (!skip && dd > LOC_JUMP_M && dd / gap > LOC_JUMP_MS) {
+        if (!skip && now - last.t < LOC_FRESH_MS && dd > LOC_JUMP_M && dd / gap > LOC_JUMP_MS) {
           const h = locHold.get(cid);
           if (h && now - h.t < LOC_CONFIRM_MS && hav(h.la, h.lo, la, lo) < 300) locHold.delete(cid);
           else { locHold.set(cid, { la, lo, t: now }); skip = true; }
         }
         if (skip) return J({ ok: true, linked: n, same: 1, w: watchCode(wch, last.mt, now) });
         locHold.delete(cid);                       // 정상 위치가 이어졌다 — 보류해 둔 튄 위치는 잊는다(같은 튐이 되풀이돼도 확인으로 치지 않는다)
+        // s443: 제자리 흔들림 — 오차가 큰(25m 넘는) 위치가 직전 위치의 오차 안쪽이면 점을 옮기지 않는다(아래 흐름은 그대로 이어져 시각 · 배터리 · 가만히 있음 판정은 새로 된다)
+        if (acc > LOC_STAY_ACC_M && acc <= LOC_POOR_M && dd < Math.min(LOC_STAY_MAX_M, LOC_STAY_K * acc)) { la = last.la; lo = last.lo; }
       }
       let slowOk = false;
       if (n > 0) {
