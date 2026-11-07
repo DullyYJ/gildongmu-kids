@@ -124,33 +124,39 @@ jobs:
           name: gildongmu-kids-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
-      # 구글 플레이에 올리는 파일은 APK 가 아니라 업로드 키로 서명한 AAB 다. 비밀값(KIDS_KEYSTORE_B64 등)이 있을 때만 만든다.
+      # 구글 플레이에 올리는 파일은 APK 가 아니라 업로드 키로 서명한 AAB 다. 비밀값(KIDS_KEYSTORE_B64 등)이 있으면 업로드 키로, 없으면 디버그 키로(시험용) 만든다.
       - name: Decode upload keystore
         if: ${{ env.KIDS_KEYSTORE_B64 != '' }}
         run: |
           echo "$KIDS_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
           echo "KIDS_KEYSTORE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
 
-      - name: Build signed release bundle (AAB)
-        if: ${{ env.KIDS_KEYSTORE_B64 != '' }}
+      - name: Build release bundle (AAB)
         env:
           KIDS_STORE_PASSWORD: ${{ secrets.KIDS_STORE_PASSWORD }}
           KIDS_KEY_ALIAS: ${{ secrets.KIDS_KEY_ALIAS }}
           KIDS_KEY_PASSWORD: ${{ secrets.KIDS_KEY_PASSWORD }}
+        run: gradle --no-daemon bundleRelease
+
+      - name: Check bundle signing and manifest
         run: |
-          gradle --no-daemon bundleRelease
           AAB=app/build/outputs/bundle/release/app-release.aab
           ls -la "$AAB"
-          # 디버그 키로 서명됐으면 플레이가 거절한다 — 여기서 먼저 막는다
           keytool -printcert -jarfile "$AAB" | tee /tmp/cert.txt
-          if grep -qi "Android Debug" /tmp/cert.txt; then echo "::error::AAB 가 디버그 키로 서명됨"; exit 1; fi
-          # 선언한 target/compile SDK 확인
-          unzip -p "$AAB" base/manifest/AndroidManifest.xml | strings | grep -c "enableOnBackInvokedCallback" || true
+          if grep -qi "Android Debug" /tmp/cert.txt; then
+            echo "::warning::AAB 가 디버그 키로 서명됨 — 플레이에 올릴 수 없다. 업로드 키 비밀값(KIDS_KEYSTORE_B64 등)을 넣고 다시 돌릴 것"
+            echo "AAB_SIGNED=debug" >> "$GITHUB_ENV"
+          else
+            echo "AAB_SIGNED=upload" >> "$GITHUB_ENV"
+          fi
+          AAPT2=$(ls $ANDROID_HOME/build-tools/*/aapt2 | tail -1)
+          "$AAPT2" dump badging app/build/outputs/apk/debug/app-debug.apk | grep -E "^package|sdkVersion|targetSdkVersion|uses-permission|foreground" | tee /tmp/badging.txt
+          grep -q "targetSdkVersion:'36'" /tmp/badging.txt || { echo "::error::targetSdkVersion 이 36 이 아님"; exit 1; }
+          for so in $(unzip -l "$AAB" | awk '{print $4}' | grep '\.so$'); do echo "native lib: $so"; done
 
       - uses: actions/upload-artifact@v4
-        if: ${{ env.KIDS_KEYSTORE_B64 != '' }}
         with:
-          name: gildongmu-kids-release-aab
+          name: gildongmu-kids-release-aab-${{ env.AAB_SIGNED }}
           path: app/build/outputs/bundle/release/app-release.aab
 
       - name: Publish APK to the latest release
