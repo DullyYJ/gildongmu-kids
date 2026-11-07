@@ -39,10 +39,16 @@ public class LocationService extends Service {
         nm.createNotificationChannel(new NotificationChannel("loc", "위치 공유", NotificationManager.IMPORTANCE_LOW));
         lastWatched = Core.engine.watched();
         Notification n = note(lastWatched);
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(11, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
-        } else {
-            startForeground(11, n);
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(11, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
+            } else {
+                startForeground(11, n);
+            }
+        } catch (Throwable t) {
+            // 안드로이드 12+ 는 앱이 뒤에 있을 때(시스템이 서비스를 다시 살릴 때 등) 앞쪽 서비스를 못 켜게 막고, 14+ 는 위치 권한이 없어도 막는다. 앱이 죽지 않게 조용히 멈춘다 — 앱을 열면 다시 켠다.
+            stopSelf();
+            return START_NOT_STICKY;
         }
         if (cb != null) request();                                  // 이미 돌고 있으면 주기만 새로 건다(부모가 보기 시작했을 때 빠른 주기로)
         else begin();

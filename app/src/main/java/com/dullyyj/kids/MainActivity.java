@@ -54,6 +54,7 @@ public class MainActivity extends Activity {
     private ScreenView pillView;
     private String lastPill = "";
     private LinearLayout root;
+    private FrameLayout outerV;
     private boolean running = false;
     // 아래 셋은 엔진 스레드에서만 쓴다
     private int lastRev = -1;
@@ -179,24 +180,31 @@ public class MainActivity extends Activity {
         FrameLayout.LayoutParams pillLp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.round(90f * getResources().getDisplayMetrics().density), Gravity.BOTTOM);
         pillLp.bottomMargin = Math.round(48f * getResources().getDisplayMetrics().density);
         outer.addView(pillView, pillLp);
+        // 안드로이드 15+(targetSdk 35+)는 앱이 화면 끝까지 그려지므로, 상태 표시줄 · 내비게이션 막대 · 노치 · 키보드 자리를 직접 비운다.
         outer.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override
             public WindowInsets onApplyWindowInsets(View v, WindowInsets in) {
-                root.setPadding(in.getSystemWindowInsetLeft(), in.getSystemWindowInsetTop(), in.getSystemWindowInsetRight(), in.getSystemWindowInsetBottom());
+                androidx.core.graphics.Insets si = androidx.core.view.WindowInsetsCompat.toWindowInsetsCompat(in, v).getInsets(
+                        androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                                | androidx.core.view.WindowInsetsCompat.Type.displayCutout()
+                                | androidx.core.view.WindowInsetsCompat.Type.ime());
+                root.setPadding(si.left, si.top, si.right, si.bottom);
                 FrameLayout.LayoutParams pl2 = (FrameLayout.LayoutParams) pillView.getLayoutParams();
-                pl2.bottomMargin = in.getSystemWindowInsetBottom() + Math.round(48f * getResources().getDisplayMetrics().density);
-                pl2.leftMargin = in.getSystemWindowInsetLeft();
-                pl2.rightMargin = in.getSystemWindowInsetRight();
+                pl2.bottomMargin = si.bottom + Math.round(48f * getResources().getDisplayMetrics().density);
+                pl2.leftMargin = si.left;
+                pl2.rightMargin = si.right;
                 pillView.setLayoutParams(pl2);
                 ViewGroup.LayoutParams lp = sbStrip.getLayoutParams();
-                if (lp.height != in.getSystemWindowInsetTop()) {
-                    lp.height = in.getSystemWindowInsetTop();
+                if (lp.height != si.top) {
+                    lp.height = si.top;
                     sbStrip.setLayoutParams(lp);
                 }
                 return in;
             }
         });
+        outerV = outer;
         setContentView(outer);
+        registerBack();
         if (b == null) OpenHost.show(this); // 켤 때 오프닝: 길동무와 똑같은 한 갈래(OpenHost) — 시간대 · 날씨 · 친구 · 움직임이 같다
     }
 
@@ -275,19 +283,49 @@ public class MainActivity extends Activity {
         Poke.setSink(null);
         Poke.setCaller(null);
         holdH.removeCallbacks(holdFire);
+        unregisterBack();
         if (renderer != null) renderer.destroy();
         if (ht != null) ht.quitSafely();
         super.onDestroy();
     }
 
+    /** 뒤로가기를 우리가 처리했으면 true. 안드로이드 16(targetSdk 36)에서는 onBackPressed 가 불리지 않아 아래 콜백으로도 같은 길을 탄다. */
+    private boolean handleBack() {
+        if (OpenHost.back()) return true; // 오프닝이 떠 있으면 오프닝만 닫는다
+        if (Core.engine != null && Core.engine.consented() && !"home".equals(Core.engine.tab())) {
+            act("tab.home", "");
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public void onBackPressed() {
-        if (OpenHost.back()) return; // 오프닝이 떠 있으면 오프닝만 닫는다
-        if (Core.engine.consented() && !"home".equals(Core.engine.tab())) {
-            act("tab.home", "");
-        } else {
-            super.onBackPressed();
+        if (!handleBack()) super.onBackPressed();
+    }
+
+    private Object backCb;
+
+    private void registerBack() {
+        if (Build.VERSION.SDK_INT < 33 || backCb != null) return;
+        final android.window.OnBackInvokedCallback cb = new android.window.OnBackInvokedCallback() {
+            @Override
+            public void onBackInvoked() {
+                if (!handleBack()) finish();
+            }
+        };
+        backCb = cb;
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, cb);
+    }
+
+    private void unregisterBack() {
+        if (Build.VERSION.SDK_INT < 33 || backCb == null) return;
+        try {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback((android.window.OnBackInvokedCallback) backCb);
+        } catch (Throwable ignored) {
+            // 이미 풀렸으면 그대로
         }
+        backCb = null;
     }
 
     // ───────── 엔진 ↔ 화면 ─────────
@@ -491,8 +529,11 @@ public class MainActivity extends Activity {
 
     private void applyBars() {
         Window w = getWindow();
-        w.setStatusBarColor(0xFF000000);                       // 상태 표시줄은 길동무처럼 늘 검정 + 흰 아이콘
-        w.setNavigationBarColor(Pal.c(Pal.NAV));
+        if (outerV != null) outerV.setBackgroundColor(Pal.c(Pal.NAV));          // 15+ 에서는 막대 색이 무시되고 뒤가 비쳐 보이므로 내비게이션 막대 자리는 탭 막대 색으로 채운다
+        if (Build.VERSION.SDK_INT < 35) {
+            w.setStatusBarColor(0xFF000000);                   // 상태 표시줄은 길동무처럼 늘 검정 + 흰 아이콘
+            w.setNavigationBarColor(Pal.c(Pal.NAV));
+        }
         WindowInsetsControllerCompat ic = WindowCompat.getInsetsController(w, w.getDecorView());
         ic.setAppearanceLightStatusBars(false);
         ic.setAppearanceLightNavigationBars(!Pal.dark);
