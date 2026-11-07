@@ -5,15 +5,15 @@ plugins {
 // 푸시(FCM): app/google-services.json 이 있을 때만 구글 서비스 플러그인을 켠다(없으면 푸시만 빠지고 빌드는 그대로 된다).
 if (file('google-services.json').exists()) { apply plugin: 'com.google.gms.google-services' }
 
-// 길동무 키즈: 순수 네이티브(Java) 앱. 길동무와 같은 도구 버전(AGP 8.2.1, Java 17, minSdk 26)을 쓴다.
+// 길동무 키즈: 순수 네이티브(Java) 앱. AGP 8.13, Java 17, minSdk 26, targetSdk 36(구글 플레이는 2026-08-31부터 신규 앱·업데이트에 API 36 이상을 요구한다).
 android {
     namespace 'com.dullyyj.kids'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId 'com.dullyyj.kids'
         minSdk 26
-        targetSdk 34
+        targetSdk 36
         versionCode = Integer.parseInt(System.getenv('ANDROID_VERSION_CODE') ?: '1')
         versionName '0.1-native'
     }
@@ -23,10 +23,24 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    // 플레이 업로드용 서명: 키 파일 · 비밀번호는 저장소에 두지 않고 CI 비밀값(환경 변수)으로만 받는다.
+    signingConfigs {
+        upload {
+            def ks = System.getenv('KIDS_KEYSTORE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('KIDS_STORE_PASSWORD')
+                keyAlias System.getenv('KIDS_KEY_ALIAS')
+                keyPassword System.getenv('KIDS_KEY_PASSWORD')
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig signingConfigs.debug
+            // 업로드 키가 없으면 디버그 키로 서명된다(시험용). 플레이는 디버그 서명 번들을 받지 않으므로 CI 가 키 유무를 먼저 검사한다.
+            signingConfig System.getenv('KIDS_KEYSTORE') ? signingConfigs.upload : signingConfigs.debug
         }
     }
 
@@ -37,8 +51,8 @@ android {
 }
 
 dependencies {
-    implementation 'androidx.core:core:1.12.0'
-    implementation platform('com.google.firebase:firebase-bom:33.5.1')
+    implementation 'androidx.core:core:1.16.0'
+    implementation platform('com.google.firebase:firebase-bom:33.16.0')
     implementation 'com.google.firebase:firebase-messaging'
     implementation 'com.google.android.gms:play-services-location:21.3.0'
     implementation 'com.google.zxing:core:3.5.3'
