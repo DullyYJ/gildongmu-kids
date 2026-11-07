@@ -30,8 +30,8 @@ android {
             if (ks) {
                 storeFile file(ks)
                 storePassword System.getenv('KIDS_STORE_PASSWORD')
-                keyAlias System.getenv('KIDS_KEY_ALIAS')
-                keyPassword System.getenv('KIDS_KEY_PASSWORD')
+                keyAlias System.getenv('KIDS_KEY_ALIAS') ?: 'upload'
+                keyPassword System.getenv('KIDS_KEY_PASSWORD') ?: System.getenv('KIDS_STORE_PASSWORD')
             }
         }
     }
