@@ -41,7 +41,7 @@ public final class Calls {
     }
 
     static void noParentToast(Activity a) {
-        if (a != null && !a.isFinishing() && !a.isDestroyed()) Toast.makeText(a, "부모님과 연결하면 쓸 수 있어요", Toast.LENGTH_SHORT).show();
+        if (a != null && !a.isFinishing() && !a.isDestroyed()) Toast.makeText(a, "가족과 연결하면 쓸 수 있어요", Toast.LENGTH_SHORT).show();
     }
 
     private static void buzz(Activity a, long ms) {
@@ -82,7 +82,7 @@ public final class Calls {
         if (burst() || !ready(a)) return;
         final int[] left = {sec};
         final boolean[] stop = {false};
-        final Pop.Win d = Pop.show(a, "긴급 호출", sec + "초 뒤에 부모님께 알려요", false,
+        final Pop.Win d = Pop.show(a, "긴급 호출", sec + "초 뒤에 가족에게 알려요", false,
                 new Pop.Btn("119", Pop.ALERT, new Runnable() {
                     @Override
                     public void run() {
@@ -111,7 +111,7 @@ public final class Calls {
                     return;
                 }
                 buzz(a, 40L);
-                d.setMessage(left[0] + "초 뒤에 부모님께 알려요");
+                d.setMessage(left[0] + "초 뒤에 가족에게 알려요");
                 MAIN.postDelayed(tick[0], 1000L);
             }
         };
@@ -131,7 +131,7 @@ public final class Calls {
                         if (a.isFinishing() || a.isDestroyed()) return;
                         if (!ok) failed(a, "sos", "보내지 못했어요. 연결을 확인하고 다시 보내거나 119에 전화해 주세요");
                         else if (linked == 0) noParent(a);
-                        else status(a, "sos", "부모님께 알렸어요");
+                        else status(a, "sos", "가족에게 알렸어요");
                     }
                 });
             }
@@ -139,7 +139,7 @@ public final class Calls {
     }
 
     private static void noParent(final Activity a) {
-        Pop.show(a, "연결된 부모님이 없어요", "지금 위급하면 119에 전화해 주세요", true,
+        Pop.show(a, "연결된 가족이 없어요", "지금 위급하면 119에 전화해 주세요", true,
                 new Pop.Btn("닫기", Pop.PLAIN, null),
                 new Pop.Btn("119", Pop.ALERT, new Runnable() {
                     @Override
@@ -217,7 +217,7 @@ public final class Calls {
     public static void arrivedAsk(final Activity a) {
         if (burst() || !ready(a)) return;
         if (!linkedOk()) { noParentToast(a); return; }
-        Pop.show(a, "안전 도착", "안전하게 도착했다고 부모님께 알릴까요?", true,
+        Pop.show(a, "안전 도착", "안전하게 도착했다고 가족에게 알릴까요?", true,
                 new Pop.Btn("아니요", Pop.PLAIN, null),
                 new Pop.Btn("알리기", Pop.MAIN, new Runnable() {
                     @Override
@@ -241,7 +241,7 @@ public final class Calls {
                     @Override
                     public void run() {
                         if (a.isFinishing() || a.isDestroyed()) return;
-                        String m = !ok ? "보내지 못했어요. 연결을 확인해 주세요" : linked == 0 ? "연결된 부모님이 없어요" : np == 0 ? NO_PUSH : dup ? "방금 알렸어요" : "부모님께 안전하게 도착했다고 알렸어요";
+                        String m = !ok ? "보내지 못했어요. 연결을 확인해 주세요" : linked == 0 ? "연결된 가족이 없어요" : np == 0 ? NO_PUSH : dup ? "방금 알렸어요" : "가족에게 안전하게 도착했다고 알렸어요";
                         Toast.makeText(a, m, Toast.LENGTH_LONG).show();
                     }
                 });
@@ -250,7 +250,7 @@ public final class Calls {
     }
 
     /** 부모님이 아직 확인(법정대리인 확인 · 알림 설정)을 마치지 않아 알림을 받을 수 없을 때 아이에게 보여 주는 글. */
-    static final String NO_PUSH = "부모님이 아직 확인을 마치지 않아서 알림이 가지 않아요";
+    static final String NO_PUSH = "가족이 아직 확인을 마치지 않아서 알림이 가지 않아요";
 
     // ───────── 데리러 와 주세요 ─────────
 
@@ -258,7 +258,7 @@ public final class Calls {
     public static void pickup(final Activity a) {
         if (burst() || !ready(a)) return;
         if (!linkedOk()) { noParentToast(a); return; }
-        Pop.show(a, "데리러 와 주세요", "부모님께 데리러 와 달라고 알릴까요?", true,
+        Pop.show(a, "데리러 와 주세요", "가족에게 데리러 와 달라고 알릴까요?", true,
                 new Pop.Btn("아니요", Pop.PLAIN, null),
                 new Pop.Btn("알리기", Pop.MAIN, new Runnable() {
                     @Override
@@ -282,9 +282,9 @@ public final class Calls {
                     public void run() {
                         if (a.isFinishing() || a.isDestroyed()) return;
                         if (!ok) failed(a, "pick", "보내지 못했어요. 연결을 확인해 주세요");
-                        else if (linked == 0) Toast.makeText(a, "연결된 부모님이 없어요", Toast.LENGTH_SHORT).show();
-                        else if (np == 0) Pop.show(a, "데리러 와 주세요", NO_PUSH + ". 부모님께 직접 말씀드려 주세요", true, new Pop.Btn("닫기", Pop.MAIN, null));
-                        else status(a, "pick", "부모님께 알렸어요");
+                        else if (linked == 0) Toast.makeText(a, "연결된 가족이 없어요", Toast.LENGTH_SHORT).show();
+                        else if (np == 0) Pop.show(a, "데리러 와 주세요", NO_PUSH + ". 가족에게 직접 말씀드려 주세요", true, new Pop.Btn("닫기", Pop.MAIN, null));
+                        else status(a, "pick", "가족에게 알렸어요");
                     }
                 });
             }

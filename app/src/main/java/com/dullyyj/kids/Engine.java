@@ -1351,20 +1351,20 @@ final class Engine {
         JSONObject c = b("chips", "eq", "1", "loop", "1");
         put(c, "items", chips);
         a.put(c);
-        a.put(b("text", "text", kid ? "부모님이 길동무 앱에서 보내 주신 미션이에요. 해내면 부모님이 완료를 눌러 주고, 그러면 길동무포인트가 올라가요." : "내가 부모님께 보내는 미션이에요(한 번에 길동무포인트 50). 부모님이 승낙하면 차감돼요.", "sub", "1"));
-        if (!kid) a.put(b("input", "hint", "부모님께 보낼 미션을 적어요", "act", "quest.send"));
+        a.put(b("text", "text", kid ? "가족이 길동무 앱에서 보내 주신 미션이에요. 해내면 가족이 완료를 눌러 주고, 그러면 길동무포인트가 올라가요." : "내가 가족에게 보내는 미션이에요(한 번에 길동무포인트 50). 가족이 승낙하면 차감돼요.", "sub", "1"));
+        if (!kid) a.put(b("input", "hint", "가족에게 보낼 미션을 적어요", "act", "quest.send"));
         int shown = 0;
         for (int i = quests.length() - 1; i >= 0; i--) {
             JSONObject q = quests.optJSONObject(i);
             if (q == null || "p".equals(q.optString("k")) == kid) continue;
             int qs = q.optInt("s", 0);
             boolean done = kid ? qs >= 2 : qs == 1;                  // 가족구성원 미션은 부모님이 완료(2) · 부모님 미션은 가족구성원이 완료(1)
-            String st = kid ? (done ? "완료! 포인트 +" + q.optInt("pt", 1) + " 받았어요" : "부모님이 완료해 주면 포인트 +" + q.optInt("pt", 1)) : (done ? "완료했어요" : "부모님이 해 주셨으면 눌러서 완료해요");
+            String st = kid ? (done ? "완료! 포인트 +" + q.optInt("pt", 1) + " 받았어요" : "가족이 완료해 주면 포인트 +" + q.optInt("pt", 1)) : (done ? "완료했어요" : "가족이 해 주셨으면 눌러서 완료해요");
             a.put(b("card", "title", q.optString("x"), "text", st, "thumb", "", "act", !kid && !done ? "quest.pdone:" + q.optString("i") : "", "tone", done ? "0" : "1"));
             shown++;
         }
         if (shown == 0) {
-            a.put(b("card", "title", kid ? "아직 받은 미션이 없어요" : "아직 보낸 미션이 없어요", "text", kid ? "부모님이 길동무 앱에서 미션을 보내면 여기에 나타나요" : "위 칸에 적어서 부모님께 보내 보세요", "thumb", "", "act", ""));
+            a.put(b("card", "title", kid ? "아직 받은 미션이 없어요" : "아직 보낸 미션이 없어요", "text", kid ? "가족이 길동무 앱에서 미션을 보내면 여기에 나타나요" : "위 칸에 적어서 가족에게 보내 보세요", "thumb", "", "act", ""));
         }
         return wrap("scroll", a);
     }
@@ -1490,16 +1490,16 @@ final class Engine {
     private String consentScreen() {
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "시작하기 전에 읽어 주세요"));
-        a.put(b("text", "text", "길동무 패밀리는 부모님께 내 위치를 알려 주는 앱이에요. 길동무 친구들과 놀면서 지내요."));
-        a.put(b("card", "title", "알리는 것", "text", "내 휴대폰의 위치와 알린 시각, 배터리 잔량이에요. 평소에는 몇 분마다 알리고, 부모님이 지도를 보는 동안에는 몇 초마다 알려요. 이때는 맨 위 줄과 알림에 '부모님이 지금 내 위치를 보고 있어요'라고 보여요.", "thumb", "", "act", ""));
-        a.put(b("card", "title", "앱을 닫아도 계속돼요", "text", "내가 위치 공유를 켜 두면, 앱을 닫거나 화면을 꺼도 '부모님께 내 위치 알리기'와 '집·학교 도착·출발 알림'을 위해 위치를 계속 사용해요. 상태 표시줄에 알림이 항상 보여요.", "thumb", "", "act", ""));
-        a.put(b("card", "title", "누가 쓸 수 있나요", "text", "만 9살 이상 가족구성원이 쓸 수 있어요. 부모님(법정대리인)과 함께 읽고 정해요.", "thumb", "", "act", ""));
-        a.put(b("card", "title", "누가 보나요", "text", "내가 QR이나 비밀키로 연결한 부모님만 볼 수 있어요.", "thumb", "", "act", ""));
+        a.put(b("text", "text", "길동무 패밀리는 가족에게 내 위치를 알려 주는 앱이에요. 길동무 친구들과 놀면서 지내요."));
+        a.put(b("card", "title", "알리는 것", "text", "내 휴대폰의 위치와 알린 시각, 배터리 잔량이에요. 평소에는 몇 분마다 알리고, 가족이 지도를 보는 동안에는 몇 초마다 알려요. 이때는 맨 위 줄과 알림에 '가족이 지금 내 위치를 보고 있어요'라고 보여요.", "thumb", "", "act", ""));
+        a.put(b("card", "title", "앱을 닫아도 계속돼요", "text", "내가 위치 공유를 켜 두면, 앱을 닫거나 화면을 꺼도 '가족에게 내 위치 알리기'와 '집·학교 도착·출발 알림'을 위해 위치를 계속 사용해요. 상태 표시줄에 알림이 항상 보여요.", "thumb", "", "act", ""));
+        a.put(b("card", "title", "누가 쓸 수 있나요", "text", "만 13세 이상이 쓸 수 있어요. 만 14세 미만이면 법정대리인(부모님)과 함께 읽고 정해요.", "thumb", "", "act", ""));
+        a.put(b("card", "title", "누가 보나요", "text", "내가 QR이나 비밀키로 연결한 가족만 볼 수 있어요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "언제든 끌 수 있어요", "text", "설정에서 위치 공유를 끄거나 동의를 거둘 수 있어요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "보관", "text", "위치 기록은 3일, 지난 길은 7일, 오래 머문 곳은 30일 뒤에 지워져요. 연결을 끊으면 바로 모두 지워져요.", "thumb", "", "act", ""));
         a.put(legalLinks());
         a.put(b("gap", "h", "8"));
-        a.put(b("switch", "label", "보호자(부모님)가 위 내용을 확인하고 동의했어요", "on", store.get("cp2", "0"), "act", "consent.parent"));
+        a.put(b("switch", "label", "위 내용을 확인하고 동의했어요 (만 14세 미만은 법정대리인이 함께 확인해요)", "on", store.get("cp2", "0"), "act", "consent.parent"));
         a.put(b("switch", "label", "나도 위 내용을 이해했고 동의해요", "on", store.get("cc2", "0"), "act", "consent.child"));
         boolean ok = "1".equals(store.get("cp2", "0")) && "1".equals(store.get("cc2", "0"));
         JSONArray it = new JSONArray();
@@ -1658,7 +1658,7 @@ final class Engine {
         JSONArray k1 = new JSONArray();
         k1.put(b("text", "text", "글자만 보낼 수 있어요. 대화는 7일이 지나면 지워져요.", "sub", "1", "tight", "1"));
         if (chat.length() == 0) {
-            k1.put(b("text", "text", "아직 대화가 없어요. 부모님이 연결되면 여기서 이야기할 수 있어요.", "sub", "1", "tight", "1"));
+            k1.put(b("text", "text", "아직 대화가 없어요. 가족이 연결되면 여기서 이야기할 수 있어요.", "sub", "1", "tight", "1"));
         }
         JSONObject bx1 = b("box", "flush", "1");
         put(bx1, "kids", k1);
@@ -1699,7 +1699,7 @@ final class Engine {
     private String mgAuthSheet() {
         JSONArray a = new JSONArray();
         a.put(b("head", "text", mg == 3 ? "비밀번호를 넣어요" : mg == 2 ? "한 번 더 넣어요" : "비밀번호를 정해요"));
-        a.put(b("text", "text", mg == 3 ? "관리에 들어가려면 숫자 4자리 비밀번호가 필요해요." : mg == 2 ? "방금 정한 숫자 4자리를 똑같이 한 번 더 넣어요." : "처음이에요. 부모님과 함께 숫자 4자리 비밀번호를 정해요. 다음부터는 이 번호로 들어와요.", "sub", "1"));
+        a.put(b("text", "text", mg == 3 ? "관리에 들어가려면 숫자 4자리 비밀번호가 필요해요." : mg == 2 ? "방금 정한 숫자 4자리를 똑같이 한 번 더 넣어요." : "처음이에요. 가족과 함께 숫자 4자리 비밀번호를 정해요. 다음부터는 이 번호로 들어와요.", "sub", "1"));
         a.put(b("pw", "hint", "숫자 4자리", "btn", mg == 3 ? "열기" : "확인", "act", "mg.pw"));
         if (!mgErr.isEmpty()) a.put(b("text", "text", mgErr, "sub", "1"));
         JSONArray it = new JSONArray();
@@ -1727,16 +1727,16 @@ final class Engine {
         if (mg != 4) return mgAuthSheet();
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "관리"));
-        a.put(b("switch", "label", "내 위치를 부모님께 알리기", "on", loc ? "1" : "0", "act", "loc.toggle"));
+        a.put(b("switch", "label", "내 위치를 가족에게 알리기", "on", loc ? "1" : "0", "act", "loc.toggle"));
         a.put(b("text", "text", locLine(), "sub", "1"));
         a.put(b("gap", "h", "10"));
-        a.put(b("head", "text", "부모님과 연결", "small", "1"));
+        a.put(b("head", "text", "가족과 연결", "small", "1"));
         if (!pairCode.isEmpty()) {
             a.put(b("qr", "text", "https://gildongmu-kids.phg0643.workers.dev/q?k=" + pairCode));
             a.put(b("text", "text", "비밀키  " + pairCode, "big", "1"));
-            a.put(b("text", "text", "부모님 길동무 앱에서 QR을 찍거나 비밀키를 넣어요. 10분 안에 써야 해요.", "sub", "1"));
+            a.put(b("text", "text", "가족의 길동무 앱에서 QR을 찍거나 비밀키를 넣어요. 10분 안에 써야 해요.", "sub", "1"));
         } else {
-            a.put(b("text", "text", "부모님의 길동무 앱과 QR이나 비밀키로 연결하면, 연결한 부모님만 내 위치를 볼 수 있어요.", "sub", "1"));
+            a.put(b("text", "text", "가족의 길동무 앱과 QR이나 비밀키로 연결하면, 연결한 가족만 내 위치를 볼 수 있어요.", "sub", "1"));
         }
         JSONArray it = new JSONArray();
         it.put(b("i", "label", pairCode.isEmpty() ? "연결 QR 만들기" : "새 QR 만들기", "act", "pair.new", "on", "1"));
@@ -1744,7 +1744,7 @@ final class Engine {
         JSONObject bt = b("btns");
         put(bt, "items", it);
         a.put(bt);
-        a.put(b("text", "text", pairErr.isEmpty() ? (linked > 0 ? "연결된 부모님 " + linked + "명이 내 위치를 볼 수 있어요." : "아직 연결된 부모님이 없어요. 연결되기 전에는 위치가 서버에 저장되지 않아요.") : "서버에 연결하지 못했어요. 잠시 뒤에 다시 눌러 주세요.", "sub", "1"));
+        a.put(b("text", "text", pairErr.isEmpty() ? (linked > 0 ? "연결된 가족 " + linked + "명이 내 위치를 볼 수 있어요." : "아직 연결된 가족이 없어요. 연결되기 전에는 위치가 서버에 저장되지 않아요.") : "서버에 연결하지 못했어요. 잠시 뒤에 다시 눌러 주세요.", "sub", "1"));
         a.put(b("gap", "h", "10"));
         a.put(legalLinks());
         JSONArray it2 = new JSONArray();
