@@ -1,4 +1,4 @@
-// 비용 절감 시험(s426): 부모가 키즈 화면을 보는 동안만 자녀 보고를 촘촘히 받고(watch 푸시 · 응답 w) · 가는 방향 · 따라가기(fol) · 15분 뒤 느슨해짐 · 보는 사람이 없으면 원래대로
+// 비용 절감 시험(s426): 부모가 가족 화면을 보는 동안만 가족구성원 보고를 촘촘히 받고(watch 푸시 · 응답 w) · 가는 방향 · 따라가기(fol) · 15분 뒤 느슨해짐 · 보는 사람이 없으면 원래대로
 // 실행: node --no-warnings test/slow.test.mjs
 import fs from 'fs';
 import crypto from 'crypto';
@@ -108,7 +108,7 @@ chk(r.sl === 1, '장소가 800m 밖이면 sl:1');
 // ── 보는 사람이 있으면 sl 이 없다 ──
 await hubScr(); await hubScr('wait');
 NOW += 2 * SEC; r = await loc();
-chk(!r.sl && r.w > 0, '부모가 키즈 화면을 보는 중이면 sl 이 없고 w 가 온다');
+chk(!r.sl && r.w > 0, '부모가 가족 화면을 보는 중이면 sl 이 없고 w 가 온다');
 
 // ── ② 아무도 안 보면 화면 갱신 신호(rev)를 올리지 않는다 · 보는 중에는 올린다 ──
 NOW += 2 * MIN;                                  // 보는 중 시각이 지나 보는 사람 없음

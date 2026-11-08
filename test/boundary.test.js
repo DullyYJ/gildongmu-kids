@@ -1,4 +1,4 @@
-// 계산 ↔ 그림 경계 점검(키즈 앱, s388): "계산은 엔진, 앱은 그림만".
+// 계산 ↔ 그림 경계 점검(패밀리 앱, s388): "계산은 엔진, 앱은 그림만".
 //   ① 그림 클래스(뷰·그리기 도우미)는 무작위 · 기기 저장소 · 직접 네트워크 · Engine/Store 호출을 하지 않는다 — 예외는 ALLOW 에 이유와 함께
 //   ② 엔진/계산 클래스(Engine · Wardrobe · Art · Dress · Poke · Wander · Kid · Wire/Net)는 android.* 를 모른다(JVM 에서 시험 가능)
 //   ③ 앱 어디서든 시드 없는 무작위는 엔진(Engine.java)에서만
@@ -59,7 +59,7 @@ const noClear = timeMaps.filter(n => !new RegExp('\\b' + n + '\\.clear\\(\\)').t
 ok(timeMaps.length >= 8 && noClear.length === 0, `장면 패치의 장면 시간 값 ${timeMaps.length}개를 새 장면마다 비운다` + (noClear.length ? ' ← ' + noClear.join(', ') : ''));
 ok(/au - S\.t <= ANGRY_SEC/.test(ka) && /angryUntil\.put\(a\.id, S\.t \+ ANGRY_SEC\)/.test(ka), '화남은 건드린 뒤 ANGRY_SEC 를 넘겨 이어지지 않는다(옛 값이 남아도)');
 
-// 부모가 처음 열었는데 자녀 위치가 없으면 서버가 '위치 한 번 올려'(k=locreq) 푸시를 보낸다 — 앱은 받아서 읽기만 하고 올리는 판단은 엔진이(s390)
+// 부모가 처음 열었는데 가족구성원 위치가 없으면 서버가 '위치 한 번 올려'(k=locreq) 푸시를 보낸다 — 앱은 받아서 읽기만 하고 올리는 판단은 엔진이(s390)
 const pushSrc = code('Push.java'), lrSrc = code('LocReq.java'), engSrc = code('Engine.java');
 ok(/"locreq"\.equals\(d\.get\("k"\)\)[\s\S]{0,200}LocReq\.once\(/.test(pushSrc) && pushSrc.indexOf('locreq') < pushSrc.indexOf('body == null || body.isEmpty()'), '푸시: locreq 는 알림 글(body) 검사보다 먼저 처리하고 알림을 띄우지 않는다');
 ok(/locOn\(\)/.test(lrSrc) && /ACCESS_FINE_LOCATION/.test(lrSrc) && /Core\.engine\.locAsk\(\)/.test(lrSrc) && /Core\.engine\.lastFix\(/.test(lrSrc), '위치 요청: 공유가 켜져 있고 권한이 있을 때만 · 올리는 판단은 엔진(locAsk · lastFix)');

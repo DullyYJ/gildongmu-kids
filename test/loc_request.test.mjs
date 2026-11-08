@@ -8,7 +8,7 @@ const t = fn((p) => p, async (env, DB, cid, data) => { calls.push([cid, data]); 
 const mk = (row) => ({ prepare: () => ({ bind: () => ({ first: async () => row }) }) });
 const now = 1e12; let ok = 0, bad = 0;
 const chk = (c, msg) => { if (c) { ok++; console.log('  ok  ', msg); } else { bad++; console.log('  FAIL', msg); } };
-chk(await t.askLoc({}, mk(null), 'c1', now) === true && calls.length === 1 && calls[0][1].k === 'locreq', '위치가 없으면 자녀 폰에 요청한다');
+chk(await t.askLoc({}, mk(null), 'c1', now) === true && calls.length === 1 && calls[0][1].k === 'locreq', '위치가 없으면 가족구성원 폰에 요청한다');
 chk(await t.askLoc({}, mk(null), 'c1', now + 60000) === false && calls.length === 1, '3분 안에는 다시 묻지 않는다');
 chk(await t.askLoc({}, mk(null), 'c1', now + 181000) === true && calls.length === 2, '3분이 지나면 다시 묻는다');
 chk(await t.askLoc({}, mk({ t: now - 60000 }), 'c2', now) === false && calls.length === 2, '방금(1분 전) 받은 위치가 있으면 묻지 않는다');

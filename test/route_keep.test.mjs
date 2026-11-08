@@ -1,4 +1,4 @@
-// 지난 경로 보관 시험(s391): 30분 정지 → 길 저장 · 자녀당 10개(11번째부터 오래된 것 삭제) · 150m 미만 제외 · 보고 끊김은 정지가 아님 · 지난 경로 보기 화면 · 연결 해제 시 삭제
+// 지난 경로 보관 시험(s391): 30분 정지 → 길 저장 · 가족구성원당 10개(11번째부터 오래된 것 삭제) · 150m 미만 제외 · 보고 끊김은 정지가 아님 · 지난 경로 보기 화면 · 연결 해제 시 삭제
 // 실행: node --no-warnings test/route_keep.test.mjs   (Node 22+ 의 node:sqlite 로 가짜 D1 을 만들어 워커를 그대로 돌린다)
 import fs from 'fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -87,7 +87,7 @@ await req('POST', '/reg', null, { id: PID, sec: PS, role: 'p' });
 const pr = await req('POST', '/c/pair', 'c', {});
 const jr = await req('POST', '/p/join', 'p', { code: pr.code, nm: '엄마' });
 await req('POST', '/p/act', 'p', { v: 'kg.ok', cid: CID });
-chk(jr.ok && jr.cid === CID, '연결(자녀 ↔ 부모)');
+chk(jr.ok && jr.cid === CID, '연결(가족구성원 ↔ 부모)');
 
 const rows = (sql, ...a) => DB._db.prepare(sql).all(...a);
 let la = 37.5000, lo = 126.8400;                     // 집
@@ -127,7 +127,7 @@ chk(rt.length === 10, '길이 13개 쌓여도 10개만 남는다(' + rt.length +
 chk(rt.every((r, i) => i === 0 || r.id > rt[i - 1].id), '남은 것은 가장 최근 10개(번호가 이어진다)');
 const maxId = rows('SELECT MAX(id) m FROM routes')[0].m;
 chk(rt[0].id === maxId - 9, '가장 오래된 것부터 지워졌다');
-chk(rows('SELECT COUNT(*) n FROM routes WHERE cid=?', 'other0000001')[0].n === 0, '자녀별로 센다(다른 자녀 몫은 건드리지 않는다)');
+chk(rows('SELECT COUNT(*) n FROM routes WHERE cid=?', 'other0000001')[0].n === 0, '가족구성원별로 센다(다른 가족구성원 몫은 건드리지 않는다)');
 
 // ── 화면 ──
 const hub = await req('GET', '/p/screen?v=hub&cid=' + CID, 'p');

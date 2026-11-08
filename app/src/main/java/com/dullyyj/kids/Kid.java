@@ -7,7 +7,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * 길동무 키즈 서버(Cloudflare Worker + D1, engine/kids-worker.js)와 말하는 작은 통로.
+ * 길동무 패밀리 서버(Cloudflare Worker + D1, engine/kids-worker.js)와 말하는 작은 통로.
  * 가족대화 · 퀘스트 · 부모 연결 · 위치는 모두 이 서버가 계산하고 저장한다. 앱은 받은 화면을 그리기만 한다.
  * 모든 호출은 뒤 스레드(Wire.EX)에서만 쓴다 — 주 스레드에서 부르지 않는다.
  */

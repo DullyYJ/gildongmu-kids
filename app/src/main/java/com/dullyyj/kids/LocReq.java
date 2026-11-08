@@ -14,14 +14,14 @@ import com.google.android.gms.tasks.CancellationTokenSource;
 import com.google.android.gms.tasks.OnSuccessListener;
 
 /**
- * 부모가 처음 열었는데 자녀 위치가 없을 때 서버(엔진)가 보내는 '위치 한 번 올려' 푸시(k=locreq)를 처리한다.
+ * 부모가 처음 열었는데 가족구성원 위치가 없을 때 서버(엔진)가 보내는 '위치 한 번 올려' 푸시(k=locreq)를 처리한다.
  * 무엇을 언제 요청할지는 서버가 정한다. 여기는 위치 한 번을 읽어 엔진에 넘길 뿐이다(엔진이 부모에게 올린다).
  * 위치 공유를 껐거나 동의·권한이 없으면 아무것도 하지 않는다.
  */
 final class LocReq {
     private LocReq() {}
 
-    /** 부모가 키즈 화면을 보기 시작했다는 푸시(k=watch): 빠른 보고 주기로 바꾸고(서비스를 다시 걸어 주기를 새로 정하게 한다) 위치를 한 번 바로 올린다. 이후는 서버 응답이 정한다. */
+    /** 부모가 가족 화면을 보기 시작했다는 푸시(k=watch): 빠른 보고 주기로 바꾸고(서비스를 다시 걸어 주기를 새로 정하게 한다) 위치를 한 번 바로 올린다. 이후는 서버 응답이 정한다. */
     static void watch(final Context c) {
         try {
             if (c == null || Core.engine == null || !Core.engine.locOn()) return;

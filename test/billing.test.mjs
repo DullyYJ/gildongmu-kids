@@ -85,10 +85,10 @@ chk(/sub\.buy/.test(js) && /gildongmu_gps/.test(js) && /monthly/.test(js) && !/y
 chk(/14일 무료/.test(js) && /2,900/.test(js) && !/24,900/.test(js), '안내 화면: 무료 체험 14일 · 월 2,900원 단일 요금제');
 chk((await req('GET', '/p/loc?cid=' + CID, 'p')).loc === null, '옛 위치 주소(/p/loc)도 구독 없으면 위치를 주지 않는다');
 const ch = await req('GET', '/p/children', 'p');
-chk(ch.children.length === 1 && ch.children[0].la === null && ch.children[0].lo === null, '자녀 목록도 구독 없으면 좌표가 없다');
+chk(ch.children.length === 1 && ch.children[0].la === null && ch.children[0].lo === null, '가족구성원 목록도 구독 없으면 좌표가 없다');
 const ro = await req('POST', '/p/act', 'p', { v: 'kr.open', cid: CID });
 chk(ro.ok && ro.close === true && !ro.screen, '지난 길 같은 위치 동작도 구독 없으면 받지 않는다');
-chk(rows('SELECT wt FROM devices WHERE id=?', PID)[0].wt === wtBefore, '구독 없으면 "보는 중" 표시도 하지 않는다(자녀 폰이 빠른 보고로 바뀌지 않는다)');
+chk(rows('SELECT wt FROM devices WHERE id=?', PID)[0].wt === wtBefore, '구독 없으면 "보는 중" 표시도 하지 않는다(가족구성원 폰이 빠른 보고로 바뀌지 않는다)');
 // 긴급 호출은 늘 무료
 await req('POST', '/c/call', 'c', { k: 'sos', la: 37.5, lo: 126.84 });
 const hp = await hubOf();

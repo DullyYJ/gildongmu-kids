@@ -15,7 +15,7 @@ import java.util.Random;
 import java.util.UUID;
 
 /**
- * 길동무 키즈 엔진 — 판단·계산은 전부 여기서 하고, 화면은 JSON 으로 내려 준다(앱은 그리기만 한다).
+ * 길동무 패밀리 엔진 — 판단·계산은 전부 여기서 하고, 화면은 JSON 으로 내려 준다(앱은 그리기만 한다).
  * 지금은 기기 안에서 도는 임시 엔진이며, 서버(워커 gildongmu-kids-api)가 생기면 같은 JSON 을 서버가 내려준다.
  * 모든 공개 메서드는 synchronized — 엔진 스레드(1초 틱)와 위치 스레드(lastFix)가 함께 부른다.
  */
@@ -31,7 +31,7 @@ final class Engine {
     static final long CHAT_KEEP_MS = 7L * 24L * 3600L * 1000L; // 가족 대화 보관(최대 7일)
     static final long LOC_INTERVAL_MS = 300000L;        // 위치 보내는 주기(5분)
     static final long LOC_SLOW_MS = 480000L;            // s426: 서버가 "가만히 · 장소와 멀리 · 약속 없음 · 보는 사람 없음"이라고 알려 주면(sl) 8분마다(위치 끊김 점검은 20분이라 그보다 짧게)
-    static final long LOC_MOVING_MS = 180000L;          // p-kids53(YJ): 자녀가 움직인다고 판단(GPS 이동 발생)하면 3분마다 위치를 확인한다
+    static final long LOC_MOVING_MS = 180000L;          // p-kids53(YJ): 가족구성원이 움직인다고 판단(GPS 이동 발생)하면 3분마다 위치를 확인한다
     static final double MOVE_M = 60.0;                  // 이어진 두 위치가 이만큼(m) 이상(그리고 오차의 1.5배 이상) 떨어지면 '움직임'
     static final long MOVE_GAP_MS = 12 * 60000L;        // 두 위치 사이가 이보다 길면(꺼졌다 켜짐 등) 움직임을 판단하지 않는다
     static final long PAIR_TTL_MS = 10L * 60L * 1000L;  // 연결 비밀키 유효 시간
@@ -112,7 +112,7 @@ final class Engine {
     private long mvT = 0L;
     private boolean moving = false;
     private String pairCode = "";
-    // ── 길동무 키즈 서버(엔진) 연결 — 가족대화·퀘스트 화면은 서버가 만들어 주고, 앱은 받아서 그리기만 한다
+    // ── 길동무 패밀리 서버(엔진) 연결 — 가족대화·퀘스트 화면은 서버가 만들어 주고, 앱은 받아서 그리기만 한다
     private final HashMap<String, String> rem = new HashMap<String, String>();
     private volatile boolean regOk = false;
     private boolean remBusy = false;
@@ -535,7 +535,7 @@ final class Engine {
     }
 
     /**
-     * 자녀가 누른 일을 서버(/c/call)에 알린다. kind: "sos"(긴급 호출) · "pick"(데리러 와줘) · "arr"(안전하게 도착). cancel 은 sos · pick 취소.
+     * 가족구성원이 누른 일을 서버(/c/call)에 알린다. kind: "sos"(긴급 호출) · "pick"(데리러 와줘) · "arr"(안전하게 도착). cancel 은 sos · pick 취소.
      * 서버가 알림 · 기록 · 장소 이름을 정한다(앱은 누른 일과 지금 위치만 보낸다). 연결이 안 되면 ok=false.
      */
     void callSend(final String kind, final boolean cancel, final CallCb cb) {
@@ -771,7 +771,7 @@ final class Engine {
 
     private void kidEv(String k, String name) {
         if (linked <= 0 || !consented() || name == null || name.isEmpty()) return;
-        if (!(k.equals("eat") || k.equals("clean") || k.equals("drop") || k.equals("psleep") || k.equals("pstudy") || k.equals("pplay"))) return;           // 자녀가 직접 누른 일만(재우기 · 공부 시키기 · 놀게 하기 포함 — 친구들 스스로의 놀기 · 공부 · 잠 · 응가는 알리지 않는다)
+        if (!(k.equals("eat") || k.equals("clean") || k.equals("drop") || k.equals("psleep") || k.equals("pstudy") || k.equals("pplay"))) return;           // 가족구성원이 직접 누른 일만(재우기 · 공부 시키기 · 놀게 하기 포함 — 친구들 스스로의 놀기 · 공부 · 잠 · 응가는 알리지 않는다)
         long t = lastNow;
         String key = k + name;
         Long p = evAt.get(key);
@@ -788,7 +788,7 @@ final class Engine {
         });
     }
 
-    /** 자녀가 친구를 공중에서 떨어뜨렸다(장면 스레드에서 부른다). 땅에서 놓은 것은 세지 않는다. */
+    /** 가족구성원이 친구를 공중에서 떨어뜨렸다(장면 스레드에서 부른다). 땅에서 놓은 것은 세지 않는다. */
     synchronized void dropEv(String id, double lift) {
         if (lift < 24.0) return;
         for (int i = 0; i < fs.size(); i++) {
@@ -800,7 +800,7 @@ final class Engine {
     }
 
     private void setTm(F f, String m, long until) {
-        if ("eat".equals(m)) kidEv(m, f.name);                                              // 밥은 자녀가 줄 때만 setTm 이 불린다 — 공부 · 잠 · 놀기는 친구들이 스스로도 하므로 자녀가 누른 자리에서 따로 알린다
+        if ("eat".equals(m)) kidEv(m, f.name);                                              // 밥은 가족구성원이 줄 때만 setTm 이 불린다 — 공부 · 잠 · 놀기는 친구들이 스스로도 하므로 가족구성원이 누른 자리에서 따로 알린다
         f.tm = m;
         f.tmUntil = until;
     }
@@ -975,13 +975,13 @@ final class Engine {
         return consented() ? "" : consentScreen();
     }
 
-    /** 퀘스트: 왼쪽 자녀 미션(부모님이 보낸 것) · 오른쪽 부모님 미션(내가 부모님께 보낸 것). 길동무와 연결되기 전에는 이 기기에만 저장한다. */
+    /** 퀘스트: 왼쪽 가족구성원 미션(부모님이 보낸 것) · 오른쪽 부모님 미션(내가 부모님께 보낸 것). 길동무와 연결되기 전에는 이 기기에만 저장한다. */
     private String questScreen() {
         String r = remGet("quest:" + ("p".equals(questTab) ? "p" : "c"));
         return r.isEmpty() ? questLocal() : r;
     }
 
-    // ───────── 키즈 서버 통로(모든 통신은 뒤 스레드) ─────────
+    // ───────── 가족 서버 통로(모든 통신은 뒤 스레드) ─────────
     private String remGet(String key) {
         String s = rem.get(key);
         if (s == null) {
@@ -1346,7 +1346,7 @@ final class Engine {
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "퀘스트"));
         JSONArray chips = new JSONArray();
-        chips.put(item("자녀 미션 " + nc, "quest.tab:c", kid ? "1" : "0"));
+        chips.put(item("가족구성원 미션 " + nc, "quest.tab:c", kid ? "1" : "0"));
         chips.put(item("부모님 미션 " + np, "quest.tab:p", kid ? "0" : "1"));
         JSONObject c = b("chips", "eq", "1", "loop", "1");
         put(c, "items", chips);
@@ -1358,7 +1358,7 @@ final class Engine {
             JSONObject q = quests.optJSONObject(i);
             if (q == null || "p".equals(q.optString("k")) == kid) continue;
             int qs = q.optInt("s", 0);
-            boolean done = kid ? qs >= 2 : qs == 1;                  // 자녀 미션은 부모님이 완료(2) · 부모님 미션은 자녀가 완료(1)
+            boolean done = kid ? qs >= 2 : qs == 1;                  // 가족구성원 미션은 부모님이 완료(2) · 부모님 미션은 가족구성원이 완료(1)
             String st = kid ? (done ? "완료! 포인트 +" + q.optInt("pt", 1) + " 받았어요" : "부모님이 완료해 주면 포인트 +" + q.optInt("pt", 1)) : (done ? "완료했어요" : "부모님이 해 주셨으면 눌러서 완료해요");
             a.put(b("card", "title", q.optString("x"), "text", st, "thumb", "", "act", !kid && !done ? "quest.pdone:" + q.optString("i") : "", "tone", done ? "0" : "1"));
             shown++;
@@ -1490,10 +1490,10 @@ final class Engine {
     private String consentScreen() {
         JSONArray a = new JSONArray();
         a.put(b("head", "text", "시작하기 전에 읽어 주세요"));
-        a.put(b("text", "text", "길동무 키즈는 부모님께 내 위치를 알려 주는 앱이에요. 길동무 친구들과 놀면서 지내요."));
+        a.put(b("text", "text", "길동무 패밀리는 부모님께 내 위치를 알려 주는 앱이에요. 길동무 친구들과 놀면서 지내요."));
         a.put(b("card", "title", "알리는 것", "text", "내 휴대폰의 위치와 알린 시각, 배터리 잔량이에요. 평소에는 몇 분마다 알리고, 부모님이 지도를 보는 동안에는 몇 초마다 알려요. 이때는 맨 위 줄과 알림에 '부모님이 지금 내 위치를 보고 있어요'라고 보여요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "앱을 닫아도 계속돼요", "text", "내가 위치 공유를 켜 두면, 앱을 닫거나 화면을 꺼도 '부모님께 내 위치 알리기'와 '집·학교 도착·출발 알림'을 위해 위치를 계속 사용해요. 상태 표시줄에 알림이 항상 보여요.", "thumb", "", "act", ""));
-        a.put(b("card", "title", "누가 쓸 수 있나요", "text", "만 9살 이상 어린이가 쓸 수 있어요. 부모님(법정대리인)과 함께 읽고 정해요.", "thumb", "", "act", ""));
+        a.put(b("card", "title", "누가 쓸 수 있나요", "text", "만 9살 이상 가족구성원이 쓸 수 있어요. 부모님(법정대리인)과 함께 읽고 정해요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "누가 보나요", "text", "내가 QR이나 비밀키로 연결한 부모님만 볼 수 있어요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "언제든 끌 수 있어요", "text", "설정에서 위치 공유를 끄거나 동의를 거둘 수 있어요.", "thumb", "", "act", ""));
         a.put(b("card", "title", "보관", "text", "위치 기록은 3일, 지난 길은 7일, 오래 머문 곳은 30일 뒤에 지워져요. 연결을 끊으면 바로 모두 지워져요.", "thumb", "", "act", ""));
@@ -1893,7 +1893,7 @@ final class Engine {
             remAskT = 0L;
         } else if (v.startsWith("quest.accept:") || v.startsWith("quest.reject:") || v.startsWith("quest.fin:") || v.startsWith("quest.confirm:")) {          // 미션 승낙 · 거절 · 완료 · 확인(부모님 미션 완료 확인) — 상태 · 길동무포인트 계산은 모두 서버가 하고 새 화면을 돌려준다
             kidAct(v, "");
-        } else if (v.startsWith("quest.pdone:")) {          // (옛 단추) 부모님 미션: 자녀가 완료를 누르면 이 화면도 바로 완료로 바뀐다
+        } else if (v.startsWith("quest.pdone:")) {          // (옛 단추) 부모님 미션: 가족구성원이 완료를 누르면 이 화면도 바로 완료로 바뀐다
             for (int qi = 0; qi < quests.length(); qi++) {
                 JSONObject qq = quests.optJSONObject(qi);
                 if (qq != null && v.substring(12).equals(qq.optString("i")) && "p".equals(qq.optString("k"))) put(qq, "s", 1);

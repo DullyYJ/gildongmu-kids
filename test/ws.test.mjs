@@ -73,7 +73,7 @@ chk(sockets.length === 1 && sockets[0].sent[0] === '{"hi":1}', '허브가 연결
 r = await call(envAll, 'GET', '/p/ws?cid=' + CID, 'p', null, { Upgrade: 'websocket' });
 chk(r.status === 101 && sockets.length === 2, '켜짐: 연결된 부모도 /p/ws 로 같은 허브에 연결');
 r = await call(envAll, 'GET', '/p/ws?cid=' + CID2, 'p', null, { Upgrade: 'websocket' });
-chk(r.status === 404 && sockets.length === 2, '연결돼 있지 않은 자녀의 /p/ws 는 404(다른 가족 연결 불가)');
+chk(r.status === 404 && sockets.length === 2, '연결돼 있지 않은 가족구성원의 /p/ws 는 404(다른 가족 연결 불가)');
 r = await call(envAll, 'GET', '/c/ws', null, null, { Upgrade: 'websocket' });
 chk(r.status !== 101, '인증 없이는 연결되지 않는다(' + r.status + ')');
 r = await call(envAll, 'GET', '/c/ws', 'c');
@@ -83,9 +83,9 @@ chk(r.status === 426, 'Upgrade 머리글이 없으면 426 — 연결되지 않�
 {
   const since = revNow(), t0 = Date.now();
   r = await call(envAll, 'GET', '/c/wait?since=' + since + '&nw=1&tab=home', 'c');
-  chk(Date.now() - t0 < 500 && r.same === 1 && r.ws === 1 && r.rev === since, '자녀 nw=1: 바뀐 게 없으면 바로 {same:1, ws:1}(' + (Date.now() - t0) + 'ms)');
+  chk(Date.now() - t0 < 500 && r.same === 1 && r.ws === 1 && r.rev === since, '가족구성원 nw=1: 바뀐 게 없으면 바로 {same:1, ws:1}(' + (Date.now() - t0) + 'ms)');
   r = await call(envAll, 'GET', '/c/wait?since=' + (since - 1) + '&nw=1&tab=home', 'c');
-  chk(r.ok && r.ws === 1 && !r.same && r.rev === since, '자녀 nw=1: 값이 달라졌으면 새 묶음을 그대로 준다(+ws:1)');
+  chk(r.ok && r.ws === 1 && !r.same && r.rev === since, '가족구성원 nw=1: 값이 달라졌으면 새 묶음을 그대로 준다(+ws:1)');
   const t1 = Date.now();
   r = await call(envAll, 'GET', '/p/wait?v=hub&cid=' + CID + '&since=' + since + '&nw=1', 'p');
   chk(Date.now() - t1 < 500 && r.same === 1 && r.ws === 1, '부모 nw=1: 바뀐 게 없으면 바로 {same:1, ws:1}');
@@ -101,7 +101,7 @@ chk(r.status === 426, 'Upgrade 머리글이 없으면 426 — 연결되지 않�
   const rv = revNow();
   await call(envAll, 'POST', '/c/ev', 'c', { k: 'feed', x: '밥' });
   const after = sockets.map((s) => s.sent.length);
-  chk(after[0] === before[0] + 1 && after[1] === before[1] + 1, '자녀가 무언가 하면(rev 상승) 연결된 자녀 · 부모 둘 다 한 줄씩 받는다');
+  chk(after[0] === before[0] + 1 && after[1] === before[1] + 1, '가족구성원이 무언가 하면(rev 상승) 연결된 가족구성원 · 부모 둘 다 한 줄씩 받는다');
   const last = JSON.parse(sockets[0].sent[sockets[0].sent.length - 1]);
   chk(last.r === revNow() && last.r > rv, '그 한 줄은 {r: 새 rev} — 내용은 담지 않는다(' + sockets[0].sent[sockets[0].sent.length - 1] + ')');
 }
@@ -112,16 +112,16 @@ chk(r.status === 426, 'Upgrade 머리글이 없으면 426 — 연결되지 않�
   chk(sockets[1].sent.length === n0 + 1 && sockets[0].sent.length === m0, '끊긴 연결은 건너뛰고 남은 연결에만 보낸다');
 }
 
-// ── 카나리: 목록에 있는 자녀만 ──
+// ── 카나리: 목록에 있는 가족구성원만 ──
 {
   const envC = { DB, FAM, WS_MODE: 'canary', WS_CANARY: 'other0000001, ' + CID };
   r = await call(envC, 'GET', '/c/ws', 'c', null, { Upgrade: 'websocket' });
-  chk(r.status === 101, '카나리: 목록(쉼표 · 공백 허용)에 있는 자녀는 켜진다');
+  chk(r.status === 101, '카나리: 목록(쉼표 · 공백 허용)에 있는 가족구성원은 켜진다');
   const envD = { DB, FAM, WS_MODE: 'canary', WS_CANARY: 'other0000001' };
   r = await call(envD, 'GET', '/c/ws', 'c', null, { Upgrade: 'websocket' });
-  chk(r.status === 404, '카나리: 목록에 없는 자녀는 꺼져 있다');
+  chk(r.status === 404, '카나리: 목록에 없는 가족구성원은 꺼져 있다');
 }
-// ── 자녀 앱 소스: 서버가 허락할 때만 · 아니면 예전 그대로 ──
+// ── 가족구성원 앱 소스: 서버가 허락할 때만 · 아니면 예전 그대로 ──
 {
   const eng = fs.readFileSync(new URL('../app/src/main/java/com/dullyyj/kids/Engine.java', import.meta.url).pathname, 'utf8');
   const door = fs.readFileSync(new URL('../app/src/main/java/com/dullyyj/kids/Door.java', import.meta.url).pathname, 'utf8');
@@ -140,7 +140,7 @@ Response = RealResponse;
   const w = fs.readFileSync(file, 'utf8');
   chk(/WS_HUB_WAIT_MS = WATCH_MS \/ 2/.test(w) && (w.match(/wa: /g) || []).length >= 4, '서버가 울림 기다리는 시간(wa)을 알려 준다 — 허브 화면은 보는 중 표시(WATCH_MS)의 절반');
   const e = fs.readFileSync(new URL('../app/src/main/java/com/dullyyj/kids/Engine.java', import.meta.url).pathname, 'utf8');
-  chk(/door\.await\(seen, waOf\(r\)\)/.test(e) && !/door\.await\(seen, 45000L\)/.test(e), '자녀 앱은 서버가 준 wa 를 따른다');
+  chk(/door\.await\(seen, waOf\(r\)\)/.test(e) && !/door\.await\(seen, 45000L\)/.test(e), '가족구성원 앱은 서버가 준 wa 를 따른다');
 }
 
 console.log(`${ok} 통과, ${bad} 실패`); process.exit(bad ? 1 : 0);

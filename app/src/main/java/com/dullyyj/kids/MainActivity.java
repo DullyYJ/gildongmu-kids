@@ -77,7 +77,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         Core.init(getApplicationContext());
-        com.dullyyj.subway.SceneCore.DROP_HOOK = new com.dullyyj.subway.SceneCore.DropHook() {          // 자녀가 친구를 공중에서 떨어뜨리면 부모 "뭐하니?"에 한 줄
+        com.dullyyj.subway.SceneCore.DROP_HOOK = new com.dullyyj.subway.SceneCore.DropHook() {          // 가족구성원이 친구를 공중에서 떨어뜨리면 부모 "뭐하니?"에 한 줄
             @Override
             public void drop(String id, double lift) {
                 if (Core.engine != null) Core.engine.dropEv(id, lift);

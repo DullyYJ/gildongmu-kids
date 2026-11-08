@@ -1,4 +1,4 @@
-// 실시간 보기 시험(s393): 부모가 키즈 화면을 보는 동안만 자녀 보고를 촘촘히 받고(watch 푸시 · 응답 w) · 가는 방향 · 따라가기(fol) · 15분 뒤 느슨해짐 · 보는 사람이 없으면 원래대로
+// 실시간 보기 시험(s393): 부모가 가족 화면을 보는 동안만 가족구성원 보고를 촘촘히 받고(watch 푸시 · 응답 w) · 가는 방향 · 따라가기(fol) · 15분 뒤 느슨해짐 · 보는 사람이 없으면 원래대로
 // 실행: node --no-warnings test/watch.test.mjs
 import fs from 'fs';
 import crypto from 'crypto';
@@ -70,7 +70,7 @@ chk(r1.same === 1, '보는 사람이 없을 때 1초 만에 3m 움직인 보고�
 NOW += 30 * SEC;
 let a = pushes.length;
 const h1 = await hubScr();
-chk(h1.ok && watchPushes(a) === 1, '부모가 키즈 화면을 열면 자녀 폰에 watch 푸시 1건');
+chk(h1.ok && watchPushes(a) === 1, '부모가 가족 화면을 열면 가족구성원 폰에 watch 푸시 1건');
 a = pushes.length; NOW += 10 * SEC; await hubScr('wait');
 chk(watchPushes(a) === 0, '이어서 보는 동안(대기가 이어짐)은 푸시를 또 보내지 않는다');
 chk(rows('SELECT wt,ws FROM devices WHERE id=?', PID)[0].wt === NOW, '긴 대기(/p/wait)도 "보는 중" 시각을 갱신한다');
@@ -95,7 +95,7 @@ const hub = await hubScr('wait');
 const tm = tmapOf(hub);
 chk(tm.fol === 1, '보는 중이고 위치가 방금 온 것이면 지도에 fol:1(따라가기)');
 const mePin = tm.pts.find((p) => p.k === 'm');
-chk(mePin && mePin.h >= 80 && mePin.h <= 100, '자녀 점에 가는 방향 h=' + (mePin && mePin.h));
+chk(mePin && mePin.h >= 80 && mePin.h <= 100, '가족구성원 점에 가는 방향 h=' + (mePin && mePin.h));
 chk(/따라가는 중/.test(tm.hint), '안내 글이 따라가는 중으로 바뀐다');
 if (process.env.DUMP_DIR) { fs.mkdirSync(process.env.DUMP_DIR, { recursive: true }); fs.writeFileSync(process.env.DUMP_DIR + '/hub_follow.json', JSON.stringify(hub.screen)); }
 
@@ -114,7 +114,7 @@ chk(wcode === 2, '15분 넘게 이어 보면 w=2(10초 주기)로 더 느슨해�
 // ── 보는 사람이 없어지면 ──
 NOW += 45 * SEC; la += 20 * M;
 const r4 = await loc();
-chk(r4.ok && !r4.w, '대기가 끊기고 40초가 지나면 w 가 없다(자녀 앱이 원래 주기로 돌아간다)');
+chk(r4.ok && !r4.w, '대기가 끊기고 40초가 지나면 w 가 없다(가족구성원 앱이 원래 주기로 돌아간다)');
 const hub3 = await req('POST', '/p/act', 'p', { v: 'kh.none', cid: CID });
 a = pushes.length; NOW += 5 * SEC; await hubScr();
 chk(watchPushes(a) === 1, '다시 열면 새로 보기 시작한 것이라 watch 푸시를 다시 보낸다');

@@ -94,22 +94,22 @@ NOW += 50 * SEC;
 const s2 = await req('POST', '/c/call', 'c', { k: 'sos' });
 chk(s2.id === s0.id && pk('sos', a).length === 1 && rows("SELECT * FROM calls WHERE k='sos'").length === 1, '60초가 지나 또 누르면 같은 카드를 새로 올리고 다시 알린다(카드가 늘지 않는다)');
 
-// ── 부모 확인 → 자녀에게 알림 ──
+// ── 부모 확인 → 가족구성원에게 알림 ──
 a = pushes.length;
 const ack = await req('POST', '/p/act', 'p', { v: 'kx.ack', cid: CID, t: s2.id });
 const h2 = await hubOf();
 chk(ack.ok && ack.hub === 1 && h2.pop && h2.pop.ka === 'kx.done' && h2.pop.bt === '상황이 끝났어요' && h2.pop.au === 0, '확인했어요 → 팝업이 "상황이 끝났어요" 로 바뀌고 저절로는 안 뜬다(s415)');
 const cp = pushes.slice(a).filter((p) => p.data.k === 'callack' && p.token === CTK);
-chk(cp.length === 1 && /확인했어요/.test(cp[0].data.body), '자녀 폰에 "부모님이 확인했어요" 가 간다');
+chk(cp.length === 1 && /확인했어요/.test(cp[0].data.body), '가족구성원 폰에 "부모님이 확인했어요" 가 간다');
 const cs = await req('GET', '/c/state', 'c');
-chk(cs.call && cs.call.k === 'sos' && cs.call.st === 1 && /확인했어요/.test(cs.call.text), '자녀 상태에 부모가 확인했다는 글이 있다');
+chk(cs.call && cs.call.k === 'sos' && cs.call.st === 1 && /확인했어요/.test(cs.call.text), '가족구성원 상태에 부모가 확인했다는 글이 있다');
 const ack2 = await req('POST', '/p/act', 'p', { v: 'kx.ack', cid: CID, t: s2.id });
-chk(ack2.ok && pushes.slice(a).filter((p) => p.data.k === 'callack').length === 1, '이미 확인한 것을 또 눌러도 자녀에게 또 가지 않는다');
+chk(ack2.ok && pushes.slice(a).filter((p) => p.data.k === 'callack').length === 1, '이미 확인한 것을 또 눌러도 가족구성원에게 또 가지 않는다');
 a = pushes.length;
 const dn = await req('POST', '/p/act', 'p', { v: 'kx.done', cid: CID, t: s2.id });
 chk(dn.ok && dn.hub === 1 && !dn.screen, '만났어요/끝났어요는 화면을 다시 짜지 않고 바로 답한다(앱이 누르자마자 팝업을 닫는다, s415)');
 const dp = pushes.slice(a).filter((p) => p.data.k === 'calldone' && p.token === CTK);
-chk(dp.length === 1 && /끝났다고/.test(dp[0].data.body), '끝났어요 → 자녀 폰에도 알림이 간다(s415)');
+chk(dp.length === 1 && /끝났다고/.test(dp[0].data.body), '끝났어요 → 가족구성원 폰에도 알림이 간다(s415)');
 const after = await hubTxt();
 chk(!/kx\.done|kx\.ack/.test(after), '끝났어요 하면 그 호출 카드가 사라진다');
 chk(rows("SELECT st FROM calls WHERE id=?", s2.id)[0].st === 3, '기록은 끝남(3)으로 바뀐다');
@@ -120,7 +120,7 @@ NOW += 2 * MIN;
 const s3 = await req('POST', '/c/call', 'c', { k: 'sos' });
 chk(s3.ok && !s3.dup && s3.id !== s2.id, '끝난 뒤 새 긴급 호출은 새 카드로 받는다');
 const cx = await req('POST', '/c/call', 'c', { k: 'sos', op: 'cancel' });
-chk(cx.ok && rows('SELECT st FROM calls WHERE id=?', s3.id)[0].st === 2 && pk('callx', a).length === 1 && /취소/.test(pk('callx', a)[0].data.body), '자녀가 취소하면 부모에게 "취소했어요" 가 간다');
+chk(cx.ok && rows('SELECT st FROM calls WHERE id=?', s3.id)[0].st === 2 && pk('callx', a).length === 1 && /취소/.test(pk('callx', a)[0].data.body), '가족구성원이 취소하면 부모에게 "취소했어요" 가 간다');
 const s4 = await req('POST', '/c/call', 'c', { k: 'sos' });
 chk(s4.ok && !s4.dup && s4.id !== s3.id, '취소한 직후 다시 누르면 곧바로 새로 받는다(60초를 기다리지 않는다)');
 
@@ -128,7 +128,7 @@ chk(s4.ok && !s4.dup && s4.id !== s3.id, '취소한 직후 다시 누르면 곧�
 await req('POST', '/p/act', 'p', { v: 'kx.done', cid: CID, t: s4.id });      // (ack 없이 done 은 무시)
 await req('POST', '/p/act', 'p', { v: 'kx.ack', cid: CID, t: s4.id }); await req('POST', '/p/act', 'p', { v: 'kx.done', cid: CID, t: s4.id });
 await req('POST', '/p/act', 'p', { v: 'kpg.open', cid: CID });
-// 등록 장소: 자녀 위치 바로 옆
+// 등록 장소: 가족구성원 위치 바로 옆
 await req('POST', '/p/act', 'p', { v: 'kpg.add', cid: CID, f: { kpn: '학원' } });
 a = pushes.length;
 const pc = await req('POST', '/c/call', 'c', { k: 'pick', la: 37.5, lo: 126.84 });
@@ -136,11 +136,11 @@ const pp = pk('pick', a);
 chk(pc.ok && pp.length === 1 && /데리러/.test(pp[0].data.body) && /학원 근처/.test(pp[0].data.body), '데리러 와줘: 등록한 장소 이름이 알림에 들어간다(서버가 계산)');
 const hp = await hubOf(); const tp = JSON.stringify(hp.screen);
 chk(/데리러 와 달라고/.test(tp) && hp.pop && /데리러 와 달라고/.test(hp.pop.pt) && hp.pop.bt === '지금 가요' && hp.pop.ka === 'kx.ack', '부모 줄 + 팝업: "데리러 와 달라고 해요" + "지금 가요"');
-chk(pp[0].data.ka === 'kx.ack' && pp[0].data.ci === pc.id && pp[0].data.bt === '지금 가요' && /데리러/.test(pp[0].data.pt) && pp[0].data.pk.startsWith(pc.id + ':0:'), '푸시에도 같은 팝업 값이 실려 키즈 탭 밖에서도 팝업이 뜬다(s415)');
+chk(pp[0].data.ka === 'kx.ack' && pp[0].data.ci === pc.id && pp[0].data.bt === '지금 가요' && /데리러/.test(pp[0].data.pt) && pp[0].data.pk.startsWith(pc.id + ':0:'), '푸시에도 같은 팝업 값이 실려 가족 탭 밖에서도 팝업이 뜬다(s415)');
 a = pushes.length;
 await req('POST', '/p/act', 'p', { v: 'kx.ack', cid: CID, t: pc.id });
 const pcs = pushes.slice(a).filter((p) => p.data.k === 'callack');
-chk(pcs.length === 1 && /데리러 가고 있어요/.test(pcs[0].data.body), '"지금 가요" → 자녀에게 "부모님이 데리러 가고 있어요"');
+chk(pcs.length === 1 && /데리러 가고 있어요/.test(pcs[0].data.body), '"지금 가요" → 가족구성원에게 "부모님이 데리러 가고 있어요"');
 a = pushes.length;
 const ar = await req('POST', '/c/call', 'c', { k: 'arr', la: 37.5, lo: 126.84 });
 const ap = pk('arr', a);
@@ -164,9 +164,9 @@ await mod.scheduled({}, env, ctx); await flush();
 chk(rows('SELECT * FROM calls').length === 0, '7일이 지나면 크론이 호출 기록(좌표)을 지운다');
 await req('POST', '/c/call', 'c', { k: 'pick', la: 37.5, lo: 126.84 });
 await req('POST', '/c/unlink', 'c', {});
-chk(rows('SELECT * FROM calls').length === 0, '자녀가 연결을 끊으면 호출 기록도 지워진다');
+chk(rows('SELECT * FROM calls').length === 0, '가족구성원이 연결을 끊으면 호출 기록도 지워진다');
 const lone = await req('POST', '/c/call', 'c', { k: 'sos' });
-chk(lone.ok && lone.linked === 0 && rows('SELECT * FROM calls').length === 0, '연결된 부모가 없으면 기록도 알림도 없다(자녀에게는 linked:0 으로 알린다)');
+chk(lone.ok && lone.linked === 0 && rows('SELECT * FROM calls').length === 0, '연결된 부모가 없으면 기록도 알림도 없다(가족구성원에게는 linked:0 으로 알린다)');
 
 console.log(ok + ' 통과, ' + bad + ' 실패');
 process.exit(bad ? 1 : 0);

@@ -100,7 +100,7 @@ await req('POST', '/reg', null, { id: PID, sec: PS, role: 'p' });
 const pr = await req('POST', '/c/pair', 'c', {});
 const jr = await req('POST', '/p/join', 'p', { code: pr.code, nm: '쭈르' });
 await req('POST', '/p/act', 'p', { v: 'kg.ok', cid: CID });
-chk(jr.ok && jr.cid === CID, '연결(자녀 ↔ 부모)');
+chk(jr.ok && jr.cid === CID, '연결(가족구성원 ↔ 부모)');
 chk((await req('POST', '/p/ft', 'p', { tk: PTK })).ok, '부모 알림 토큰 등록');
 let la = 37.5000, lo = 126.8400;                                 // 집 근처 시작점
 const loc = (extra) => req('POST', '/c/loc', 'c', Object.assign({ la, lo, acc: 10 }, extra || {}));
@@ -108,7 +108,7 @@ const loc = (extra) => req('POST', '/c/loc', 'c', Object.assign({ la, lo, acc: 1
 // ── 장소 등록 흐름 ──
 geoDocs['search/address.json'] = { '가양로 12': [{ address_name: '서울 강서구 가양동 12', x: '126.8600', y: '37.5300', road_address: { building_name: '가양빌딩' } }] };
 geoDocs['search/keyword.json'] = { '학교': [{ place_name: '가양초등학교', address_name: '서울 강서구 가양동', road_address_name: '서울 강서구 가양로 1', x: '126.8500', y: '37.5200' }, { place_name: '가양중학교', address_name: '서울 강서구 가양동', road_address_name: '서울 강서구 가양로 9', x: '126.8510', y: '37.5210' }] };
-await loc();                                                     // 자녀 위치 알림(처음)
+await loc();                                                     // 가족구성원 위치 알림(처음)
 {
   const hub = await req('GET', '/p/screen?v=hub&cid=' + CID, 'p');
   const s = JSON.stringify(hub.screen);
@@ -116,7 +116,7 @@ await loc();                                                     // 자녀 위�
   const o = await req('POST', '/p/act', 'p', { v: 'kpg.open', cid: CID });
   const so = JSON.stringify(o.screen);
   chk(o.ok && o.sheet === 'ev' && o.screen.screen === 'kidreg' && /kpg\.find/.test(so) && /kpg\.add/.test(so) && /"t":"tmap"/.test(so), '장소 등록 팝업: 주소칸 · 찾기 · 지도 · 이름칸 · 등록');
-  chk(o.screen.body.find((n) => n.t === 'tmap').pts[0].la === la, '처음엔 자녀가 있는 곳에 지도가 열린다');
+  chk(o.screen.body.find((n) => n.t === 'tmap').pts[0].la === la, '처음엔 가족구성원이 있는 곳에 지도가 열린다');
   const e1 = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '' } });
   chk(/찾을 주소나 장소를 적어/.test(JSON.stringify(e1.screen)), '주소를 안 적고 찾기 → 안내');
   const f1 = await req('POST', '/p/act', 'p', { v: 'kpg.find', cid: CID, f: { kpa: '가양로 12' } });
@@ -270,7 +270,7 @@ await loc();                                                     // 자녀 위�
 
 // ── 날씨 ──
 {
-  // 새 날(11-04) 아침. 자녀 위치는 어제 것이라 24시간 안이어야 한다
+  // 새 날(11-04) 아침. 가족구성원 위치는 어제 것이라 24시간 안이어야 한다
   NOW = Date.UTC(2026, 10, 3, 23, 40, 0);                         // 11-04 08:40 KST
   la = 37.5000; lo = 126.8400; await loc({ bt: 80, ch: 0 });
   wxMode = 'fail'; let a = n0(), c = wxCalls;

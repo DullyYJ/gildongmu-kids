@@ -1,5 +1,5 @@
-// 길동무 키즈 · 실시간 깨우기 허브(Durable Object, s425) — 별도 워커 'gildongmu-kids-hub' 로 한 번 배포한다(wrangler.hub.toml).
-// 자녀(가족)마다 하나. 하는 일은 단 하나: 바뀌었다는 신호(/bump)를 받으면 기다리는 요청(/wait)들을 곧바로 깨운다.
+// 길동무 패밀리 · 실시간 깨우기 허브(Durable Object, s425) — 별도 워커 'gildongmu-kids-hub' 로 한 번 배포한다(wrangler.hub.toml).
+// 가족구성원(가족)마다 하나. 하는 일은 단 하나: 바뀌었다는 신호(/bump)를 받으면 기다리는 요청(/wait)들을 곧바로 깨운다.
 // DB 를 읽지 않는다 — 기다리는 동안 DB 를 0.6초마다 읽던 것을 없애려는 것. 판단 · 저장은 모두 본 엔진(kids-worker)과 D1 이 하고, 여기는 신호만 전한다.
 // 이 허브가 없거나 죽어도 본 엔진은 예전 방식(DB 를 보며 기다림)으로 그대로 돈다.
 const J = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });

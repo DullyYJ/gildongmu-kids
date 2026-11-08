@@ -1,4 +1,4 @@
-// 안전 도착 · 데리러 와줘: 부모님이 알림을 받을 수 있는지(np)를 자녀 앱에 알려 주는 시험(s412) + 부모 확인 카드 가운데 맞춤
+// 안전 도착 · 데리러 와줘: 부모님이 알림을 받을 수 있는지(np)를 가족구성원 앱에 알려 주는 시험(s412) + 부모 확인 카드 가운데 맞춤
 // 실행: node --no-warnings test/callnp.test.mjs
 import crypto from 'crypto';
 import { DatabaseSync } from 'node:sqlite';

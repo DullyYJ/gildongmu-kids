@@ -61,7 +61,7 @@ public class LocationService extends Service {
     private Notification note(boolean watched) {
         return new Notification.Builder(this, "loc")
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-                .setContentTitle("길동무 키즈")
+                .setContentTitle("길동무 패밀리")
                 .setContentText(watched ? "부모님이 지금 내 위치를 보고 있어요" : "부모님께 내 위치를 알려주는 중이에요")
                 .setOngoing(true)
                 .build();

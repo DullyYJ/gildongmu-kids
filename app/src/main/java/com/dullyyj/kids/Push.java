@@ -91,7 +91,7 @@ public class Push extends FirebaseMessagingService {
             if (!Core.engine.consented()) return;
             Map<String, String> d = m.getData();
             if (d == null) return;
-            if ("watch".equals(d.get("k"))) {                     // 부모가 키즈 화면을 보기 시작했다 — 위치를 빨리(서버가 정한 주기로) 올린다 · 알림은 띄우지 않는다
+            if ("watch".equals(d.get("k"))) {                     // 부모가 가족 화면을 보기 시작했다 — 위치를 빨리(서버가 정한 주기로) 올린다 · 알림은 띄우지 않는다
                 LocReq.watch(getApplicationContext());
                 return;
             }
@@ -102,7 +102,7 @@ public class Push extends FirebaseMessagingService {
             String title = d.get("title"), body = d.get("body"), tag = d.get("tag");
             if (body == null || body.isEmpty()) return;
             if (fg && "chat".equals(Core.engine.tab())) { cue(getApplicationContext()); return; } // 대화 탭을 보고 있을 때만 알림 카드를 숨긴다(다른 탭이면 카톡처럼 알림이 온다) — 대신 진동 + 알림음은 낸다
-            show(this, title == null || title.isEmpty() ? "길동무 키즈" : title, body, tag == null ? "k" : tag);
+            show(this, title == null || title.isEmpty() ? "길동무 패밀리" : title, body, tag == null ? "k" : tag);
         } catch (Throwable t) {
             // 알림 하나를 못 띄워도 앱은 계속 쓴다
         }
@@ -135,7 +135,7 @@ public class Push extends FirebaseMessagingService {
         if (nm == null) return;
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CH) == null) {
             try { nm.deleteNotificationChannel(CH_OLD); } catch (Throwable ignored) { } // 옛 채널은 설정을 바꿀 수 없어 새 채널로 갈아탄다
-            NotificationChannel ch = new NotificationChannel(CH, "길동무 키즈 알림", NotificationManager.IMPORTANCE_HIGH);
+            NotificationChannel ch = new NotificationChannel(CH, "길동무 패밀리 알림", NotificationManager.IMPORTANCE_HIGH);
             ch.enableVibration(true);
             ch.enableLights(true);
             ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);

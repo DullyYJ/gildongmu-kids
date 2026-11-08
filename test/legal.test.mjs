@@ -27,7 +27,7 @@ chk(li > 0 && w.slice(li - 400, li).includes('async function handle') && w.index
 {
   const eng = fs.readFileSync(new URL('../app/src/main/java/com/dullyyj/kids/Engine.java', import.meta.url).pathname, 'utf8');
   const main = fs.readFileSync(new URL('../app/src/main/java/com/dullyyj/kids/MainActivity.java', import.meta.url).pathname, 'utf8');
-  chk((eng.match(/a\.put\(legalLinks\(\)\)/g) || []).length === 2 && /legal\.privacy/.test(eng) && /legal\.terms/.test(eng), '자녀 앱: 동의 창과 설정에 처리방침 · 이용약관 보기가 있다');
+  chk((eng.match(/a\.put\(legalLinks\(\)\)/g) || []).length === 2 && /legal\.privacy/.test(eng) && /legal\.terms/.test(eng), '가족구성원 앱: 동의 창과 설정에 처리방침 · 이용약관 보기가 있다');
   chk(!/import android\./.test(eng), '엔진은 안드로이드를 모른다(주소만 명령으로 돌려준다)');
   const man = fs.readFileSync(new URL('../app/src/main/AndroidManifest.xml', import.meta.url).pathname, 'utf8');
   chk(/앱을 닫아도 계속돼요/.test(eng) && /집·학교 도착·출발 알림/.test(eng), '동의 화면: 앱을 닫아도 위치를 계속 쓴다는 고지(Play 공개 고지)');

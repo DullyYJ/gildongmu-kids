@@ -1,12 +1,12 @@
-// 길동무 키즈 엔진 — Cloudflare Worker + D1 (바인딩 이름: DB)
-// 길동무 엔진(route-v2)과 따로 돌아간다. 자녀 앱·부모(길동무) 앱은 화면을 받아 그리기만 하고, 계산·저장·판단·문구는 모두 여기서 한다.
+// 길동무 패밀리 엔진 — Cloudflare Worker + D1 (바인딩 이름: DB)
+// 길동무 엔진(route-v2)과 따로 돌아간다. 가족구성원 앱·부모(길동무) 앱은 화면을 받아 그리기만 하고, 계산·저장·판단·문구는 모두 여기서 한다.
 // 인증: 요청 머리글 x-id / x-sec (기기가 처음 정한 아이디와 비밀. 서버에는 SHA-256 만 저장).
-// 자녀 앱 = 역할 c, 부모(길동무 앱) = 역할 p.
-// 미션: k='c' 는 부모가 자녀에게 주는 미션(자녀 미션), k='p' 는 자녀가 부모에게 주는 미션(부모님 미션).
-//   자녀 미션 s: 0 대기 -> 1 자녀가 해냈다고 알림(부모 확인 대기) -> 2 부모가 확인(길동무포인트 지급)
+// 가족구성원 앱 = 역할 c, 부모(길동무 앱) = 역할 p.
+// 미션: k='c' 는 부모가 가족구성원에게 주는 미션(가족구성원 미션), k='p' 는 가족구성원이 부모에게 주는 미션(부모님 미션).
+//   가족구성원 미션 s: 0 대기 -> 1 가족구성원이 해냈다고 알림(부모 확인 대기) -> 2 부모가 확인(길동무포인트 지급)
 //   부모님 미션 s: 0 대기 -> 1 부모가 해냈다고 표시 (길동무포인트 없음)
-// 장소(places): 부모가 정한 '그 요일 · 그 시각까지 가 있어야 하는 곳'. 시각 30분 전에 자녀에게 알림(trip 'due') ->
-//   자녀 [확인](그냥 끔 'seen') / [출발]('go') -> 남은 거리 알약 -> 도착점 100m 안에서 [도착 확인] -> 'done' + 10 길동무포인트.
+// 장소(places): 부모가 정한 '그 요일 · 그 시각까지 가 있어야 하는 곳'. 시각 30분 전에 가족구성원에게 알림(trip 'due') ->
+//   가족구성원 [확인](그냥 끔 'seen') / [출발]('go') -> 남은 거리 알약 -> 도착점 100m 안에서 [도착 확인] -> 'done' + 10 길동무포인트.
 // 실시간: 모든 바뀜은 rev(cid) 를 올리고, 앱은 /c/wait · /p/wait 로 '바뀔 때까지' 붙들어 두었다가 곧바로 새 화면을 받는다(0.6초 안).
 const DAY = 86400000, KST = 9 * 3600000, CHAT_KEEP = 7 * DAY, PAIR_TTL = 10 * 60000, MAX_PARENTS = 4, MAX_TXT = 300, MAX_CHAT = 300, MAX_QUEST = 100, MAX_PT = 5, MAX_PLACES = 12, MAX_CHEER = 20, CHEER_LEN = 40;
 const LEAD = 30 * 60000, STAY = 120 * 60000, PROMPT_AFTER = 60 * 60000, ARR_M = 100, ARR_AUTO_M = 50, HERE_M = 150, LOC_FRESH = 90000, ARRIVE_PT = 10, WAIT_MS = 15000, WAIT_STEP = 600, HUB_SLICE = 5000;
@@ -23,15 +23,15 @@ const MISS_AFTER = 5 * 60000;
 let CTX = null, ENVG = null;                    // ENVG: 지금 요청의 바인딩(허브 FAM 이 있으면 실시간 깨우기에 쓴다)
 function later(p) { const q = Promise.resolve(p).catch(() => {}); try { if (CTX && CTX.waitUntil) CTX.waitUntil(q); } catch (e) { /* 이미 끝난 요청의 핸들이면 그냥 돌아가게 둔다 */ } return q; }
 const locBumpAt = new Map();
-// s426: 아무도 안 보고 · 가만히 있고 · 등록 장소와 멀고 · 약속 시간대가 아니면 자녀 앱이 보고 주기를 8분(앱 쪽)으로 늘려도 된다고 응답에 sl:1 을 실어 준다. 안전 점검(위치 끊김 20분)보다 짧게.
+// s426: 아무도 안 보고 · 가만히 있고 · 등록 장소와 멀고 · 약속 시간대가 아니면 가족구성원 앱이 보고 주기를 8분(앱 쪽)으로 늘려도 된다고 응답에 sl:1 을 실어 준다. 안전 점검(위치 끊김 20분)보다 짧게.
 const SLOW_STILL_MS = 10 * 60000, SLOW_PLACE_M = 500, SLOW_LEAD_MS = 30 * 60000 + 10 * 60000;
 const locHold = new Map();                      // 튄 것으로 보고 보류한 위치(cid → {la,lo,t}) — 곧바로 같은 곳에서 또 오면 진짜로 본다
 // s443 (YJ: 가만히 있는데 위치가 튄다 · 지도가 흔들린다): ① 부정확한 위치 거르기가 '5분 안'에만 걸렸는데 가만히 있을 땐 보고가 5~8분 간격이라 늘 빠져나갔다 → 12분으로(순간이동 거르기는 5분 그대로 — 고속열차처럼 빨리 가는 중엔 얼지 않게).
 //   ② 제자리 흔들림: 오차가 25m 넘는(흔들리기 쉬운) 위치가 직전에 보여 준 위치에서 오차(×1.2, 80m 상한) 안쪽에 오면 그 위치로 보지 않고 직전 자리를 그대로 쓴다(시각 · 배터리 · 가만히 있음 판정은 새로 이어진다). 오차 25m 이하(걷는 속도 따라가기)는 거르지 않는다.
 const LOC_FRESH_MS = 5 * 60000, LOC_POOR_FRESH_MS = 12 * 60000, LOC_POOR_M = 100, LOC_JUMP_M = 1500, LOC_JUMP_MS = 60, LOC_CONFIRM_MS = 120000;
 const LOC_STAY_K = 1.2, LOC_STAY_MAX_M = 80, LOC_STAY_ACC_M = 25;
-// 부모가 처음 열었는데(앱을 새로 깔았거나 막 연결) 자녀 위치가 없거나 오래됐으면, 자녀 폰에 '위치 한 번 올려' 푸시를 보낸다(s390).
-// 앱이 꺼져 있어도 푸시로 깨어나 위치를 한 번 올린다 — 위치 공유가 켜져 있고 자녀 폰이 동의·권한을 준 경우만. 같은 자녀는 3분에 한 번만 묻는다.
+// 부모가 처음 열었는데(앱을 새로 깔았거나 막 연결) 가족구성원 위치가 없거나 오래됐으면, 가족구성원 폰에 '위치 한 번 올려' 푸시를 보낸다(s390).
+// 앱이 꺼져 있어도 푸시로 깨어나 위치를 한 번 올린다 — 위치 공유가 켜져 있고 가족구성원 폰이 동의·권한을 준 경우만. 같은 가족구성원은 3분에 한 번만 묻는다.
 const locAskAt = new Map();
 const LOC_ASK_GAP = 3 * 60000, LOC_STALE_MS = 30 * 60000;
 async function askLoc(env, DB, cid, now) {
@@ -43,12 +43,12 @@ async function askLoc(env, DB, cid, now) {
   return true;
 }
 // ───────── 실시간 보기(s393) ─────────
-// 부모 앱이 키즈 화면(허브)에 긴 대기를 걸어 두는 동안만 '보는 중'이다(WATCH_MS 안에 대기가 이어져 있으면). 보기 시작하면 자녀 폰에 'watch' 푸시를 보내 앱이 꺼져 있어도 위치를 빨리 올리게 하고,
-// 그 뒤로는 자녀 위치 보고(/c/loc)의 응답에 w(주기 종류)를 실어 보낸다: 1 = 움직이는 중 2.5초 · 2 = 15분 넘게 이어 봄 10초 · 3 = 가만히 있음 15초 · 없음 = 보는 사람 없음(원래 주기).
-// 몇 초마다 보낼지 · 언제 멈출지는 서버(엔진)가 정하고 자녀 앱은 그대로 따른다.
+// 부모 앱이 가족 화면(허브)에 긴 대기를 걸어 두는 동안만 '보는 중'이다(WATCH_MS 안에 대기가 이어져 있으면). 보기 시작하면 가족구성원 폰에 'watch' 푸시를 보내 앱이 꺼져 있어도 위치를 빨리 올리게 하고,
+// 그 뒤로는 가족구성원 위치 보고(/c/loc)의 응답에 w(주기 종류)를 실어 보낸다: 1 = 움직이는 중 2.5초 · 2 = 15분 넘게 이어 봄 10초 · 3 = 가만히 있음 15초 · 없음 = 보는 사람 없음(원래 주기).
+// 몇 초마다 보낼지 · 언제 멈출지는 서버(엔진)가 정하고 가족구성원 앱은 그대로 따른다.
 const WATCH_MS = 40000, WATCH_FAST_MS = 15 * 60000, WATCH_PUSH_GAP = 20000, MOVE_REC_MS = 60000;
 const watchPushAt = new Map();
-/** 이 자녀를 지금 보고 있는 부모가 있으면 {ws}(가장 먼저 보기 시작한 시각), 없으면 null */
+/** 이 가족구성원을 지금 보고 있는 부모가 있으면 {ws}(가장 먼저 보기 시작한 시각), 없으면 null */
 async function watchOf(DB, cid, now) {
   const r = await DB.prepare('SELECT MIN(d.ws) ws FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.wt>?').bind(cid, now - WATCH_MS).first();
   return r && r.ws ? { ws: r.ws } : null;
@@ -62,7 +62,7 @@ async function watchOrCall(DB, cid, now) {
   if (r && r.ws) return { ws: r.ws };
   return r && r.cl ? { ws: now, call: 1 } : null;
 }
-/** 부모가 키즈 화면을 보고 있다고 적는다. 새로 보기 시작했으면 자녀 폰에 'watch' 푸시. */
+/** 부모가 가족 화면을 보고 있다고 적는다. 새로 보기 시작했으면 가족구성원 폰에 'watch' 푸시. */
 async function watchTouch(env, DB, pid, cid, now) {
   const d = await DB.prepare('SELECT wt FROM devices WHERE id=?').bind(pid).first();
   if (!d) return false;
@@ -73,7 +73,7 @@ async function watchTouch(env, DB, pid, cid, now) {
   later(notifyChild(env, DB, cid, { k: 'watch', tag: 'watch' }));
   return true;
 }
-/** 자녀 앱에 알려 줄 주기 종류(위 설명). 보는 사람이 없으면 0. */
+/** 가족구성원 앱에 알려 줄 주기 종류(위 설명). 보는 사람이 없으면 0. */
 function watchCode(w, mt, now) {
   if (!w) return 0;
   if (now - w.ws > WATCH_FAST_MS) return 2;
@@ -85,10 +85,10 @@ function bearing(a, b, c, d) {
   return Math.round((Math.atan2(y, x) / r + 360) % 360) % 360;
 }
 const EV_KEEP = 3 * DAY, MAX_EV = 150;
-// 이동 이력(p-kids65): 자녀가 보낸 위치를 CRUMB_M(40m, 오차가 더 크면 오차) 넘게 움직였을 때마다 한 점씩 쌓아 3일 보관하고, 부모 키즈 탭 지도에 지난 TRAIL_MS 의 경로(line)로 그린다.
+// 이동 이력(p-kids65): 가족구성원이 보낸 위치를 CRUMB_M(40m, 오차가 더 크면 오차) 넘게 움직였을 때마다 한 점씩 쌓아 3일 보관하고, 부모 가족 탭 지도에 지난 TRAIL_MS 의 경로(line)로 그린다.
 // 활동 줄 'mv'(이동 중 · 동네 · 거리)는 마지막 줄을 남긴 자리에서 MV_EV_M(200m) 넘게, 그리고 MV_EV_GAP(2.8분) 넘게 지났을 때만 남긴다.
 const TRAIL_KEEP = 3 * DAY, TRAIL_MS = 6 * 3600000, MAX_TRAIL = 1500, TRAIL_PTS = 400, CRUMB_M = 40, MV_EV_M = 200, MV_EV_GAP = 170000;
-// ───────── 지난 경로 보관(s391): 한 곳에 30분 넘게 머물면 그 전까지 이동한 길을 한 건으로 닫아 자녀당 10개까지 둔다(11번째부터 가장 오래된 것을 지운다) ─────────
+// ───────── 지난 경로 보관(s391): 한 곳에 30분 넘게 머물면 그 전까지 이동한 길을 한 건으로 닫아 가족구성원당 10개까지 둔다(11번째부터 가장 오래된 것을 지운다) ─────────
 // 정지 = 위치가 이어서 들어오는 동안 반경 RT_DWELL_M(100m) 안에 RT_DWELL_MS(30분) 넘게. 보고가 RT_GAP_MS(20분) 넘게 끊기면 '정지'로 치지 않는다(꺼졌던 폰으로 가짜 경로를 만들지 않게).
 // 이동 거리가 RT_MIN_M(150m) 미만이면 저장하지 않는다(집 안 · GPS 흔들림이 10칸을 채우지 않게). 점은 RT_PTS(300)개 이하로 간추려 둔다(화면 지도가 400점까지 받는다).
 const RT_KEEP = 10, RT_MIN_M = 150, RT_DWELL_M = 100, RT_DWELL_MS = 30 * 60000, RT_GAP_MS = 20 * 60000, RT_PTS = 300, RT_VIEW_MS = 10 * 60000;
@@ -154,9 +154,9 @@ function rtBuild(rows, c, hav) {
 }
 // ── routes:end ──
 // ───────── 안전 알림(s392) ─────────
-// 위치 끊김: 보고가 STALE_MS(20분) 넘게 없으면 부모에게 한 번(밤 23~06시와 자녀가 공유를 끈 동안은 보내지 않는다) · 다시 들어오면 되살린다. 배터리 15% 이하(충전 중 아님)는 3시간에 한 번.
+// 위치 끊김: 보고가 STALE_MS(20분) 넘게 없으면 부모에게 한 번(밤 23~06시와 가족구성원이 공유를 끈 동안은 보내지 않는다) · 다시 들어오면 되살린다. 배터리 15% 이하(충전 중 아님)는 3시간에 한 번.
 // 낯선 곳 정지: 30분 넘게 머문 곳이 등록 장소 150m 밖이고 최근 30일 안에 다른 날 2번 넘게 머문 적이 없으면 알린다(처음 3일은 배우는 기간이라 알리지 않는다).
-// 날씨: 아침 7시 30분 이후 하루 한 번, 자녀가 있는 곳의 낮(7~20시) 예보에 비 · 눈 · 폭염 · 한파 · 미세먼지가 있으면 부모에게.
+// 날씨: 아침 7시 30분 이후 하루 한 번, 가족구성원이 있는 곳의 낮(7~20시) 예보에 비 · 눈 · 폭염 · 한파 · 미세먼지가 있으면 부모에게.
 const STALE_MS = 20 * 60000, BATT_LOW = 15, BATT_GAP = 3 * 3600000, STRANGE_LEARN_MS = 3 * DAY, STRANGE_KEEP = 30 * DAY, MAX_STOPS = 200, STRANGE_M = 200, WX_AT = 7 * 60 + 30;
 // ── wx:begin (순수 계산 — 시험이 이 구간을 떼어 돌린다) ──
 /** 낮(7~20시) 예보에서 부모에게 알릴 것을 고른다. w = Open-Meteo forecast.hourly · aq = air-quality.hourly. 돌려주는 값: [{k, s}] (알릴 것이 없으면 빈 배열) */
@@ -226,7 +226,7 @@ async function routeStep(env, DB, cid, la, lo, now, lastT, name) {
       .bind(cid, o.dla, o.dlo, o.dt, o.cl, o.rte, o.rsa == null ? null : o.rsa, o.rso == null ? null : o.rso, o.sn || '', o.en || '').run();
   return saved;
 }
-const EVK = new Set(['feed', 'clean', 'drop', 'dress', 'psleep', 'pstudy', 'pplay']);       // 자녀 앱이 알려 주는 활동 — 자녀가 직접 한 일만(친구들 스스로의 놀기·공부·잠·응가는 기록하지 않는다)
+const EVK = new Set(['feed', 'clean', 'drop', 'dress', 'psleep', 'pstudy', 'pplay']);       // 가족구성원 앱이 알려 주는 활동 — 가족구성원이 직접 한 일만(친구들 스스로의 놀기·공부·잠·응가는 기록하지 않는다)
 const EV_HIDE = "('play','study','sleep','poop')";                   // 옛 앱이 남긴 친구들 행동 줄은 보이지 않게 거른다
 /** '뭐하니?' 활동 한 줄을 남긴다(k 종류 · x 장소/동네/친구 이름). 부모 화면이 바로 바뀌도록 알린다 */
 async function ev(DB, cid, k, x, now) {
@@ -282,7 +282,7 @@ async function notifyChild(env, DB, cid, data) {
 // ───────── 법정대리인 확인 · 위치 제공 기록(s394) ─────────
 const GD_VER = 1, LBS_KEEP = 200 * 86400000;      // 6개월(약 183일)보다 길게
 async function gdOk(DB, pid) { const r = await DB.prepare('SELECT v FROM gd WHERE pid=?').bind(pid).first(); return !!r && r.v >= GD_VER; }
-/** 이용 · 제공 사실 한 줄(같은 부모 · 자녀 · 종류는 gapMs 안에는 한 번만) */
+/** 이용 · 제공 사실 한 줄(같은 부모 · 가족구성원 · 종류는 gapMs 안에는 한 번만) */
 async function lbsLog(DB, cid, pid, k, now, gapMs) {
   await DB.prepare('INSERT INTO lbs(t,cid,pid,k) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM lbs WHERE cid=? AND pid=? AND k=? AND t>?)').bind(now, cid, pid, k, cid, pid, k, now - (gapMs || 0)).run();
 }
@@ -291,15 +291,15 @@ function gdScreen(nm) {
   return scr('kidgd', [], [
     tx('보호자 확인', { size: 16, bold: true, pad: [16, 24, 16, 6] }),
     tx(nm + '의 위치를 보기 전에 아래를 확인해 주세요.', { size: 12.5, color: 'sub', pad: [16, 0, 16, 8] }),
-    panel([tx('• 저는 이 자녀의 법정대리인(친권자 · 후견인)이에요', { size: 13, pad: [0, 4, 0, 4] }),
-      tx('• 자녀는 만 9세 이상이에요', { size: 13, pad: [0, 4, 0, 4] }),
-      tx('• 자녀에게 위치를 확인한다는 것을 알리고, 자녀도 동의했어요 (자녀 앱에서 동의해야 위치가 와요)', { size: 13, pad: [0, 4, 0, 4] }),
-      tx('• 자녀의 안전을 지키는 데에만 쓰고, 다른 사람의 위치를 몰래 확인하는 데 쓰지 않아요', { size: 13, pad: [0, 4, 0, 4] }),
+    panel([tx('• 저는 이 가족구성원의 법정대리인(친권자 · 후견인)이에요', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('• 가족구성원은 만 9세 이상이에요', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('• 가족구성원에게 위치를 확인한다는 것을 알리고, 가족구성원도 동의했어요 (가족구성원 앱에서 동의해야 위치가 와요)', { size: 13, pad: [0, 4, 0, 4] }),
+      tx('• 가족구성원의 안전을 지키는 데에만 쓰고, 다른 사람의 위치를 몰래 확인하는 데 쓰지 않아요', { size: 13, pad: [0, 4, 0, 4] }),
       tx('• 사실과 다르면 이용이 제한될 수 있고 법적 책임은 제게 있어요', { size: 13, pad: [0, 4, 0, 4] })], { pad: [12, 4, 12, 0], ip: [14, 10, 14, 10] }),
     tx('이 확인을 한 시각이 기록돼요. 자세한 내용은 개인정보 처리방침과 위치기반서비스 이용약관에 있어요.', { size: 11, color: 'sub', pad: [16, 10, 16, 6] }),
     { t: 'row', gap: 8, pad: [12, 0, 12, 0], kids: [btn('처리방침 보기', { a: 'open', url: LEGAL_BASE + '/legal/privacy' }, { h: 34, size: 12, bold: false }), btn('이용약관 보기', { a: 'open', url: LEGAL_BASE + '/legal/terms' }, { h: 34, size: 12, bold: false })] },          // s430
     { t: 'row', gap: 8, pad: [12, 12, 12, 16], kids: [btn('모두 확인했어요', call('kg.ok'), gold)] },
-  ], { dlg: dlg() });          // s415: 키즈 화면 위 가운데 팝업(앱이 '키즈 화면'이 아니라 팝업으로 띄운다)
+  ], { dlg: dlg() });          // s415: 가족 화면 위 가운데 팝업(앱이 '가족 화면'이 아니라 팝업으로 띄운다)
 }
 // ===== s431: 지표(개인정보 없음) =====
 // 하루 · 항목별 '횟수'만 센다(누가 했는지는 남기지 않는다). 드문 일(가입 · 연결 · 동의 · 호출 · 구독)에만 한 줄을 더하고, 위치 보고 같은 잦은 길에는 아무것도 더하지 않는다 — 속도 그대로.
@@ -326,8 +326,8 @@ async function mxRead(DB, days) {
   return out;
 }
 // ===== s431: 구독(기본 꺼짐) =====
-// 워커 변수 BILLING_MODE: off(기본 · 모두 무료 — 지금과 똑같다) | on(자녀 위치 보기만 구독자에게). BILLING_FREE_UNTIL: 이 시각(ms)까지는 모두 무료(출시 직후 체험 기간).
-// 결제가 되는지는 구글이 정한다 — 앱은 결제 창만 띄우고, 영수증(구매 토큰)을 서버가 구글에 직접 물어 확인한다. 긴급 호출 · 데리러 와줘 알림과 자녀 앱은 구독과 상관없이 늘 무료.
+// 워커 변수 BILLING_MODE: off(기본 · 모두 무료 — 지금과 똑같다) | on(가족구성원 위치 보기만 구독자에게). BILLING_FREE_UNTIL: 이 시각(ms)까지는 모두 무료(출시 직후 체험 기간).
+// 결제가 되는지는 구글이 정한다 — 앱은 결제 창만 띄우고, 영수증(구매 토큰)을 서버가 구글에 직접 물어 확인한다. 긴급 호출 · 데리러 와줘 알림과 가족구성원 앱은 구독과 상관없이 늘 무료.
 const SUB_PRODUCT = 'gildongmu_gps', SUB_RECHECK_MS = 10 * 60000, SUB_GAP_MS = 3000;
 const SUB_LIVE = ['SUBSCRIPTION_STATE_ACTIVE', 'SUBSCRIPTION_STATE_IN_GRACE_PERIOD', 'SUBSCRIPTION_STATE_CANCELED'];          // 취소해도 낸 기간 끝까지는 쓴다
 const GP_SCOPE = 'https://www.googleapis.com/auth/androidpublisher';
@@ -336,7 +336,7 @@ const subLast = new Map();
 function billInit(env) { BILL = { on: String(env.BILLING_MODE || '') === 'on', until: +env.BILLING_FREE_UNTIL || 0, env }; }
 const billGated = (now) => BILL.on && now >= BILL.until;
 function gpSa(env) { try { const j = JSON.parse(env.GP_SA || ''); return j && j.client_email && j.private_key ? j : null; } catch (e) { return null; } }
-/** 이 부모가 자녀 위치를 봐도 되나 — 꺼져 있으면 늘 예. 켜져 있으면 끝나는 시각이 남은 구독이 있어야 하고, 지났으면 가끔(10분에 한 번) 구글에 다시 묻는다(갱신 확인). */
+/** 이 부모가 가족구성원 위치를 봐도 되나 — 꺼져 있으면 늘 예. 켜져 있으면 끝나는 시각이 남은 구독이 있어야 하고, 지났으면 가끔(10분에 한 번) 구글에 다시 묻는다(갱신 확인). */
 async function subOk(DB, pid, now) {
   if (!billGated(now)) return true;
   const r = await DB.prepare('SELECT tk,exp,vt FROM subs WHERE pid=?').bind(pid).first();
@@ -365,11 +365,11 @@ async function subVerify(env, DB, pid, tk, now) {
     await fetch(base + '/purchases/subscriptions/' + SUB_PRODUCT + '/tokens/' + encodeURIComponent(tk) + ':acknowledge', { method: 'POST', headers: { authorization: 'Bearer ' + at, 'content-type': 'application/json' }, body: '{}' }).catch(() => null);
   return { exp, st };
 }
-/** 구독 전 화면 — 자녀 위치 자리에 나온다. 값은 여기(엔진)에서 정하고, 앱은 'sub.buy' 를 누르면 결제 창만 띄운다(id = 상품 · t = 요금제). */
+/** 구독 전 화면 — 가족구성원 위치 자리에 나온다. 값은 여기(엔진)에서 정하고, 앱은 'sub.buy' 를 누르면 결제 창만 띄운다(id = 상품 · t = 요금제). */
 function payScreen(nm) {
   return scr('kidpay', [], [
     tx('실시간 위치 보기', { size: 16, bold: true, pad: [16, 24, 16, 6] }),
-    tx(nm + '의 위치를 실시간으로 보려면 구독이 필요해요. 긴급 호출 · 데리러 와줘 알림과 자녀 앱은 계속 무료예요.', { size: 12.5, color: 'sub', pad: [16, 0, 16, 8] }),
+    tx(nm + '의 위치를 실시간으로 보려면 구독이 필요해요. 긴급 호출 · 데리러 와줘 알림과 가족구성원 앱은 계속 무료예요.', { size: 12.5, color: 'sub', pad: [16, 0, 16, 8] }),
     panel([tx('• 처음 14일은 무료예요 (기간 안에 해지하면 요금이 나가지 않아요)', { size: 13, pad: [0, 4, 0, 4] }),
       tx('• 월 2,900원 (부가세 포함)', { size: 13, pad: [0, 4, 0, 4] }),
       tx('• 구글 Play 설정 > 정기결제에서 언제든 해지할 수 있어요', { size: 13, pad: [0, 4, 0, 4] }),
@@ -378,11 +378,11 @@ function payScreen(nm) {
     { t: 'row', gap: 8, pad: [12, 8, 12, 16], kids: [btn('구매 복원', call('sub.restore'), { fill: 'card2', tc: 'text', line: 'border', h: 34, size: 12, bold: false })] },
   ]);
 }
-/** 연결된 부모마다(자녀 이름은 부모가 정한 이름) 글을 따로 만들어 보낸다. mk(nm) => data */
+/** 연결된 부모마다(가족구성원 이름은 부모가 정한 이름) 글을 따로 만들어 보낸다. mk(nm) => data */
 /** 꾸미기 저장 글: "고른친구,탭;모자,옷,소지품;…(8명)" — 이 모양만 받는다(번호는 -1 ~ 19). */
 const WEAR_RE = /^[0-7],[0-2](;-?\d{1,2},-?\d{1,2},-?\d{1,2}){8}$/;
 const wearOk = (w) => typeof w === 'string' && w.length <= 120 && WEAR_RE.test(w) && w.split(';').slice(1).every((t) => t.split(',').every((x) => +x >= -1 && +x <= 19));
-/** 이 부모에게 연결된 자녀(요청한 자녀가 아니면 첫 자녀)가 꾸민 모습 — 없으면 빈 글. */
+/** 이 부모에게 연결된 가족구성원(요청한 가족구성원이 아니면 첫 가족구성원)가 꾸민 모습 — 없으면 빈 글. */
 async function wearFor(DB, pid, cid0) {
   const kids = await childrenOf(DB, pid);
   const cid = kids.some((k) => k.cid === cid0) ? cid0 : kids[0] ? kids[0].cid : '';
@@ -402,8 +402,8 @@ async function notifyParents(env, DB, cid, mk, all) {      // all: 법정대리�
   if (rs.length) await DB.batch(rs.map((r) => DB.prepare("INSERT INTO lbs(t,cid,pid,k) VALUES(?,?,?,'n')").bind(now, cid, r.id)));
   await pushRows(env, DB, rs.map((r) => ({ id: r.id, ft: r.ft, data: Object.assign({ cid }, mk(r.nm || '')) })));
 }
-const who = (nm) => (nm ? ga(nm) : '자녀가');
-/** 지금 알림을 실제로 받을 수 있는 부모 수(notifyParents 와 같은 조건) — 0 이면 자녀 앱에 "알림이 가지 않아요" 라고 알려 준다. */
+const who = (nm) => (nm ? ga(nm) : '가족구성원이');
+/** 지금 알림을 실제로 받을 수 있는 부모 수(notifyParents 와 같은 조건) — 0 이면 가족구성원 앱에 "알림이 가지 않아요" 라고 알려 준다. */
 async function pushable(DB, cid, all) {
   const r = all
     ? await DB.prepare("SELECT COUNT(*) n FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.ft<>''").bind(cid).first()
@@ -411,7 +411,7 @@ async function pushable(DB, cid, all) {
   return (r && r.n) || 0;
 }
 // ───────── 긴급 호출 · 안전하게 도착 · 데리러 와줘(s399) ─────────
-// 자녀가 누르면(자녀 앱 /c/call) 서버가 기록하고 부모에게 알린다. 알림 글에는 좌표가 없고(장소 이름만), 좌표는 부모가 확인을 마친 화면에서만 보인다.
+// 가족구성원이 누르면(가족구성원 앱 /c/call) 서버가 기록하고 부모에게 알린다. 알림 글에는 좌표가 없고(장소 이름만), 좌표는 부모가 확인을 마친 화면에서만 보인다.
 const CALL_GAP = { sos: 60000, pick: 5 * 60000, arr: 2 * 60000 };          // 같은 것을 이 시간 안에 또 누르면 새로 만들지 않는다(실수로 여러 번 눌러도 알림 폭탄 없음)
 const CALL_OPEN_MS = 3 * 3600000, CALL_KEEP = 7 * 86400000, CALL_NEAR_M = 150;
 async function nearPlaceName(DB, cid, la, lo) {
@@ -420,7 +420,7 @@ async function nearPlaceName(DB, cid, la, lo) {
   for (const p of ps) { const d = hav(la, lo, p.la, p.lo); if (d < bd) { bd = d; best = p.name; } }
   return best || '';
 }
-/** s415: 호출 팝업(가운데)에 뭐라고 쓰고 · 어떤 단추가 있고 · 저절로 뜰지는 엔진이 정한다. 앱은 이 값으로 그리기만 한다(푸시에도 같은 값이 실려 키즈 탭 밖에서도 같은 팝업이 뜬다).
+/** s415: 호출 팝업(가운데)에 뭐라고 쓰고 · 어떤 단추가 있고 · 저절로 뜰지는 엔진이 정한다. 앱은 이 값으로 그리기만 한다(푸시에도 같은 값이 실려 가족 탭 밖에서도 같은 팝업이 뜬다).
  *  c: {id,k,t,la,lo,pl,st}  st 0 = 아직 확인 전(저절로 뜬다) · 1 = 확인함(허브 줄을 눌러 '만났어요') */
 function callPopData(c, nm) {
   const sos = c.k === 'sos', arr = c.k === 'arr';
@@ -445,7 +445,7 @@ async function callRequest(env, DB, cid, body, now) {
   if (!CALL_GAP[k]) return { err: '형식이 맞지 않아요' };
   const linked = await linkedCount(DB, cid);
   if (linked === 0) return { ok: true, linked: 0 };
-  const np = await pushable(DB, cid, k === 'sos');                     // 알림을 받을 수 있는 부모 수(0 이면 자녀 앱이 안내한다)
+  const np = await pushable(DB, cid, k === 'sos');                     // 알림을 받을 수 있는 부모 수(0 이면 가족구성원 앱이 안내한다)
   let la = Number(body.la), lo = Number(body.lo);
   let has = body.la != null && body.lo != null && Number.isFinite(la) && Number.isFinite(lo) && Math.abs(la) <= 85 && Math.abs(lo) <= 180 && (la || lo);
   if (!has) { const l = await DB.prepare('SELECT la,lo,t FROM loc WHERE cid=?').bind(cid).first(); if (l && now - l.t < 30 * 60000) { la = l.la; lo = l.lo; has = true; } }
@@ -475,7 +475,7 @@ async function callRequest(env, DB, cid, body, now) {
   await ev(DB, cid, k, place, now);
   const near = place ? ' · ' + place + ' 근처' : '';
   const pc = { id, k, t: now, la: keep ? la : 0, lo: keep ? lo : 0, pl: place, st: 0 };
-  later(notifyParents(env, DB, cid, (nm) => Object.assign(callPopData(pc, nm || '자녀'), (k === 'sos'
+  later(notifyParents(env, DB, cid, (nm) => Object.assign(callPopData(pc, nm || '가족구성원'), (k === 'sos'
     ? { k: 'sos', title: '🚨 긴급 호출', body: who(nm) + ' 긴급 호출을 했어요. 지금 길동무를 열어 확인해 주세요', tag: 'sos' }
     : k === 'pick' ? { k: 'pick', title: '길동무', body: who(nm) + ' 데리러 와 달라고 해요' + near, tag: 'pick' }
       : { k: 'arr', title: '길동무', body: who(nm) + ' 안전하게 도착했다고 알렸어요' + near + ' · ' + clock(now), tag: 'arr' })), k === 'sos'));
@@ -497,7 +497,7 @@ async function zoneAlert(env, DB, cid, kind, plId, name, now, pt) {
   await notifyParents(env, DB, cid, (nm) => ({ k: 'zone', title: '길동무', body: who(nm) + ' ' + name + (kind === 'at' ? ' 근처에 왔어요' : kind === 'in' ? '에 도착했어요' + (pt ? ' (포인트 +' + ARRIVE_PT + ')' : '') : '에서 멀어졌어요') + ' · ' + clock(now), tag: 'zone' + plId }));
   return true;
 }
-/** 도착(50m 안): 그날 '출발'한 길이 있으면 도착을 확인해 길동무포인트를 주고(자녀가 단추를 안 눌러도), 없으면 '도착했어요' 알림만 보낸다. */
+/** 도착(50m 안): 그날 '출발'한 길이 있으면 도착을 확인해 길동무포인트를 주고(가족구성원이 단추를 안 눌러도), 없으면 '도착했어요' 알림만 보낸다. */
 async function arriveAuto(env, DB, cid, plId, name, now) {
   const tr = await DB.prepare("SELECT id FROM trips WHERE cid=? AND pl=? AND day=? AND st='go'").bind(cid, plId, kstParts(now).ds).first();
   if (tr) {
@@ -534,7 +534,7 @@ async function safetyCron(env, DB, now, fetchFn) {
       if (u && u.meta && u.meta.changes > 0) {
         await bump(DB, r.cid);
         const dong = dongOf(r.dn);
-        await notifyParents(env, DB, r.cid, (nm) => ({ k: 'stale', title: '길동무', body: (nm || '자녀') + ' 위치가 ' + ago(now - r.t).replace(' 전', '') + ' 동안 들어오지 않아요 · 마지막 ' + (dong ? dong + ' ' : '') + clock(r.t), tag: 'stale' }));
+        await notifyParents(env, DB, r.cid, (nm) => ({ k: 'stale', title: '길동무', body: (nm || '가족구성원') + ' 위치가 ' + ago(now - r.t).replace(' 전', '') + ' 동안 들어오지 않아요 · 마지막 ' + (dong ? dong + ' ' : '') + clock(r.t), tag: 'stale' }));
       }
     }
     if (kp.h * 60 + kp.mi >= WX_AT && kp.h < 11 && String(r.wx || '') !== String(kp.ds) && now - r.t < 24 * 3600000) {
@@ -548,12 +548,12 @@ async function safetyCron(env, DB, now, fetchFn) {
         await DB.prepare('INSERT OR IGNORE INTO cst(cid) VALUES(?)').bind(r.cid).run();
         await DB.prepare('UPDATE cst SET wx=? WHERE cid=?').bind(String(kp.ds), r.cid).run();
         const items = wxDecide(w.hourly, a && a.hourly);
-        if (items.length) await notifyParents(env, DB, r.cid, (nm) => ({ k: 'wx', title: '길동무 · 오늘 날씨', body: cut((nm || '자녀') + ' 오늘 낮 — ' + items.map((i) => i.s).join(' · '), 110), tag: 'wx' }));
+        if (items.length) await notifyParents(env, DB, r.cid, (nm) => ({ k: 'wx', title: '길동무 · 오늘 날씨', body: cut((nm || '가족구성원') + ' 오늘 낮 — ' + items.map((i) => i.s).join(' · '), 110), tag: 'wx' }));
       } catch (e) { /* 날씨를 못 받아도 다른 일은 계속 */ }
     }
   }
 }
-/** 1분마다(크론): 시각이 되어 생기는 일 — 30분 전 알림(자녀) · 약속 시각이 지나도 도착하지 않음(부모) */
+/** 1분마다(크론): 시각이 되어 생기는 일 — 30분 전 알림(가족구성원) · 약속 시각이 지나도 도착하지 않음(부모) */
 /** 오래 쌓아 두지 않는다(개인정보): 지난 경로 7일 · 머문 곳 30일 · 도착/출발 알림 시각 하루. 10분에 한 번만 돈다. */
 let prunedOldAt = 0;
 async function pruneOld(DB, now) {
@@ -574,17 +574,17 @@ async function inChunks(arr, n, fn) {
   for (let i = 0; i < arr.length; i += n) await Promise.all(arr.slice(i, i + n).map(fn));
 }
 async function tripsCron(env, DB, now) {
-  // s424: 장소가 있는 자녀를 한 명씩 돌며 읽던 것을 표 하나로 한꺼번에(자녀 수가 늘어도 DB 호출 수가 같다). 오늘 약속 시각 30분 전 ~ 2시간 안인 장소에만 '오늘 일정' 줄을 만들고, 새로 생긴 자녀만 화면을 깨운다.
+  // s424: 장소가 있는 가족구성원을 한 명씩 돌며 읽던 것을 표 하나로 한꺼번에(가족구성원 수가 늘어도 DB 호출 수가 같다). 오늘 약속 시각 30분 전 ~ 2시간 안인 장소에만 '오늘 일정' 줄을 만들고, 새로 생긴 가족구성원만 화면을 깨운다.
   const kp = kstParts(now), ds0 = dayStart(now);
   const made = await DB.prepare("INSERT OR IGNORE INTO trips(id,cid,pl,day,st,tn) SELECT id||':'||?1, cid, id, ?1, 'due', ?2 FROM places WHERE ((days >> ?3) & 1)=1 AND (hh*60+mm)*60000 >= ?4 AND (hh*60+mm)*60000 <= ?5").bind(kp.ds, now, kp.wd, now - ds0 - STAY, now - ds0 + LEAD).run();
-  if (made && made.meta && made.meta.changes > 0)          // 새로 생긴 줄(tn = 지금)이 있는 자녀의 화면만 한 번에 깨운다(자녀마다 쓰기 1번씩 하지 않고 문장 하나로)
+  if (made && made.meta && made.meta.changes > 0)          // 새로 생긴 줄(tn = 지금)이 있는 가족구성원의 화면만 한 번에 깨운다(가족구성원마다 쓰기 1번씩 하지 않고 문장 하나로)
     await DB.prepare('INSERT INTO rev(cid,n) SELECT DISTINCT cid,1 FROM trips WHERE tn=? AND day=? ON CONFLICT(cid) DO UPDATE SET n=n+1').bind(now, kp.ds).run();
   if (!saOf(env)) return;
   const rows = (await DB.prepare('SELECT t.id id,t.cid cid,t.st st,t.ta ta,t.tc tc,t.pn pn,p.name name,p.hh hh,p.mm mm FROM trips t JOIN places p ON p.id=t.pl WHERE t.day=? AND ((t.pn&1)=0 OR (t.pn&8)=0) AND (p.hh*60+p.mm)*60000 >= ? AND (p.hh*60+p.mm)*60000 <= ?').bind(kp.ds, now - ds0 - STAY, now - ds0 + LEAD).all()).results || [];
   await inChunks(rows, 20, async (r) => {
     const eta = etaOf(r, now);
     if (r.st === 'due' && !(r.pn & 1) && now >= eta - LEAD && now < eta + STAY && (await once(DB, r.id, 1)))
-      await notifyChild(env, DB, r.cid, { k: 'due', title: '길동무 키즈', body: r.name + '에 가야해요', tag: 'trip' + r.id });
+      await notifyChild(env, DB, r.cid, { k: 'due', title: '길동무 패밀리', body: r.name + '에 가야해요', tag: 'trip' + r.id });
     if (!(r.pn & 8) && !r.tc && !r.ta && now >= eta + MISS_AFTER && now <= eta + STAY && (await once(DB, r.id, 8)))
       await notifyParents(env, DB, r.cid, (nm) => ({ k: 'miss', title: '길동무', body: who(nm) + ' ' + r.name + '에 ' + (r.st === 'go' ? '가고 있어요 · 약속 시각(' + clock(eta) + ')이 지났어요' : '도착하지 않았어요 (' + clock(eta) + ' 약속)'), tag: 'trip' + r.id }));
   });
@@ -617,7 +617,7 @@ async function migrate(DB) {
     DB.prepare('CREATE TABLE IF NOT EXISTS loc(cid TEXT PRIMARY KEY, la REAL NOT NULL, lo REAL NOT NULL, acc REAL, t INTEGER NOT NULL)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS chat(id INTEGER PRIMARY KEY AUTOINCREMENT, cid TEXT NOT NULL, f TEXT NOT NULL, x TEXT NOT NULL, t INTEGER NOT NULL)'),
     DB.prepare('CREATE INDEX IF NOT EXISTS chat_c ON chat(cid, t)'),
-    DB.prepare('CREATE TABLE IF NOT EXISTS chat_rd(cid TEXT NOT NULL, s TEXT NOT NULL, id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(cid, s))'),      // 읽음: 각자(p 부모 · c 자녀)가 어디까지 읽었나(chat.id)
+    DB.prepare('CREATE TABLE IF NOT EXISTS chat_rd(cid TEXT NOT NULL, s TEXT NOT NULL, id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(cid, s))'),      // 읽음: 각자(p 부모 · c 가족구성원)가 어디까지 읽었나(chat.id)
     DB.prepare('CREATE TABLE IF NOT EXISTS quests(id TEXT PRIMARY KEY, cid TEXT NOT NULL, k TEXT NOT NULL, x TEXT NOT NULL, s INTEGER NOT NULL DEFAULT 0, t INTEGER NOT NULL)'),
     DB.prepare('CREATE INDEX IF NOT EXISTS quests_c ON quests(cid, t)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS stars(cid TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)'),
@@ -633,42 +633,42 @@ async function migrate(DB) {
     DB.prepare('CREATE INDEX IF NOT EXISTS evs_c ON evs(cid, id)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS locs(id INTEGER PRIMARY KEY AUTOINCREMENT, cid TEXT NOT NULL, la REAL NOT NULL, lo REAL NOT NULL, t INTEGER NOT NULL)'),
     DB.prepare('CREATE INDEX IF NOT EXISTS locs_c ON locs(cid, id)'),
-    DB.prepare('CREATE TABLE IF NOT EXISTS routes(id INTEGER PRIMARY KEY AUTOINCREMENT, cid TEXT NOT NULL, t0 INTEGER NOT NULL, t1 INTEGER NOT NULL, m INTEGER NOT NULL, sn TEXT NOT NULL DEFAULT \'\', en TEXT NOT NULL DEFAULT \'\', pts TEXT NOT NULL)'),      // 지난 경로(s391): 자녀당 RT_KEEP 개
+    DB.prepare('CREATE TABLE IF NOT EXISTS routes(id INTEGER PRIMARY KEY AUTOINCREMENT, cid TEXT NOT NULL, t0 INTEGER NOT NULL, t1 INTEGER NOT NULL, m INTEGER NOT NULL, sn TEXT NOT NULL DEFAULT \'\', en TEXT NOT NULL DEFAULT \'\', pts TEXT NOT NULL)'),      // 지난 경로(s391): 가족구성원당 RT_KEEP 개
     DB.prepare('CREATE INDEX IF NOT EXISTS routes_c ON routes(cid, id)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS cst(cid TEXT PRIMARY KEY, sh INTEGER NOT NULL DEFAULT 1, stl INTEGER NOT NULL DEFAULT 0, lb INTEGER NOT NULL DEFAULT 0, wx TEXT NOT NULL DEFAULT \'\')'),      // 안전 알림 상태: 위치 공유(1 켬 · 0 끔) · 끊김 알림을 보냈나 · 배터리 알림 시각 · 날씨 알림을 보낸 날
-    DB.prepare('CREATE TABLE IF NOT EXISTS wear(cid TEXT PRIMARY KEY, w TEXT NOT NULL, t INTEGER NOT NULL)'),      // s423: 자녀가 꾸민 길동무 친구들(입은 모자 · 옷 · 소지품 번호) — 부모 앱 홈 장면이 같은 모습으로 보인다
-    DB.prepare('CREATE TABLE IF NOT EXISTS zt(k TEXT PRIMARY KEY, t INTEGER NOT NULL)'),      // 장소 도착/출발 알림을 마지막으로 보낸 시각(자녀:장소:종류 → 5분에 한 번 — 워커가 바뀌어도 유지)
+    DB.prepare('CREATE TABLE IF NOT EXISTS wear(cid TEXT PRIMARY KEY, w TEXT NOT NULL, t INTEGER NOT NULL)'),      // s423: 가족구성원이 꾸민 길동무 친구들(입은 모자 · 옷 · 소지품 번호) — 부모 앱 홈 장면이 같은 모습으로 보인다
+    DB.prepare('CREATE TABLE IF NOT EXISTS zt(k TEXT PRIMARY KEY, t INTEGER NOT NULL)'),      // 장소 도착/출발 알림을 마지막으로 보낸 시각(가족구성원:장소:종류 → 5분에 한 번 — 워커가 바뀌어도 유지)
     DB.prepare('CREATE TABLE IF NOT EXISTS subs(pid TEXT PRIMARY KEY, tk TEXT NOT NULL, st TEXT NOT NULL, exp INTEGER NOT NULL, vt INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 구독(s431): 부모 기기별 — 구글 확인 결과(구매 토큰 · 상태 · 끝나는 시각 · 마지막으로 구글에 물은 시각). 개인정보 없음
     DB.prepare('CREATE TABLE IF NOT EXISTS mx(d INTEGER NOT NULL, k TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(d, k))'),      // 지표(s431): 하루 · 항목별 횟수만 센다 — 누구인지는 남기지 않는다
-    DB.prepare('CREATE TABLE IF NOT EXISTS gd(pid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 법정대리인 확인 동의(부모 기기별 · 버전 · 시각) — 이 동의가 있어야 자녀 위치가 보인다
+    DB.prepare('CREATE TABLE IF NOT EXISTS gd(pid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 법정대리인 확인 동의(부모 기기별 · 버전 · 시각) — 이 동의가 있어야 가족구성원 위치가 보인다
     DB.prepare('CREATE TABLE IF NOT EXISTS lbs(id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, cid TEXT NOT NULL, pid TEXT NOT NULL, k TEXT NOT NULL)'),      // 위치정보법 제16조 이용·제공사실 확인자료: 언제 · 누가 · 누구의 위치를 받았나(좌표는 없다) · 6개월 넘게 보관
     DB.prepare('CREATE INDEX IF NOT EXISTS lbs_c ON lbs(cid, pid, k, t)'),
-    DB.prepare('CREATE TABLE IF NOT EXISTS calls(id TEXT PRIMARY KEY, cid TEXT NOT NULL, k TEXT NOT NULL, t INTEGER NOT NULL, la REAL NOT NULL DEFAULT 0, lo REAL NOT NULL DEFAULT 0, pl TEXT NOT NULL DEFAULT \'\', st INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL DEFAULT 0)'),      // 긴급 호출(sos) · 데리러 와줘(pick) · 안전하게 도착(arr): st 0 새것 · 1 부모가 확인 · 2 자녀가 취소 · 3 끝남
+    DB.prepare('CREATE TABLE IF NOT EXISTS calls(id TEXT PRIMARY KEY, cid TEXT NOT NULL, k TEXT NOT NULL, t INTEGER NOT NULL, la REAL NOT NULL DEFAULT 0, lo REAL NOT NULL DEFAULT 0, pl TEXT NOT NULL DEFAULT \'\', st INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL DEFAULT 0)'),      // 긴급 호출(sos) · 데리러 와줘(pick) · 안전하게 도착(arr): st 0 새것 · 1 부모가 확인 · 2 가족구성원이 취소 · 3 끝남
     DB.prepare('CREATE INDEX IF NOT EXISTS calls_c ON calls(cid, k, t)'),
-    DB.prepare('CREATE TABLE IF NOT EXISTS cons(cid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 자녀 앱에서 보호자 · 본인 동의를 마친 기록(동의 증빙)
+    DB.prepare('CREATE TABLE IF NOT EXISTS cons(cid TEXT PRIMARY KEY, v INTEGER NOT NULL, t INTEGER NOT NULL)'),      // 가족구성원 앱에서 보호자 · 본인 동의를 마친 기록(동의 증빙)
     DB.prepare('CREATE TABLE IF NOT EXISTS stops(id INTEGER PRIMARY KEY AUTOINCREMENT, cid TEXT NOT NULL, la REAL NOT NULL, lo REAL NOT NULL, t INTEGER NOT NULL, d INTEGER NOT NULL)'),      // 30분 넘게 머문 곳 기록(낯선 곳 판정용 · 30일)
     DB.prepare('CREATE INDEX IF NOT EXISTS stops_c ON stops(cid, id)'),
     DB.prepare('CREATE TABLE IF NOT EXISTS rtst(cid TEXT PRIMARY KEY, dla REAL NOT NULL, dlo REAL NOT NULL, dt INTEGER NOT NULL, cl INTEGER NOT NULL DEFAULT 0, rte INTEGER NOT NULL DEFAULT 0, rsa REAL, rso REAL, sn TEXT NOT NULL DEFAULT \'\', en TEXT NOT NULL DEFAULT \'\')'),      // 정지 판정 상태
     DB.prepare('CREATE TABLE IF NOT EXISTS drafts(pid TEXT PRIMARY KEY, cid TEXT NOT NULL, pl TEXT NOT NULL DEFAULT \'\', la REAL NOT NULL, lo REAL NOT NULL, name TEXT NOT NULL DEFAULT \'\', hh INTEGER NOT NULL, mm INTEGER NOT NULL, days INTEGER NOT NULL, t INTEGER NOT NULL)'),
   ]);
-  await addCol(DB, 'loc', 'bt', 'INTEGER NOT NULL DEFAULT -1');          // 자녀 폰 배터리 %(모르면 -1)
+  await addCol(DB, 'loc', 'bt', 'INTEGER NOT NULL DEFAULT -1');          // 가족구성원 폰 배터리 %(모르면 -1)
   await addCol(DB, 'loc', 'ch', 'INTEGER NOT NULL DEFAULT 0');           // 충전 중이면 1
   await addCol(DB, 'drafts', 'q', "TEXT NOT NULL DEFAULT ''");           // 장소 등록: 찾아 본 주소 글
   await addCol(DB, 'devices', 'rv', 'INTEGER NOT NULL DEFAULT 0');         // 부모가 지도에서 보는 지난 경로 번호(0 = 실시간) — 10분 지나면 실시간으로 돌아간다
   await addCol(DB, 'devices', 'rvt', 'INTEGER NOT NULL DEFAULT 0');
-  await addCol(DB, 'devices', 'kh', 'INTEGER NOT NULL DEFAULT 0');   // 부모: 앱을 켤 때 키즈 화면으로 시작할지(1)
+  await addCol(DB, 'devices', 'kh', 'INTEGER NOT NULL DEFAULT 0');   // 부모: 앱을 켤 때 가족 화면으로 시작할지(1)
   await addCol(DB, 'quests', 'pt', 'INTEGER NOT NULL DEFAULT 1');
   await addCol(DB, 'quests', 'fl', 'INTEGER NOT NULL DEFAULT 0');       // 1 = 새 흐름(승낙 → 완료 → 확인) 상태 값. 0 이면 옛 값이라 한 번 옮긴다
-  try {                                                                  // 옛 값 옮기기(한 번만): 자녀 미션 0 진행 → 1 · 1 자녀가 해냈다고 알림 → 2 · 2 확인 → 3 / 부모님 미션 0 진행 → 1 · 1 완료 → 3
+  try {                                                                  // 옛 값 옮기기(한 번만): 가족구성원 미션 0 진행 → 1 · 1 가족구성원이 해냈다고 알림 → 2 · 2 확인 → 3 / 부모님 미션 0 진행 → 1 · 1 완료 → 3
     await DB.prepare("UPDATE quests SET s=CASE WHEN k='p' THEN (CASE s WHEN 0 THEN 1 ELSE 3 END) ELSE (CASE s WHEN 0 THEN 1 WHEN 1 THEN 2 ELSE 3 END) END, fl=1 WHERE fl=0").run();
   } catch (e) { /* 다음에 다시 */ }
   await addCol(DB, 'devices', 'ft', "TEXT NOT NULL DEFAULT ''");          // 푸시 토큰(FCM)
   await addCol(DB, 'devices', 'fa', 'INTEGER NOT NULL DEFAULT 0');         // 토큰을 받은 시각
   await addCol(DB, 'trips', 'pn', 'INTEGER NOT NULL DEFAULT 0');           // 보낸 푸시(1 30분 전 · 2 출발 · 4 도착 · 8 미도착)
   await addCol(DB, 'links', 'nm', "TEXT NOT NULL DEFAULT ''");
-  await addCol(DB, 'links', 'pnm', "TEXT NOT NULL DEFAULT ''");          // 부모가 정한 자기 이름(자녀 화면에 보인다)
+  await addCol(DB, 'links', 'pnm', "TEXT NOT NULL DEFAULT ''");          // 부모가 정한 자기 이름(가족구성원 화면에 보인다)
   await addCol(DB, 'chat', 'pn', "TEXT NOT NULL DEFAULT ''");            // 부모 글을 쓴 부모의 이름
-  await addCol(DB, 'loc', 'dn', "TEXT NOT NULL DEFAULT ''");             // 자녀가 알려 준 동네 이름
+  await addCol(DB, 'loc', 'dn', "TEXT NOT NULL DEFAULT ''");             // 가족구성원이 알려 준 동네 이름
   await addCol(DB, 'loc', 'mva', 'REAL NOT NULL DEFAULT 0');             // 마지막으로 '이동 중' 줄을 남긴 자리(위도 · 경도 · 시각) — 0 이면 아직 없음
   await addCol(DB, 'loc', 'mvo', 'REAL NOT NULL DEFAULT 0');
   await addCol(DB, 'loc', 'mvt', 'INTEGER NOT NULL DEFAULT 0');
@@ -683,7 +683,7 @@ async function migrate(DB) {
   await addCol(DB, 'loc', 'ha', 'REAL NOT NULL DEFAULT 0');                // 움직임 판단 기준점(위도 · 경도 · 시각) — 이 점에서 8m 넘게 벗어나면 '움직이는 중'이고 가는 방향을 새로 계산한다
   await addCol(DB, 'loc', 'hb', 'REAL NOT NULL DEFAULT 0');
   await addCol(DB, 'loc', 'hat', 'INTEGER NOT NULL DEFAULT 0');
-  await addCol(DB, 'devices', 'wt', 'INTEGER NOT NULL DEFAULT 0');        // 부모가 키즈 화면(허브)을 마지막으로 보고 있던 시각 — 실시간(보는 중) 판단
+  await addCol(DB, 'devices', 'wt', 'INTEGER NOT NULL DEFAULT 0');        // 부모가 가족 화면(허브)을 마지막으로 보고 있던 시각 — 실시간(보는 중) 판단
   await addCol(DB, 'devices', 'ws', 'INTEGER NOT NULL DEFAULT 0');        // 이번에 이어서 보기 시작한 시각
 }
 
@@ -696,8 +696,8 @@ const okSec = (s) => typeof s === 'string' && s.length >= 16 && s.length <= 128;
 const txt = (s) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, MAX_TXT) : '');
 const rid = () => [...crypto.getRandomValues(new Uint8Array(9))].map((x) => x.toString(36).padStart(2, '0')).join('').slice(0, 12);
 // 미션 상태(s): 0 대기(받는 쪽이 승낙하길 기다림) · 1 승낙(진행 중) · 2 완료 보고(한 쪽이 했다고 눌렀고 보낸 쪽의 확인을 기다림) · 3 종료(완료) · 4 거절
-//   자녀 미션(k='c', 부모 → 자녀): 부모가 보냄 → 자녀 승낙/거절 → 자녀가 완료 → 부모가 확인(이때 자녀에게 포인트 pt 지급)
-//   부모님 미션(k='p', 자녀 → 부모): 자녀가 보냄(포인트 SEND_COST 필요) → 부모 승낙(이때 자녀 포인트 SEND_COST 차감)/거절 → 부모가 완료 → 자녀가 확인
+//   가족구성원 미션(k='c', 부모 → 가족구성원): 부모가 보냄 → 가족구성원 승낙/거절 → 가족구성원이 완료 → 부모가 확인(이때 가족구성원에게 포인트 pt 지급)
+//   부모님 미션(k='p', 가족구성원 → 부모): 가족구성원이 보냄(포인트 SEND_COST 필요) → 부모 승낙(이때 가족구성원 포인트 SEND_COST 차감)/거절 → 부모가 완료 → 가족구성원이 확인
 const SEND_COST = 50;
 const QS_WAIT = 0, QS_ON = 1, QS_REP = 2, QS_DONE = 3, QS_NO = 4;
 const pts = (v) => { const n = Math.round(Number(v)); return n >= 1 && n <= MAX_PT ? n : 1; };
@@ -804,7 +804,7 @@ function sleepOrWake(cid, ms) {
   });
 }
 // s425: 허브(Durable Object, 선택)가 연결돼 있으면 바뀐 rev 를 알려 기다리는 쪽을 서버가 달라도 곧바로 깨운다. 없으면 이전과 똑같다.
-// s426: WebSocket 초인종 스위치 — 워커 변수 WS_MODE: 없음/off = 꺼짐(기본, 예전 그대로) · canary = WS_CANARY(쉼표로 자녀 아이디)만 · all = 모두. 허브(FAM)가 연결돼 있어야 한다.
+// s426: WebSocket 초인종 스위치 — 워커 변수 WS_MODE: 없음/off = 꺼짐(기본, 예전 그대로) · canary = WS_CANARY(쉼표로 가족구성원 아이디)만 · all = 모두. 허브(FAM)가 연결돼 있어야 한다.
 const wsOn = (env, cid) => { const md = env && env.WS_MODE; if (!md || !env.FAM) return false; if (md === 'all') return true; return md === 'canary' && String(env.WS_CANARY || '').split(',').some((x) => x.trim() === cid); };
 const famHub = (cid) => { const e = ENVG; return e && e.FAM && e.FAM.idFromName ? e.FAM.get(e.FAM.idFromName(cid)) : null; };
 async function bump(DB, cid) {
@@ -814,7 +814,7 @@ async function bump(DB, cid) {
   wakeAll(cid);
   later(hub.fetch('https://hub/bump?rev=' + (r ? r.n : 0)));
 }
-/** 읽음(카톡의 '1'): 부모(p)·자녀(c)가 대화방을 실제로 보는 동안 가장 최근 글(chat.id)까지 읽은 것으로 적는다. 바뀌었을 때만 true(그리고 화면 갱신 신호). */
+/** 읽음(카톡의 '1'): 부모(p)·가족구성원(c)가 대화방을 실제로 보는 동안 가장 최근 글(chat.id)까지 읽은 것으로 적는다. 바뀌었을 때만 true(그리고 화면 갱신 신호). */
 async function rdMap(DB, cid) {
   const o = { p: 0, c: 0 };
   ((await DB.prepare('SELECT s,id FROM chat_rd WHERE cid=?').bind(cid).all()).results || []).forEach((r) => { if (r.s === 'p' || r.s === 'c') o[r.s] = r.id; });
@@ -878,10 +878,10 @@ async function prune(DB, cid, now) {
 }
 
 // ───────── 장소 일정: 시각이 되면 오늘의 이동(trip)을 만든다 ─────────
-const plCache = new Map();                                  // 장소가 있는 자녀인지 잠깐 기억(없으면 기다리는 동안 장소 표를 읽지 않는다)
+const plCache = new Map();                                  // 장소가 있는 가족구성원인지 잠깐 기억(없으면 기다리는 동안 장소 표를 읽지 않는다)
 async function tripsSync(DB, cid, now) {            // s424: 읽은 장소 목록을 돌려준다(위치 보고가 같은 표를 또 읽지 않게 — 결과는 그대로, 호출만 1번 적게)
   const pc = plCache.get(cid);
-  if (pc && now < pc.exp && !pc.has) return null;                  // 장소 없음으로 기억해 둔 자녀 — 읽지 않았다(null)
+  if (pc && now < pc.exp && !pc.has) return null;                  // 장소 없음으로 기억해 둔 가족구성원 — 읽지 않았다(null)
   const pls = (await DB.prepare('SELECT id,name,la,lo,hh,mm,days FROM places WHERE cid=?').bind(cid).all()).results || [];
   if (plCache.size > 20000) plCache.clear();
   plCache.set(cid, { has: pls.length > 0, exp: now + (pls.length ? 300000 : 20000) });
@@ -903,7 +903,7 @@ async function todayTrips(DB, cid, now) {
   return (await DB.prepare('SELECT t.id id,t.pl pl,t.st st,t.tn tn,t.tk tk,t.td td,t.ta ta,t.tc tc,p.name name,p.la la,p.lo lo,p.hh hh,p.mm mm FROM trips t JOIN places p ON p.id=t.pl WHERE t.cid=? AND t.day=?').bind(cid, kp.ds).all()).results || [];
 }
 
-/** 자녀 앱이 그리는 모든 것: 연결 수 · 길동무포인트 · 알림(prompt) · 남은 거리 알약(trip). 계산은 모두 여기서. */
+/** 가족구성원 앱이 그리는 모든 것: 연결 수 · 길동무포인트 · 알림(prompt) · 남은 거리 알약(trip). 계산은 모두 여기서. */
 async function childState(DB, cid, now) {
   await tripsSync(DB, cid, now);
   const rows = await todayTrips(DB, cid, now);
@@ -958,7 +958,7 @@ async function questScreen(DB, cid, tab) {
   const pend = rows.filter((q) => q.k === 'p' && q.s === QS_WAIT).length;
   const a = [b('head', { text: '퀘스트' })];
   a.push(b('stars', { n: star, label: '길동무포인트', sub: act > 0 ? '내가 할 일 ' + act + '개' : '' }));
-  a.push(b('chips', { eq: '1', loop: '1', items: [item('자녀 미션 ' + nc, 'quest.tab:c', kid ? '1' : '0'), item('부모님 미션 ' + np, 'quest.tab:p', kid ? '0' : '1')] }));
+  a.push(b('chips', { eq: '1', loop: '1', items: [item('가족구성원 미션 ' + nc, 'quest.tab:c', kid ? '1' : '0'), item('부모님 미션 ' + np, 'quest.tab:p', kid ? '0' : '1')] }));
   a.push(b('text', { text: kid ? '부모님이 보내 주신 미션이에요. 승낙하고 해낸 뒤 완료를 누르면 부모님이 확인하고, 그러면 길동무포인트가 올라가요.' : '내가 부모님께 보내는 미션이에요(한 번에 길동무포인트 ' + SEND_COST + '). 부모님이 승낙하면 ' + SEND_COST + '이 차감되고, 부모님이 완료하면 내가 확인해요.', sub: '1' }));
   if (!kid) a.push(b('input', { hint: '부모님께 보낼 미션을 적어요 (포인트 ' + SEND_COST + ')', act: 'quest.send' }));
   let shown = 0;
@@ -992,7 +992,7 @@ async function screenOf(DB, cid, tab, qt, now) {
   if (tab === 'quest') return questScreen(DB, cid, qt);
   return null;
 }
-/** 자녀 앱이 한 번에 받는 묶음: 상태 + (보는 탭의) 화면들 + rev */
+/** 가족구성원 앱이 한 번에 받는 묶음: 상태 + (보는 탭의) 화면들 + rev */
 async function childBundle(DB, cid, tab, qt, now, rev) {
   const o = Object.assign({ ok: true, rev }, await childState(DB, cid, now));
   if (tab === 'quest') o.screens = { c: await questScreen(DB, cid, 'c'), p: await questScreen(DB, cid, 'p') };
@@ -1017,7 +1017,7 @@ const dlg = () => ({ w: 460, maxh: 0.9, dim: 0.5, top: 0.5, r: 18, mx: 14, fit: 
 async function childrenOf(DB, pid) {
   return (await DB.prepare('SELECT l.cid cid, l.nm nm, COALESCE(s.n,0) stars FROM links l LEFT JOIN stars s ON s.cid=l.cid WHERE l.pid=? ORDER BY l.t ASC').bind(pid).all()).results || [];
 }
-const nmOf = (c) => (c && c.nm ? c.nm : '자녀');
+const nmOf = (c) => (c && c.nm ? c.nm : '가족구성원');
 
 /** 지도 아래 알림 글: 지금 시각의 일정마다 '도착했어요 / 가고 있어요 / 도착하지 않았어요 / 곧 가야 해요' 를 엔진이 정한다 */
 function alertLines(nm, pls, trips, loc, now) {
@@ -1042,16 +1042,16 @@ function alertLines(nm, pls, trips, loc, now) {
       if ((tr && tr.st === 'go') || closer) out.push({ tone: 'go', s: who + ' ' + pl.name + '에 가고 있어요' + (d != null ? ' · 남은 ' + fmtDist(d) : '') });
       else out.push({ tone: 'warn', s: who + ' ' + pl.name + '에 도착하지 않았어요 (' + hmS + ' 약속)' });
     } else if (tr && tr.st === 'go') out.push({ tone: 'go', s: who + ' ' + pl.name + '로 출발했어요' + (d != null ? ' · 남은 ' + fmtDist(d) : '') });
-    else out.push({ tone: 'info', s: hmS + '까지 ' + pl.name + ' — ' + (tr && tr.st === 'seen' ? '알림을 확인했어요' : '자녀에게 알림을 보냈어요') });
+    else out.push({ tone: 'info', s: hmS + '까지 ' + pl.name + ' — ' + (tr && tr.st === 'seen' ? '알림을 확인했어요' : '가족구성원에게 알림을 보냈어요') });
   }
   return out;
 }
 
 const HUB_CARD_H = 46;                                              // 허브 위에 얹히는 긴급 호출 · 데리러 와줘 카드 한 장의 높이(dp, 어림) — 지도를 이만큼 줄인다
 const EV_SHOW = 50, EV_VIS = 4, HUB_CHAT = 40, CHAT_BOX = 230;     // 허브 아래 3칸은 글 수와 상관없이 크기 고정: 활동 칸 = 상태 2줄 + 활동 EV_VIS 줄 · 퀘스트 칸 = 단추·길동무포인트·바로가기 · 대화 칸 = 글 영역 CHAT_BOX(dp). 넘치는 글은 칸 안에서만 위아래로 민다                    
-const KIDS_TAB = { label: '키즈', icon: 'M12 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM6.8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17.2 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM12 12.5c-3.9 0-7 2-7 4.5V22h14v-5c0-2.5-3.1-4.5-7-4.5z' };      // 키즈 모드의 아래 탭(홈 칸을 바꿔 그린다): 어린이 모양 + 글자 — 앱은 이대로 그린다
+const KIDS_TAB = { label: '가족', icon: 'M12 2a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM6.8 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM17.2 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM12 12.5c-3.9 0-7 2-7 4.5V22h14v-5c0-2.5-3.1-4.5-7-4.5z' };      // 가족 모드의 아래 탭(홈 칸을 바꿔 그린다): 어린이 모양 + 글자 — 앱은 이대로 그린다
 const evWhen = (t, now) => { if (kstParts(t).ds === kstParts(now).ds) return clock(t); const d = new Date(t + KST); return d.getUTCMonth() + 1 + '/' + d.getUTCDate() + ' ' + clock(t); };
-/** 활동 한 줄의 글(종류 k · x 는 장소 · 동네 · 친구 이름). 자녀 이름 nm 은 부모가 정한 이름 */
+/** 활동 한 줄의 글(종류 k · x 는 장소 · 동네 · 친구 이름). 가족구성원 이름 nm 은 부모가 정한 이름 */
 function eul(w) { const c = w.charCodeAt(w.length - 1); return c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 !== 0 ? w + '을' : w + '를'; }
 function evText(e, nm) {
   const x = e.x;
@@ -1081,7 +1081,7 @@ function evText(e, nm) {
 async function hubScreen(DB, pid, cid, now) {
   const kids = await childrenOf(DB, pid);
   const cur = kids.find((k) => k.cid === cid) || kids[0];
-  if (!cur) return scr('kids', [], [b('text', { t: 'text' })].slice(0, 0).concat([tx('연결된 자녀가 없어요', { size: 15, bold: true, pad: [16, 24, 16, 6] }), tx('길동무 키즈의 시크릿 키나 QR 로 연결해 주세요', { color: 'sub', pad: [16, 0, 16, 0] })]));
+  if (!cur) return scr('kids', [], [b('text', { t: 'text' })].slice(0, 0).concat([tx('연결된 가족구성원이 없어요', { size: 15, bold: true, pad: [16, 24, 16, 6] }), tx('길동무 패밀리의 시크릿 키나 QR 로 연결해 주세요', { color: 'sub', pad: [16, 0, 16, 0] })]));
   cid = cur.cid;
   const nm = nmOf(cur);
   // s421: 서로 기대지 않는 조회는 한꺼번에 묻는다(예전엔 16번을 줄줄이 기다려 지난 경로를 고를 때마다 1~2초가 걸렸다). 법정대리인 확인이 안 된 사람에게는 읽은 값을 쓰지 않고 돌려보낸다.
@@ -1102,7 +1102,7 @@ async function hubScreen(DB, pid, cid, now) {
     rdMap(DB, cid),
     tripsSync(DB, cid, now).then(() => Promise.all([todayTrips(DB, cid, now), ALL(DB.prepare('SELECT k,x,t FROM evs WHERE cid=? AND t>=? AND k NOT IN ' + EV_HIDE + ' ORDER BY id DESC LIMIT ?').bind(cid, now - EV_KEEP, EV_SHOW + 1))])),
   ]);
-  if (!gok) return gdScreen(nm);                                   // 법정대리인 확인 전에는 자녀 위치를 보여 주지 않는다
+  if (!gok) return gdScreen(nm);                                   // 법정대리인 확인 전에는 가족구성원 위치를 보여 주지 않는다
   if (!sok) return payScreen(nm);                                  // s431: 구독이 꺼져 있으면 늘 통과 · 켜져 있으면 구독자만
   const watching = !!wch;
   const cs = cs0 || { sh: 1 };
@@ -1134,8 +1134,8 @@ async function hubScreen(DB, pid, cid, now) {
   const topCall = calls.find((c) => c.k === 'sos') || calls[0] || null;
   const mapH = Math.max(150, 250 - (topCall ? HUB_CARD_H : 0) - (kids.length > 1 ? 44 : 0));
   const head = [
-    viewing ? { t: 'lth', s: nm + ' 지난 경로', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '자녀 위치', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
-    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: mapH, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '자녀 위치를 아직 받지 못했어요' : follow ? '실시간으로 따라가는 중 · 지도를 밀면 잠시 멈춰요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
+    viewing ? { t: 'lth', s: nm + ' 지난 경로', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '가족구성원 위치', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
+    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: mapH, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '가족구성원 위치를 아직 받지 못했어요' : follow ? '실시간으로 따라가는 중 · 지도를 밀면 잠시 멈춰요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
   for (const c of topCall ? [topCall] : []) head.unshift(panel([          // s415: 호출 내용은 가운데 팝업으로 뜬다 — 허브에는 한 줄만 남겨 눌러서 다시 열 수 있게
     tx((c.k === 'sos' ? '🚨 ' + nm + ' 긴급 호출' : '🚗 ' + nm + ' 데리러 와 달라고 해요') + (c.st === 1 ? ' · 확인함' : '') + '  ›', { size: 13.5, bold: true, color: 'orange', lines: 1, align: 'center' }),
@@ -1155,7 +1155,7 @@ async function hubScreen(DB, pid, cid, now) {
   const st = [];                                                                   // 상태 글: {s, bold, color, size} — 칸에는 정확히 2줄(한 줄씩 · 길면 … 으로 줄임), 3째 줄부터는 아래 목록 맨 위 줄로 넘긴다
   if (!loc) {
     st.push({ s: nm + '의 위치를 아직 받지 못했어요', size: 13, bold: true, color: 'text' });
-    if ((locAskAt.get(cid) || 0) > now - LOC_ASK_GAP) st.push({ s: '자녀 폰에 위치를 요청했어요 · 곧 나타나요', size: 11.5, bold: false, color: 'sub' });
+    if ((locAskAt.get(cid) || 0) > now - LOC_ASK_GAP) st.push({ s: '가족구성원 폰에 위치를 요청했어요 · 곧 나타나요', size: 11.5, bold: false, color: 'sub' });
   }
   else if (!lines.length) st.push({ s: locHead(nm, loc, now), size: 13, bold: true, color: 'text' }, { s: pls.length ? '오늘은 도착해야 할 장소가 없어요' : '장소를 등록하면 도착 여부를 알려 드려요', size: 11.5, bold: false, color: 'sub' });
   for (const l of lines) st.push({ s: l.s, size: 13, bold: true, color: l.tone === 'warn' ? 'orange' : l.tone === 'ok' ? 'gold' : 'text' });
@@ -1164,7 +1164,7 @@ async function hubScreen(DB, pid, cid, now) {
   const evs = evr.slice(0, EV_SHOW).reverse();                                   // 아래로 갈수록 최근
   // 활동 칸: 늘 상태 2줄 + 활동 EV_VIS 줄이 보인다(글이 적으면 빈 줄로 채워 같은 높이) · 더 있으면 칸 안에서 위아래로 밀어 지난 활동을 본다(처음엔 맨 아래 = 가장 최근)
   const rows = st.slice(2).map((x) => ({ a: x.s })).concat(evs.map((e, i) => ({ a: evWhen(e.t, now) + '  ' + evText(e, nm), on: i === evs.length - 1, act: call('kd.open') })));
-  if (!evs.length) rows.push({ a: '아직 활동이 없어요. 길동무 키즈가 켜져 있으면 여기에 나타나요', on: true });
+  if (!evs.length) rows.push({ a: '아직 활동이 없어요. 길동무 패밀리가 켜져 있으면 여기에 나타나요', on: true });
   while (rows.length < EV_VIS) rows.unshift({ a: '\u00a0' });
   const fk = [{ t: 'pickl', key: 'kev' + cid, plain: true, h: 21, vis: EV_VIS, size: 12.5, pad: [0, 8, 0, 0], rows }];
   body.push({ t: 'lth', s: nm + ' 뭐하니?', dot: '#ff3b30', live: true, pad: [16, 12, 16, 0] });
@@ -1174,11 +1174,11 @@ async function hubScreen(DB, pid, cid, now) {
   const nc = qs.filter((q) => q.k === 'c').length, np = qs.length - nc, wait = qs.filter((q) => (q.k === 'c' && q.s === QS_REP) || (q.k === 'p' && (q.s === QS_WAIT || q.s === QS_ON))).length;
   body.push({ t: 'lth', s: '퀘스트', dot: '#f5b800', live: true, pad: [16, 12, 16, 0] });
   body.push(panel([
-    { t: 'row', gap: 8, kids: [btn('자녀 미션 ' + nc, call('kq.open', cid, 'c'), { fill: 'card2', tc: 'text', line: 'border', h: 40, size: 12.5 }), btn('부모님 미션 ' + np, call('kq.open', cid, 'p'), { fill: 'card2', tc: 'text', line: 'border', h: 40, size: 12.5 })] },
+    { t: 'row', gap: 8, kids: [btn('가족구성원 미션 ' + nc, call('kq.open', cid, 'c'), { fill: 'card2', tc: 'text', line: 'border', h: 40, size: 12.5 }), btn('부모님 미션 ' + np, call('kq.open', cid, 'p'), { fill: 'card2', tc: 'text', line: 'border', h: 40, size: 12.5 })] },
     tx('길동무포인트 ' + cur.stars + (wait ? ' · 내가 할 일 ' + wait + '개' : ''), { size: 13, bold: true, color: wait ? 'orange' : 'gold', lines: 1, pad: [0, 8, 0, 6] }),
     { t: 'navrow', title: '미션 보내기 · 확인하기', sub: wait ? '처리할 일 ' + wait : '', act: call('kq.open', cid, 'c'), size: 13, vp: 8 },
   ], { pad: [12, 1, 12, 0] }));
-  // 지난 경로(s391): 30분 넘게 머물 때마다 그 전까지의 길이 저장된다 — 자녀당 RT_KEEP 개. 목록은 위 '지난 경로' 단추의 팝업(rtSheet)에서 본다(s413: 줄 → 단추)
+  // 지난 경로(s391): 30분 넘게 머물 때마다 그 전까지의 길이 저장된다 — 가족구성원당 RT_KEEP 개. 목록은 위 '지난 경로' 단추의 팝업(rtSheet)에서 본다(s413: 줄 → 단추)
   // 등록한 장소는 위 오른쪽 단추의 팝업(placesSheet)에서 본다
   // 최근 이동 기록은 '지난 경로' 팝업(rtSheet)으로 옮겼다(s414: 허브는 한 화면에 스크롤 없이 — 칸 크기가 글 수에 따라 달라지지 않게)
   // 가족 실시간 대화(파란 점): 제목은 네모칸 밖(위)에 — 네모칸 안은 위가 대화 내용(남는 세로를 처음부터 다 차지 · 아래가 최근 · 지난 글은 칸 안에서만 밀어 봄), 맨 아래가 입력줄. 박스를 누르면 전체 대화 팝업
@@ -1191,7 +1191,7 @@ async function hubScreen(DB, pid, cid, now) {
     { t: 'lth', s: '가족 실시간 대화', dot: '#2f7cf6', live: true, pad: [16, 8, 16, 0] },
     panel(ck, { pad: [10, 0, 10, 6], ip: [12, 8, 12, 4], fill: 'card', line: 'border', r: 16, act: call('kc.open') })      // 박스를 누르면 전체 대화 팝업(위아래로 밀어 봄)
   ];
-  // 자녀가 여럿이면 좌우로 밀어 다음·이전 자녀로(끝에서 처음으로 돈다) — 어느 자녀로 갈지는 엔진이 정해 sw 에 담고, 앱은 그 행동(kc.<cid>)을 그대로 보낸다. 지도·'OO 뭐하니?'·퀘스트·대화가 모두 그 자녀 것으로 새로 온다.
+  // 가족구성원이 여럿이면 좌우로 밀어 다음·이전 가족구성원으로(끝에서 처음으로 돈다) — 어느 가족구성원으로 갈지는 엔진이 정해 sw 에 담고, 앱은 그 행동(kc.<cid>)을 그대로 보낸다. 지도·'OO 뭐하니?'·퀘스트·대화가 모두 그 가족구성원 것으로 새로 온다.
   const ki = Math.max(0, kids.findIndex((k) => k.cid === cid)), nk = kids.length;
   const sw = nk > 1 ? { k: cid, l: call('kc.' + kids[(ki + 1) % nk].cid), r: call('kc.' + kids[(ki - 1 + nk) % nk].cid) } : null;
   return scr('kids', head, body, Object.assign({ foot, fl: false }, sw ? { sw } : {}));
@@ -1269,15 +1269,15 @@ async function questSheet(DB, pid, cid, qt) {
   // 상태(s): 0 대기 · 1 승낙(진행 중) · 2 완료 보고(확인 대기) · 3 종료 · 4 거절 — 자세한 흐름은 SEND_COST 위의 설명
   const list = tab === 'c' ? cRows : pRows;
   const doneN = list.filter((q) => q.s === QS_DONE).length, ingN = list.filter((q) => q.s < QS_DONE).length;
-  // 제목 · 길동무포인트 · 알약(자녀 미션 / 부모님 미션)은 고정 머리 — 좌우로 밀어도 안 움직이고 고른 알약 색만 바뀐다. 그 아래(body)만 밀린다.
+  // 제목 · 길동무포인트 · 알약(가족구성원 미션 / 부모님 미션)은 고정 머리 — 좌우로 밀어도 안 움직이고 고른 알약 색만 바뀐다. 그 아래(body)만 밀린다.
   const head = [tx(nmOf(cur) + '의 미션', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('길동무포인트 ' + star, { size: 12, bold: true, color: 'gold', pad: [16, 0, 16, 6] }),
-    { t: 'chips', pad: [12, 4, 12, 4], items: [{ label: '자녀 미션 ' + nc, on: tab === 'c', act: call('kq.tab', cid, 'c') }, { label: '부모님 미션 ' + np, on: tab === 'p', act: call('kq.tab', cid, 'p') }] }];
+    { t: 'chips', pad: [12, 4, 12, 4], items: [{ label: '가족구성원 미션 ' + nc, on: tab === 'c', act: call('kq.tab', cid, 'c') }, { label: '부모님 미션 ' + np, on: tab === 'p', act: call('kq.tab', cid, 'p') }] }];
   const body = [
-    tx(tab === 'c' ? '부모님이 자녀에게 준 미션이에요. 자녀가 승낙하고 해낸 뒤 완료를 누르면, 확인을 눌러 길동무포인트를 주세요.' : '자녀가 부모님께 보낸 미션이에요(한 번에 길동무포인트 ' + SEND_COST + '). 승낙하면 자녀의 길동무포인트가 ' + SEND_COST + ' 차감되고, 끝낸 뒤 완료를 누르면 자녀가 확인해요.', { size: 11, color: 'sub', pad: [16, 8, 16, 0] }),
-    tx((tab === 'c' ? '오른쪽 부모님 미션' : '왼쪽 자녀 미션') + '으로 화면을 밀어서 넘길 수 있어요', { size: 10.5, color: 'sub', pad: [16, 2, 16, 4] }),
+    tx(tab === 'c' ? '부모님이 가족구성원에게 준 미션이에요. 가족구성원이 승낙하고 해낸 뒤 완료를 누르면, 확인을 눌러 길동무포인트를 주세요.' : '가족구성원이 부모님께 보낸 미션이에요(한 번에 길동무포인트 ' + SEND_COST + '). 승낙하면 가족구성원의 길동무포인트가 ' + SEND_COST + ' 차감되고, 끝낸 뒤 완료를 누르면 가족구성원이 확인해요.', { size: 11, color: 'sub', pad: [16, 8, 16, 0] }),
+    tx((tab === 'c' ? '오른쪽 부모님 미션' : '왼쪽 가족구성원 미션') + '으로 화면을 밀어서 넘길 수 있어요', { size: 10.5, color: 'sub', pad: [16, 2, 16, 4] }),
     tx('진행 중 ' + ingN + ' · 완료 ' + doneN, { size: 12.5, bold: true, color: ingN ? 'orange' : 'gold', pad: [16, 4, 16, 2] })];
   if (tab === 'c') {
-    body.push(panel([tx('자녀에게 미션 보내기', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 6] }), { t: 'field', key: 'kqx', hint: '예) 방 정리하기', maxlen: 60, h: 42 },
+    body.push(panel([tx('가족구성원에게 미션 보내기', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 6] }), { t: 'field', key: 'kqx', hint: '예) 방 정리하기', maxlen: 60, h: 42 },
       tx('해냈을 때 받는 길동무포인트', { size: 11.5, color: 'sub', pad: [0, 8, 0, 4] }),
       { t: 'row', gap: 6, kids: [1, 2, 3, 4, 5].map((n) => btn(String(n), call('kq.pt', cid, String(n)), Object.assign({ h: 38 }, n === 1 ? gold : { fill: 'card2', tc: 'text', line: 'border' }))) },
       tx('길동무포인트를 고르고 아래 확인을 눌러야 보내져요', { size: 10.5, color: 'sub', pad: [0, 6, 0, 8] }),
@@ -1287,23 +1287,23 @@ async function questSheet(DB, pid, cid, qt) {
     const k = [tx(q.x, { size: 13.5, bold: true })], p = q.pt || 1;
     const line = (txt, color, bold) => k.push(tx(txt, { size: 11.5, color, bold: !!bold, pad: [0, 4, 0, 4] }));
     if (tab === 'c') {
-      if (q.s === QS_WAIT) line('대기 중 · 자녀가 승낙하면 시작돼요 (완료하면 포인트 +' + p + ')', 'sub');
-      else if (q.s === QS_ON) line('진행 중 · 자녀가 완료를 누르면 확인할 수 있어요', 'sub');
-      else if (q.s === QS_REP) { line('자녀가 완료했어요 · 확인해 주세요', 'orange', true); k.push({ t: 'row', gap: 8, kids: [btn('확인 (포인트 +' + p + ')', call('kq.ok', q.id, 'c'), gold), btn('다시 하기', call('kq.redo', q.id, 'c'), { fill: 'card2', tc: 'text', line: 'border' })] }); }
+      if (q.s === QS_WAIT) line('대기 중 · 가족구성원이 승낙하면 시작돼요 (완료하면 포인트 +' + p + ')', 'sub');
+      else if (q.s === QS_ON) line('진행 중 · 가족구성원이 완료를 누르면 확인할 수 있어요', 'sub');
+      else if (q.s === QS_REP) { line('가족구성원이 완료했어요 · 확인해 주세요', 'orange', true); k.push({ t: 'row', gap: 8, kids: [btn('확인 (포인트 +' + p + ')', call('kq.ok', q.id, 'c'), gold), btn('다시 하기', call('kq.redo', q.id, 'c'), { fill: 'card2', tc: 'text', line: 'border' })] }); }
       else if (q.s === QS_DONE) line('완료 · 포인트 +' + p + ' 지급했어요', 'gold');
-      else line('자녀가 거절했어요', 'sub');
+      else line('가족구성원이 거절했어요', 'sub');
     } else {
-      if (q.s === QS_WAIT) { line('자녀가 보냈어요 · 승낙하면 자녀 포인트 -' + (q.pt || SEND_COST) + ' 차감돼요', 'orange', true); k.push({ t: 'row', gap: 8, kids: [btn('승낙', call('kq.accept', q.id, 'p'), gold), btn('거절', call('kq.reject', q.id, 'p'), { fill: 'card2', tc: 'text', line: 'border' })] }); }
+      if (q.s === QS_WAIT) { line('가족구성원이 보냈어요 · 승낙하면 가족구성원 포인트 -' + (q.pt || SEND_COST) + ' 차감돼요', 'orange', true); k.push({ t: 'row', gap: 8, kids: [btn('승낙', call('kq.accept', q.id, 'p'), gold), btn('거절', call('kq.reject', q.id, 'p'), { fill: 'card2', tc: 'text', line: 'border' })] }); }
       else if (q.s === QS_ON) { line('승낙했어요 (포인트 -' + (q.pt || SEND_COST) + ') · 끝냈으면 완료를 눌러요', 'orange', true); k.push(btn('완료', call('kq.fin', q.id, 'p'), gold)); }
-      else if (q.s === QS_REP) line('완료했어요 · 자녀의 확인을 기다려요', 'sub');
-      else if (q.s === QS_DONE) line('완료 · 자녀가 확인했어요', 'gold');
+      else if (q.s === QS_REP) line('완료했어요 · 가족구성원의 확인을 기다려요', 'sub');
+      else if (q.s === QS_DONE) line('완료 · 가족구성원이 확인했어요', 'gold');
       else line('거절했어요', 'sub');
     }
     body.push(panel(k, { pad: [12, 8, 12, 0] }));
   }
-  if (!list.length) body.push(tx(tab === 'c' ? '아직 보낸 미션이 없어요' : '자녀가 보낸 미션이 아직 없어요', { size: 12.5, color: 'sub', pad: [16, 14, 16, 8] }));
+  if (!list.length) body.push(tx(tab === 'c' ? '아직 보낸 미션이 없어요' : '가족구성원이 보낸 미션이 아직 없어요', { size: 12.5, color: 'sub', pad: [16, 14, 16, 8] }));
   body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
-  const sw = tab === 'c' ? { k: 'c', r: call('kq.tab', cid, 'p') } : { k: 'p', l: call('kq.tab', cid, 'c') };         // 좌우로 밀어 자녀 미션 ↔ 부모님 미션
+  const sw = tab === 'c' ? { k: 'c', r: call('kq.tab', cid, 'p') } : { k: 'p', l: call('kq.tab', cid, 'c') };         // 좌우로 밀어 가족구성원 미션 ↔ 부모님 미션
   return scr('kidquest', head, body, { dlg: dlg(), sw });
 }
 
@@ -1366,7 +1366,7 @@ async function saveDraft(DB, pid, cid, la, lo, name, q, now) {
   await DB.prepare("INSERT INTO drafts(pid,cid,pl,la,lo,name,hh,mm,days,t,q) VALUES(?,?,'',?,?,?,16,0,0,?,?) ON CONFLICT(pid) DO UPDATE SET cid=excluded.cid,pl='',la=excluded.la,lo=excluded.lo,name=excluded.name,hh=16,mm=0,days=0,t=excluded.t,q=excluded.q").bind(pid, cid, la, lo, name, now, q).run();
 }
 function regSheet(d, results, notice) {
-  const body = [tx('장소 등록', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('주소나 장소 이름을 찾으면 지도가 그쪽으로 옮겨가요. 이름을 적어 등록하면 자녀가 도착하거나 벗어날 때 알려 드려요.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
+  const body = [tx('장소 등록', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('주소나 장소 이름을 찾으면 지도가 그쪽으로 옮겨가요. 이름을 적어 등록하면 가족구성원이 도착하거나 벗어날 때 알려 드려요.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 2, 16, 4] }));
   body.push(panel([{ t: 'field', key: 'kpa', hint: '주소 또는 건물·학교·회사 이름 (예: 대동초등학교 · 가양로 12)', value: d.q || '', maxlen: 60, h: 44 },
     { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('주소 찾기', call('kpg.find'), gold)] }], { pad: [12, 6, 12, 0] }));
@@ -1382,13 +1382,13 @@ function regSheet(d, results, notice) {
 async function placesSheet(DB, cid) {
   const pls = (await DB.prepare('SELECT id,name,hh,mm,days FROM places WHERE cid=? ORDER BY hh,mm LIMIT ?').bind(cid, MAX_PLACES).all()).results || [];
   const body = [tx('등록한 장소', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
-    tx(pls.length ? '장소를 누르면 시각 · 요일을 고치거나 지울 수 있어요. (' + pls.length + '/' + MAX_PLACES + ')' : '아직 등록한 장소가 없어요. 장소를 등록하면 자녀가 도착하거나 벗어날 때 알려 드려요.', { size: 12, color: 'sub', pad: [16, 0, 16, 8] })];
+    tx(pls.length ? '장소를 누르면 시각 · 요일을 고치거나 지울 수 있어요. (' + pls.length + '/' + MAX_PLACES + ')' : '아직 등록한 장소가 없어요. 장소를 등록하면 가족구성원이 도착하거나 벗어날 때 알려 드려요.', { size: 12, color: 'sub', pad: [16, 0, 16, 8] })];
   if (pls.length) body.push(panel(pls.map((p, i) => ({ t: 'navrow', title: (i + 1) + '. ' + p.name, sub: p.days ? pad2(p.hh) + ':' + pad2(p.mm) + ' ' + daysTxt(p.days) : '출입 알림 · 시각 없음', act: call('kp.' + p.id), size: 13, vp: 8 })), { pad: [12, 4, 12, 0], ip: [14, 6, 14, 6] }));
   body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' }), btn('+ 장소 등록', call('kpg.open', cid), gold)] });
   return scr('kidpls', [], body, { dlg: dlg() });
 }
 function placeSheet(d, edit, notice) {
-  const body = [tx(edit ? '장소 고치기' : '장소 등록', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('요일을 고르면 그 시각에 자녀가 이 장소에 있어야 해요(30분 전에 자녀에게 알려요). 요일을 안 고르면 도착 · 출발 알림만 와요.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] }),
+  const body = [tx(edit ? '장소 고치기' : '장소 등록', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('요일을 고르면 그 시각에 가족구성원이 이 장소에 있어야 해요(30분 전에 가족구성원에게 알려요). 요일을 안 고르면 도착 · 출발 알림만 와요.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] }),
     ...(notice ? [tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 4, 16, 2] })] : []),
     panel([{ t: 'field', key: 'kpn', hint: '이름 (예: 00학원)', value: d.name || '', maxlen: 20, h: 44 },
       tx('도착해야 하는 시각', { size: 11.5, color: 'sub', pad: [0, 10, 0, 2] }), tx(pad2(d.hh) + ':' + pad2(d.mm), { size: 30, bold: true, align: 'center', color: 'text', pad: [0, 2, 0, 8] }),
@@ -1403,10 +1403,10 @@ function placeSheet(d, edit, notice) {
 async function cheerSheet(DB, pid, cid, notice) {
   const kids = await childrenOf(DB, pid);
   const cur = kids.find((k) => k.cid === cid) || kids[0];
-  if (!cur) return scr('kidcheer', [], [tx('연결된 자녀가 없어요', { size: 15, bold: true, pad: [16, 20, 16, 12] })], { dlg: dlg() });
+  if (!cur) return scr('kidcheer', [], [tx('연결된 가족구성원이 없어요', { size: 15, bold: true, pad: [16, 20, 16, 12] })], { dlg: dlg() });
   const rows = (await DB.prepare('SELECT id,x FROM cheers WHERE cid=? ORDER BY id LIMIT ?').bind(cur.cid, MAX_CHEER).all()).results || [];
   const body = [tx(nmOf(cur) + ' 응원문구', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
-    tx('만들면 키즈 앱 맨 위에 흐르는 글이 이 문구로 바뀌어요. 하나도 없으면 기본 문구가 나와요. (' + rows.length + '/' + MAX_CHEER + ')', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
+    tx('만들면 패밀리 앱 맨 위에 흐르는 글이 이 문구로 바뀌어요. 하나도 없으면 기본 문구가 나와요. (' + rows.length + '/' + MAX_CHEER + ')', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
   if (kids.length > 1) body.push({ t: 'chips', pad: [12, 4, 12, 0], items: kids.map((k) => ({ label: nmOf(k), on: k.cid === cur.cid, act: call('kh.cheer', k.cid) })) });
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 6, 16, 2] }));
   if (rows.length) body.push(panel(rows.map((r) => ({ t: 'row', gap: 8, pad: [0, 4, 0, 4], kids: [tx(r.x, { size: 13, pad: [0, 8, 0, 0], flex: 1 }), btn('삭제', call('kh.cd', cur.cid, String(r.id)), { fill: 'card2', tc: 'orange', line: 'border', h: 32, size: 12 })] })), { pad: [12, 6, 12, 0] }));
@@ -1418,65 +1418,65 @@ async function cheerSheet(DB, pid, cid, notice) {
 
 async function linkSheet(DB, pid, notice) {
   const kids = await childrenOf(DB, pid);
-  const body = [tx('길동무 키즈 연결', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('자녀 폰의 길동무 키즈 설정에서 QR 이나 시크릿 키를 만들어 주세요(10분 동안 쓸 수 있어요).', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
+  const body = [tx('길동무 패밀리 연결', { size: 15, bold: true, pad: [16, 14, 16, 2] }), tx('가족구성원 폰의 길동무 패밀리 설정에서 QR 이나 시크릿 키를 만들어 주세요(10분 동안 쓸 수 있어요).', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 2, 16, 4] }));
   for (const k of kids) {
     body.push(panel([tx(nmOf(k) + ' · 연결됨', { size: 13.5, bold: true }), tx('길동무포인트 ' + k.stars, { size: 11.5, color: 'sub', pad: [0, 2, 0, 8] }),
-      { t: 'field', key: 'kn_' + k.cid.slice(0, 12), hint: '자녀 이름 (예: 민지)', value: k.nm || '', maxlen: 8, h: 40 },
+      { t: 'field', key: 'kn_' + k.cid.slice(0, 12), hint: '가족구성원 이름 (예: 민지)', value: k.nm || '', maxlen: 8, h: 40 },
       { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('이름 저장', call('kl.name', k.cid), gold), btn('연결 끊기', call('kl.unlink', k.cid), { fill: 'card2', tc: 'orange', line: 'border' })] }], { pad: [12, 8, 12, 0] }));
   }
   const pnm = await pnOf(DB, pid);
-  body.push(panel([tx('내 이름 (자녀에게 보여요)', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 6] }), { t: 'field', key: 'kpn', hint: '예: 엄마 · 아빠', value: pnm, maxlen: 8, h: 42 },
+  body.push(panel([tx('내 이름 (가족구성원에게 보여요)', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 6] }), { t: 'field', key: 'kpn', hint: '예: 엄마 · 아빠', value: pnm, maxlen: 8, h: 42 },
     { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('이름 저장', call('kl.pname'), gold)] }], { pad: [12, 8, 12, 0] }));
-  body.push(panel([tx('새 자녀 연결', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 6] }), { t: 'field', key: 'klc', hint: '시크릿 키 입력 (XXXXX-XXXXX)', maxlen: 12, h: 42, watch: true },
-    { t: 'field', key: 'kln', hint: '자녀 이름 (선택)', maxlen: 8, h: 42 },
+  body.push(panel([tx('새 가족구성원 연결', { size: 12, bold: true, color: 'sub', pad: [0, 0, 0, 6] }), { t: 'field', key: 'klc', hint: '시크릿 키 입력 (XXXXX-XXXXX)', maxlen: 12, h: 42, watch: true },
+    { t: 'field', key: 'kln', hint: '가족구성원 이름 (선택)', maxlen: 8, h: 42 },
     { t: 'row', gap: 8, pad: [0, 8, 0, 0], kids: [btn('QR 찍기', call('kl.scan'), { fill: 'card2', tc: 'text', line: 'border' }), btn('키로 연결', call('kl.join'), gold)] }], { pad: [12, 8, 12, 0] }));
   body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
   return scr('kidlink', [], body, { dlg: dlg() });
 }
 
 /** 설정 탭 맨 위에 끼울 한 줄(연결되었을 때만). 연결이 없으면 null — 길동무는 아무것도 보이지 않는다. */
-async function settingsRow(DB, pid, kn) {          // 설정 맨 위에 끼울 노드들(연결된 부모에게만). 아무도 연결 안 했으면 null. kn: 새 앱(길동무 키즈 탭 하나 → 팝업에서 설정)
+async function settingsRow(DB, pid, kn) {          // 설정 맨 위에 끼울 노드들(연결된 부모에게만). 아무도 연결 안 했으면 null. kn: 새 앱(길동무 패밀리 탭 하나 → 팝업에서 설정)
   const kids = await childrenOf(DB, pid);
   if (!kids.length) return null;
   const names = kids.map(nmOf).join(', ');
   if (kn) return [
     { t: 'panel', pad: [16, 12, 16, 0], ip: [16, 6, 16, 6], fill: 'card', line: 'border', r: 14, kids: [
-      { t: 'navrow', title: '길동무 키즈', sub: '연동되었습니다 · ' + names, act: call('kn.open'), size: 14, top: true }] },
+      { t: 'navrow', title: '길동무 패밀리', sub: '연동되었습니다 · ' + names, act: call('kn.open'), size: 14, top: true }] },
   ];
   const kh = (await DB.prepare('SELECT kh FROM devices WHERE id=?').bind(pid).first())?.kh ? true : false;
   const nc = (await DB.prepare('SELECT COUNT(*) n FROM cheers WHERE cid=?').bind(kids[0].cid).first())?.n || 0;
   return [
     { t: 'panel', pad: [16, 12, 16, 0], ip: [16, 6, 16, 6], fill: 'card', line: 'border', r: 14, kids: [
-      { t: 'navrow', title: '길동무 키즈', sub: '길동무 키즈와 연동되었습니다 · ' + names, act: call('kl.open'), size: 14, top: true }] },
-    tx('키즈 관련 설정', { size: 12, bold: true, color: 'sub', pad: [20, 16, 16, 6] }),
+      { t: 'navrow', title: '길동무 패밀리', sub: '길동무 패밀리와 연동되었습니다 · ' + names, act: call('kl.open'), size: 14, top: true }] },
+    tx('가족 관련 설정', { size: 12, bold: true, color: 'sub', pad: [20, 16, 16, 6] }),
     { t: 'panel', pad: [16, 0, 16, 0], ip: [16, 6, 16, 6], fill: 'card', line: 'border', r: 14, kids: [
-      { t: 'toggle', key: 'kidsHome', title: '키즈 화면으로 시작', sub: '켜면 앱을 열 때 키즈 감시 화면이 먼저 나와요. 끄면 길동무 홈으로 시작해요.', on: kh, top: false, vp: 9, size: 14, ssize: 11, onc: 'gold' },
-      { t: 'navrow', title: '자녀 응원문구 만들기', sub: kids.length > 1 ? '자녀마다 최대 ' + MAX_CHEER + '개' : nc + '/' + MAX_CHEER + '개', act: call('kh.cheer'), size: 14, top: true }] },
+      { t: 'toggle', key: 'kidsHome', title: '가족 화면으로 시작', sub: '켜면 앱을 열 때 가족 화면이 먼저 나와요. 끄면 길동무 홈으로 시작해요.', on: kh, top: false, vp: 9, size: 14, ssize: 11, onc: 'gold' },
+      { t: 'navrow', title: '가족구성원 응원문구 만들기', sub: kids.length > 1 ? '가족구성원마다 최대 ' + MAX_CHEER + '개' : nc + '/' + MAX_CHEER + '개', act: call('kh.cheer'), size: 14, top: true }] },
   ];
 }
-/** 자녀 마커 사진의 열쇠 — 지도 핀(g)과 앱 저장소가 같은 글을 쓴다(앱 KidsHub.markerKey 와 같은 규칙) */
+/** 가족구성원 마커 사진의 열쇠 — 지도 핀(g)과 앱 저장소가 같은 글을 쓴다(앱 KidsHub.markerKey 와 같은 규칙) */
 const markerKey = (cid) => String(cid || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 34);
-async function kidMenuSheet(DB, pid) {          // 설정 > 길동무 키즈 팝업: 연동 · 시작 화면 · 응원문구 · 마커 변경
+async function kidMenuSheet(DB, pid) {          // 설정 > 길동무 패밀리 팝업: 연동 · 시작 화면 · 응원문구 · 마커 변경
   const kids = await childrenOf(DB, pid);
-  if (!kids.length) return scr('kidmenu', [], [tx('연결된 자녀가 없어요', { size: 15, bold: true, pad: [16, 20, 16, 12] })], { dlg: dlg() });
+  if (!kids.length) return scr('kidmenu', [], [tx('연결된 가족구성원이 없어요', { size: 15, bold: true, pad: [16, 20, 16, 12] })], { dlg: dlg() });
   const kh = (await DB.prepare('SELECT kh FROM devices WHERE id=?').bind(pid).first())?.kh ? true : false;
   const nc = (await DB.prepare('SELECT COUNT(*) n FROM cheers WHERE cid=?').bind(kids[0].cid).first())?.n || 0;
-  const body = [tx('길동무 키즈', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
-    tx('길동무 키즈와 연동되었습니다 · ' + kids.map(nmOf).join(', '), { size: 11, color: 'sub', pad: [16, 0, 16, 6] }),
-    panel([{ t: 'toggle', key: 'kidsHome', title: '키즈 화면으로 시작', sub: '켜면 앱을 열 때 키즈 감시 화면이 먼저 나와요. 끄면 길동무 홈으로 시작해요.', on: kh, top: false, vp: 9, size: 14, ssize: 11, onc: 'gold' }], { ip: [14, 6, 14, 6] }),
+  const body = [tx('길동무 패밀리', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
+    tx('길동무 패밀리와 연동되었습니다 · ' + kids.map(nmOf).join(', '), { size: 11, color: 'sub', pad: [16, 0, 16, 6] }),
+    panel([{ t: 'toggle', key: 'kidsHome', title: '가족 화면으로 시작', sub: '켜면 앱을 열 때 가족 화면이 먼저 나와요. 끄면 길동무 홈으로 시작해요.', on: kh, top: false, vp: 9, size: 14, ssize: 11, onc: 'gold' }], { ip: [14, 6, 14, 6] }),
     panel([
-      { t: 'navrow', title: '자녀 응원문구 만들기', sub: kids.length > 1 ? '자녀마다 최대 ' + MAX_CHEER + '개' : nc + '/' + MAX_CHEER + '개', act: call('kh.cheer'), size: 14, top: true },
-      { t: 'navrow', title: '마커 변경', sub: '지도에 보이는 자녀 마커를 사진으로 바꿔요', act: call('km.open'), size: 14, top: true },
-      { t: 'navrow', title: '연동 관리', sub: '자녀 추가 · 연결 끊기', act: call('kl.open'), size: 14, top: true }], { ip: [14, 6, 14, 6] }),
+      { t: 'navrow', title: '가족구성원 응원문구 만들기', sub: kids.length > 1 ? '가족구성원마다 최대 ' + MAX_CHEER + '개' : nc + '/' + MAX_CHEER + '개', act: call('kh.cheer'), size: 14, top: true },
+      { t: 'navrow', title: '마커 변경', sub: '지도에 보이는 가족구성원 마커를 사진으로 바꿔요', act: call('km.open'), size: 14, top: true },
+      { t: 'navrow', title: '연동 관리', sub: '가족구성원 추가 · 연결 끊기', act: call('kl.open'), size: 14, top: true }], { ip: [14, 6, 14, 6] }),
     { t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] }];
   return scr('kidmenu', [], body, { dlg: dlg() });
 }
-async function kidMarkerSheet(DB, pid) {          // 마커 변경 팝업: 자녀마다 [사진 고르기] [기본으로] — 사진은 이 기기에만 저장돼요(앱이 처리, 서버는 모른다)
+async function kidMarkerSheet(DB, pid) {          // 마커 변경 팝업: 가족구성원마다 [사진 고르기] [기본으로] — 사진은 이 기기에만 저장돼요(앱이 처리, 서버는 모른다)
   const kids = await childrenOf(DB, pid);
   const body = [tx('마커 변경', { size: 15, bold: true, pad: [16, 14, 16, 2] }),
-    tx('사진을 고른 뒤 동그라미 안에 들어오게 옮기고 확대하면, 지도의 자녀 마커가 그 사진으로 바뀌어요. 사진은 이 폰에만 저장돼요.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
-  if (!kids.length) body.push(tx('연결된 자녀가 없어요', { size: 13, pad: [16, 8, 16, 8] }));
+    tx('사진을 고른 뒤 동그라미 안에 들어오게 옮기고 확대하면, 지도의 가족구성원 마커가 그 사진으로 바뀌어요. 사진은 이 폰에만 저장돼요.', { size: 11, color: 'sub', pad: [16, 0, 16, 6] })];
+  if (!kids.length) body.push(tx('연결된 가족구성원이 없어요', { size: 13, pad: [16, 8, 16, 8] }));
   else body.push(panel(kids.map((k) => ({ t: 'row', gap: 8, pad: [0, 4, 0, 4], kids: [tx(nmOf(k), { size: 14, bold: true, pad: [0, 10, 0, 0], flex: 1 }),
     btn('사진 고르기', call('km.pick', k.cid), Object.assign({ h: 34, size: 12 }, gold)), btn('기본으로', call('km.clr', k.cid), { fill: 'card2', tc: 'text', line: 'border', h: 34, size: 12 })] })), { ip: [14, 8, 14, 8] }));
   body.push({ t: 'row', gap: 8, pad: [12, 12, 12, 14], kids: [btn('‹ 뒤로', call('kn.open'), { fill: 'card2', tc: 'text', line: 'border' }), btn('닫기', call('kl.close'), { fill: 'card2', tc: 'text', line: 'border' })] });
@@ -1502,7 +1502,7 @@ async function saveFt(DB, id, tk, now) {
 }
 // ───────── 개인정보 처리방침 · 위치기반서비스 이용약관 공개 쪽(s430) ─────────
 // LEGAL-BEGIN (tools/embed-legal.py 가 만든다 — 직접 고치지 말고 docs/legal 을 고친 뒤 다시 실행)
-const LEGAL_DOCS = {"privacy": "# 길동무 키즈 개인정보 처리방침\n\n> 시행일: {{LEGAL_DATE}} · 버전 1.0\n\n{{OP_NAME}}(이하 \"운영자\")는 「개인정보 보호법」 제30조와 「위치정보의 보호 및 이용 등에 관한 법률」(이하 \"위치정보법\")에 따라, \"길동무 키즈\"(자녀용 앱)와 \"길동무\"(부모용 앱)의 키즈 기능(이하 \"서비스\")을 이용하는 분의 개인정보와 개인위치정보를 어떻게 처리하는지 알려 드립니다.\n\n## 1. 서비스가 하는 일\n부모(보호자)가 연결한 자녀의 휴대폰 위치를 부모에게 보여 주고, 도착·출발·낯선 곳·날씨·배터리 같은 안전 알림과 가족 대화·미션 기능을 제공합니다.\n\n## 2. 처리하는 개인정보와 개인위치정보\n\n| 구분 | 항목 | 처리 목적 | 보유 기간 |\n|---|---|---|---|\n| 자녀 위치 | 현재 위치(위도·경도·정확도·시각), 이동 방향 | 부모에게 현재 위치 표시 | 새 위치로 바뀔 때까지(연결을 끊으면 즉시 삭제) |\n| 자녀 위치 기록 | 지난 위치 점 | 지난 길 표시, 낯선 곳 판단 | **3일** |\n| 지난 길 | 출발~도착 경로 | 지난 경로 보기 | **7일 · 최대 10개** |\n| 머문 곳 | 30분 넘게 머문 위치 | 낯선 곳 알림 판단 | **30일 · 최대 200개** |\n| 이벤트 | 도착·출발·알림 기록 | 부모에게 알림 기록 표시 | **3일 · 최대 150개** |\n| 동네 이름 | 자녀 기기가 위치로 알아낸 시·동 이름 | 부모 화면에 동네 표시 | 위치와 함께(새 위치로 바뀔 때까지) |\n| 기기 상태 | 배터리 잔량·충전 여부 | 배터리 부족 알림 | 최신 값만 보관 |\n| 긴급 호출·데리러 와줘 | 자녀가 누른 종류, 누른 시각, 그때의 위치와 가까운 장소 이름 | 보호자에게 알림 | **7일** |\n| 장소 등록 | 부모가 등록한 장소 이름·위치·시각 | 도착·출발 알림 | 부모가 삭제하거나 연결을 끊을 때까지 |\n| 대화 | 가족 대화 글 | 가족 소통 | **7일 · 최대 300개** |\n| 미션·응원문구 | 미션, 응원문구 | 가족 소통 | 최대 100개(미션) · 연결을 끊을 때까지 |\n| 법정대리인 확인 | 보호자 기기 번호, 확인한 시각·버전(\"법정대리인이며 자녀는 만 9세 이상\" 선언) | 자녀 위치를 보기 전 법정대리인 확인 | 보호자 기기가 삭제될 때까지 |\n| 동의 기록 | 자녀 기기 번호, 동의 버전·시각 | 보호자·자녀 동의 증빙 | 약 400일 |\n| 위치 이용·제공 사실 | 시각, 자녀 기기 번호, 보호자 기기 번호, 종류(화면 보기 · 알림). **좌표는 포함하지 않음** | 위치정보법 제16조 의무 이행 | **약 200일(6개월 이상)** — 연결을 끊어도 이 기간은 보관 |\n| 구독 정보 | 구글 Play 구매 토큰, 구독 상태, 이용 기간이 끝나는 시각, 보호자 기기 번호 | 유료 기능(자녀 실시간 위치 보기) 이용 자격 확인 | 구독이 끝난 뒤 약 13개월(분쟁·문의 대응) 후 삭제 |\n| 이용 통계 | 날짜별 가입·연결·확인·호출·구독 **횟수**(누가 했는지는 남기지 않음) | 서비스 개선과 운영 | 개인을 식별할 수 없는 통계로 보관 |\n| 기기 식별 | 서비스가 만든 임의의 기기 번호·비밀키, 푸시 알림 토큰 | 기기 연결·알림 전송 | 연결을 끊을 때까지 |\n| 부모가 입력한 주소 | 장소 등록 때 검색한 주소·장소 이름 | 지도 위치 찾기 | 등록 작업 중에만 임시 보관(등록·취소 시 삭제, 쓰다 만 것은 1일 뒤 삭제) |\n\n- 이름, 전화번호, 이메일, 사진 같은 직접 식별정보는 **수집하지 않습니다**. (별명은 보호자가 정하는 이름입니다.)\n- 광고 식별자는 사용하지 않으며, 광고·분석 SDK를 넣지 않습니다.\n\n- **만 9세 이상**만 이용할 수 있습니다. 보호자는 법정대리인이어야 하며, 자녀 위치를 보기 전에 앱에서 이를 확인합니다. 확인 전에는 위치·알림이 보호자에게 제공되지 않습니다.\n\n## 3. 위치를 보내는 주기\n- 평소: 움직이는 중 약 3분, 멈춰 있으면 약 5분마다 보냅니다. 오래 가만히 있고 등록한 장소·약속과 멀리 떨어져 있으면 배터리를 아끼기 위해 약 8분마다 보낼 수 있습니다.\n- **긴급 호출·데리러 와줘**를 누른 뒤 30분 동안은 보호자가 지도를 보지 않아도 빠른 주기(2.5~15초)로 보냅니다.\n- **보호자가 지도를 보고 있는 동안**: 2.5~15초마다 보내 실시간처럼 보여 줍니다(보호자가 화면을 닫으면 곧 평소로 돌아갑니다). 이때 자녀 앱의 맨 위 줄과 알림에 \"부모님이 지금 내 위치를 보고 있어요\"가 표시됩니다.\n\n## 4. 개인정보를 제3자에게 제공하는 경우\n- 자녀의 위치는 **연결된 보호자에게만** 제공됩니다. 그 밖의 제3자에게 제공하지 않습니다. (법령에 따른 요청이 있는 경우는 제외)\n\n## 5. 처리 위탁 및 국외 이전\n서비스 운영을 위해 아래 사업자의 서비스를 사용합니다. 아래 사업자의 서버는 국외에 있을 수 있습니다.\n\n| 수탁자 | 위탁 업무 | 이전되는 항목 | 비고 |\n|---|---|---|---|\n| Cloudflare, Inc. | 서버 운영, 데이터베이스 보관 | 2항의 서버 보관 항목 전체 | 국외 처리 가능 |\n| Google LLC (Firebase Cloud Messaging) | 푸시 알림 전송 | 푸시 토큰, 알림 문구 | 국외 처리 가능 |\n| Google LLC (Google Play 결제 · Play Developer API) | 유료 구독 결제 처리, 구독 확인 | 구매 토큰(운영자 서버가 구글에 확인) | 카드 등 결제 정보는 구글이 처리하며 운영자는 받지 않습니다. 국외 처리 가능 |\n| Open-Meteo | 날씨·대기질 조회 | 대략의 위치(좌표, 소수 2자리 · 약 1km 단위) | 개인 식별 정보 없음 |\n| OpenFreeMap / OpenStreetMap | 지도 이미지 | 보고 있는 지도 범위 | 개인 식별 정보 없음 |\n| Kakao (로컬 API, 운영자 서버 경유) | 주소·장소 검색 | 검색어 | 보호자가 장소 등록 때 검색한 때만. 같은 검색을 빠르게 하려고 운영자 서버가 검색어와 결과를 최대 90일 임시 저장할 수 있으며, 이용자 식별 정보는 함께 저장하지 않습니다 |\n| 기기 운영체제(안드로이드 위치 변환 기능) | 자녀 기기가 위치로 동네 이름을 알아내는 기능 | 기기 안에서 처리되며, 기기 제조사·구글 서비스로 위치가 전달될 수 있습니다 | 운영자 서버를 거치지 않음 |\n\n## 6. 보호자와 자녀의 권리\n- 보호자와 자녀는 언제든 연결을 끊을 수 있고, 끊으면 해당 자녀의 위치·경로·머문 곳·장소·대화·미션·알림 기록이 **즉시 삭제**됩니다(법정 보관 대상인 6항의 이용·제공 사실 자료는 제외).\n- 자녀는 자녀 앱 설정에서 위치 공유를 끄거나 동의를 철회할 수 있습니다.\n- 만 14세 미만 자녀의 개인정보는 법정대리인(보호자)의 동의를 받아 처리하며, 서비스는 자녀 본인의 동의도 함께 받습니다.\n- 열람·정정·삭제·처리정지 요청은 아래 연락처로 하실 수 있습니다. 10일 안에 답변드립니다.\n- 개인위치정보의 이용·제공 사실 확인 자료(시각·자녀·보호자·종류, 좌표 없음)는 위치정보법 제16조에 따라 약 200일 보관합니다. 연결을 끊거나 삭제를 요청하셔도 이 자료는 법정 기간 동안 남습니다.\n\n## 7. 파기\n보유 기간이 지나거나 목적을 이룬 개인정보는 지체 없이 삭제합니다. 서버는 10분마다 기간이 지난 기록을 지웁니다. 삭제된 정보는 복구하지 않습니다.\n\n## 8. 안전성 확보 조치\n- 기기와 서버 사이의 통신은 암호화(HTTPS)합니다.\n- 기기별 비밀키로 요청을 확인하고, 연결된 보호자만 해당 자녀의 정보를 볼 수 있습니다.\n- 기록은 위 기간이 지나면 자동으로 지웁니다.\n\n## 9. 개인정보 보호책임자 및 문의\n- 책임자: {{OP_MGR}}\n- 연락처: {{OP_CONTACT}}\n- 침해 신고·상담: 개인정보침해신고센터 (privacy.kisa.or.kr, 118), 개인정보분쟁조정위원회 (kopico.go.kr, 1833-6972)\n\n## 10. 변경\n이 방침이 바뀌면 시행 7일 전에 앱과 {{LEGAL_URL}}에 알립니다. 수집 항목이나 위치 보고 방식이 달라지는 중요한 변경은 보호자와 자녀의 동의를 다시 받습니다.\n", "terms": "# 길동무 키즈 위치기반서비스 이용약관\n\n> 시행일: {{LEGAL_DATE}} · 버전 1.0\n\n## 제1조 (목적)\n이 약관은 {{OP_NAME}}가 제공하는 길동무 키즈 서비스(이하 \"서비스\")의 이용과 관련해 운영자와 이용자(보호자·자녀)의 권리와 의무를 정합니다.\n\n## 제2조 (용어)\n1. \"보호자\": 자녀를 보호할 법적 권한이 있는 사람으로, 자녀 휴대폰과 연결한 사람.\n2. \"자녀\": 길동무 키즈 앱을 쓰며 위치를 알리는 사람.\n3. \"개인위치정보\": 자녀의 위치(위도·경도·시각)에 관한 정보.\n4. \"위치기반서비스\": 개인위치정보를 이용해 제공하는 이 서비스의 기능 일체.\n\n## 제3조 (서비스 내용)\n1. 자녀의 현재 위치와 지난 길 보기\n2. 장소 등록과 도착·출발·낯선 곳·날씨·배터리 알림, 긴급 호출·데리러 와줘\n3. 가족 대화, 미션, 응원문구\n\n## 제3조의2 (유료 구독)\n1. 자녀 앱, 긴급 호출·데리러 와줘 알림은 구독과 관계없이 무료입니다. 보호자 앱에서 자녀의 실시간 위치를 보는 기능은 유료 구독이 필요할 수 있습니다. 유료로 바뀌는 시점은 앱과 이 약관으로 미리 알립니다.\n2. 요금은 월 2,900원(부가가치세 포함)이며, 한 달 단위로 결제되는 정기결제입니다(연 단위 요금제는 없습니다). 처음 구독하면 14일 무료 체험이 주어질 수 있으며, **체험 기간이 끝나기 전에 해지하지 않으면 월 2,900원이 자동으로 결제되고 이후 매달 갱신됩니다.**\n3. 결제·해지·환불은 구글 Play 의 정기결제 정책과 구글 Play 설정 > 정기결제에서 처리합니다. 해지해도 이미 결제한 이용 기간이 끝날 때까지는 계속 쓸 수 있습니다.\n4. 운영자는 구독 확인을 위해 구글에서 받은 구매 토큰과 이용 기간만 보관하며 카드 등 결제 정보는 받지 않습니다. 같은 구글 계정으로 다른 기기에서 '구매 복원'을 할 수 있습니다.\n5. 청약철회와 환불은 「전자상거래 등에서의 소비자보호에 관한 법률」과 구글 Play 의 환불 정책에 따릅니다.\n\n## 제4조 (이용 자격과 동의)\n1. 보호자는 자녀의 법정대리인(친권자·후견인)이어야 합니다. 자녀 위치를 보기 전에 앱에서 \"법정대리인이며 자녀는 만 9세 이상이고, 자녀에게 알렸다\"는 사항을 확인하며, 확인한 시각이 기록됩니다. 사실과 다르면 이용이 제한되고 그 책임은 보호자에게 있습니다.\n2. 자녀 앱을 처음 켤 때 **보호자의 동의와 자녀 본인의 동의를 모두** 받습니다. 둘 중 하나라도 없으면 위치 공유는 시작되지 않습니다.\n3. 서비스는 **만 9세 이상**의 자녀만 이용할 수 있습니다. 만 8세 이하 아동에 대해서는 제공하지 않습니다.\n4. 동의는 설정에서 언제든지 철회할 수 있습니다. 일부(예: 제3자 제공)만 철회할 수도 있습니다.\n\n## 제5조 (개인위치정보의 수집·이용·제공)\n1. 수집 방법: 자녀 휴대폰의 위치 센서(GPS 등)로 앱이 직접 측정합니다.\n2. 이용 목적: 연결된 보호자에게 자녀 위치를 보여 주고 안전 알림을 보내기 위해서입니다. 다른 목적으로 쓰지 않습니다.\n3. 제공: 자녀가 연결한 보호자에게만 제공합니다. 제공할 때마다 자녀 앱의 맨 위 줄과 알림으로 \"부모님이 지금 내 위치를 보고 있어요\"를 알립니다.\n4. 보유: 개인정보 처리방침에 적은 기간이 지나면 지웁니다.\n5. 이용·제공 사실 확인 자료(시각·자녀·보호자·종류, 좌표 없음)는 법령에 따라 약 200일 보관합니다.\n\n## 제6조 (보호자의 의무)\n1. 자녀의 안전을 위한 목적으로만 서비스를 사용하고, 자녀가 아닌 사람(배우자·연인·직장 동료 등)의 위치를 몰래 확인하는 데 쓰지 않습니다.\n2. 자녀의 나이와 성숙도에 맞게 위치 확인의 이유와 방식을 자녀와 이야기합니다.\n3. 얻은 위치정보를 제3자에게 공개·전달하지 않습니다.\n\n## 제7조 (운영자의 의무)\n1. 개인위치정보를 목적 밖에 쓰거나 동의 없이 제3자에게 제공하지 않습니다.\n2. 개인위치정보를 안전하게 지키기 위해 기술적·관리적 조치를 합니다.\n3. 개인위치정보 관련 불만·요청은 {{OP_CONTACT}}에서 받고 신속히 처리합니다.\n\n## 제8조 (서비스의 한계)\n1. 위치는 GPS·네트워크 상태에 따라 오차가 있거나 늦을 수 있습니다.\n2. 서비스는 안전을 돕는 보조 수단이며, 사고·실종 등 긴급 상황에서는 **112·119에 먼저 신고**해야 합니다.\n3. 휴대폰 꺼짐·절전·권한 거부·통신 불량으로 위치가 오지 않을 수 있습니다.\n\n## 제9조 (서비스 중단·종료)\n운영자는 점검·장애·사업 사정으로 서비스를 중단할 수 있으며, 미리 알립니다. 종료할 때는 30일 전에 알리고 자료를 지웁니다.\n\n## 제10조 (연결 해제와 탈퇴)\n보호자와 자녀는 언제든 연결을 끊을 수 있고, 끊으면 해당 자녀의 위치 관련 자료가 즉시 삭제됩니다.\n\n## 제11조 (손해배상·면책)\n운영자의 고의·과실로 이용자에게 손해가 생기면 법령에 따라 배상합니다. 천재지변·통신사 장애 등 운영자가 통제할 수 없는 사유는 책임이 제한됩니다.\n\n## 제12조 (분쟁 해결)\n위치정보와 관련한 분쟁은 방송미디어통신위원회 또는 개인정보분쟁조정위원회에 조정을 신청할 수 있습니다. 관할 법원은 민사소송법에 따릅니다.\n\n## 부칙\n이 약관은 {{LEGAL_DATE}}부터 시행합니다.\n"};
+const LEGAL_DOCS = {"privacy": "# 길동무 패밀리 개인정보 처리방침\n\n> 시행일: {{LEGAL_DATE}} · 버전 1.0\n\n{{OP_NAME}}(이하 \"운영자\")는 「개인정보 보호법」 제30조와 「위치정보의 보호 및 이용 등에 관한 법률」(이하 \"위치정보법\")에 따라, \"길동무 패밀리\"(가족구성원용 앱)와 \"길동무\"(부모용 앱)의 가족 기능(이하 \"서비스\")을 이용하는 분의 개인정보와 개인위치정보를 어떻게 처리하는지 알려 드립니다.\n\n## 1. 서비스가 하는 일\n부모(보호자)가 연결한 가족구성원의 휴대폰 위치를 부모에게 보여 주고, 도착·출발·낯선 곳·날씨·배터리 같은 안전 알림과 가족 대화·미션 기능을 제공합니다.\n\n## 2. 처리하는 개인정보와 개인위치정보\n\n| 구분 | 항목 | 처리 목적 | 보유 기간 |\n|---|---|---|---|\n| 가족구성원 위치 | 현재 위치(위도·경도·정확도·시각), 이동 방향 | 부모에게 현재 위치 표시 | 새 위치로 바뀔 때까지(연결을 끊으면 즉시 삭제) |\n| 가족구성원 위치 기록 | 지난 위치 점 | 지난 길 표시, 낯선 곳 판단 | **3일** |\n| 지난 길 | 출발~도착 경로 | 지난 경로 보기 | **7일 · 최대 10개** |\n| 머문 곳 | 30분 넘게 머문 위치 | 낯선 곳 알림 판단 | **30일 · 최대 200개** |\n| 이벤트 | 도착·출발·알림 기록 | 부모에게 알림 기록 표시 | **3일 · 최대 150개** |\n| 동네 이름 | 가족구성원 기기가 위치로 알아낸 시·동 이름 | 부모 화면에 동네 표시 | 위치와 함께(새 위치로 바뀔 때까지) |\n| 기기 상태 | 배터리 잔량·충전 여부 | 배터리 부족 알림 | 최신 값만 보관 |\n| 긴급 호출·데리러 와줘 | 가족구성원이 누른 종류, 누른 시각, 그때의 위치와 가까운 장소 이름 | 보호자에게 알림 | **7일** |\n| 장소 등록 | 부모가 등록한 장소 이름·위치·시각 | 도착·출발 알림 | 부모가 삭제하거나 연결을 끊을 때까지 |\n| 대화 | 가족 대화 글 | 가족 소통 | **7일 · 최대 300개** |\n| 미션·응원문구 | 미션, 응원문구 | 가족 소통 | 최대 100개(미션) · 연결을 끊을 때까지 |\n| 법정대리인 확인 | 보호자 기기 번호, 확인한 시각·버전(\"법정대리인이며 가족구성원은 만 9세 이상\" 선언) | 가족구성원 위치를 보기 전 법정대리인 확인 | 보호자 기기가 삭제될 때까지 |\n| 동의 기록 | 가족구성원 기기 번호, 동의 버전·시각 | 보호자·가족구성원 동의 증빙 | 약 400일 |\n| 위치 이용·제공 사실 | 시각, 가족구성원 기기 번호, 보호자 기기 번호, 종류(화면 보기 · 알림). **좌표는 포함하지 않음** | 위치정보법 제16조 의무 이행 | **약 200일(6개월 이상)** — 연결을 끊어도 이 기간은 보관 |\n| 구독 정보 | 구글 Play 구매 토큰, 구독 상태, 이용 기간이 끝나는 시각, 보호자 기기 번호 | 유료 기능(가족구성원 실시간 위치 보기) 이용 자격 확인 | 구독이 끝난 뒤 약 13개월(분쟁·문의 대응) 후 삭제 |\n| 이용 통계 | 날짜별 가입·연결·확인·호출·구독 **횟수**(누가 했는지는 남기지 않음) | 서비스 개선과 운영 | 개인을 식별할 수 없는 통계로 보관 |\n| 기기 식별 | 서비스가 만든 임의의 기기 번호·비밀키, 푸시 알림 토큰 | 기기 연결·알림 전송 | 연결을 끊을 때까지 |\n| 부모가 입력한 주소 | 장소 등록 때 검색한 주소·장소 이름 | 지도 위치 찾기 | 등록 작업 중에만 임시 보관(등록·취소 시 삭제, 쓰다 만 것은 1일 뒤 삭제) |\n\n- 이름, 전화번호, 이메일, 사진 같은 직접 식별정보는 **수집하지 않습니다**. (별명은 보호자가 정하는 이름입니다.)\n- 광고 식별자는 사용하지 않으며, 광고·분석 SDK를 넣지 않습니다.\n\n- **만 9세 이상**만 이용할 수 있습니다. 보호자는 법정대리인이어야 하며, 가족구성원 위치를 보기 전에 앱에서 이를 확인합니다. 확인 전에는 위치·알림이 보호자에게 제공되지 않습니다.\n\n## 3. 위치를 보내는 주기\n- 평소: 움직이는 중 약 3분, 멈춰 있으면 약 5분마다 보냅니다. 오래 가만히 있고 등록한 장소·약속과 멀리 떨어져 있으면 배터리를 아끼기 위해 약 8분마다 보낼 수 있습니다.\n- **긴급 호출·데리러 와줘**를 누른 뒤 30분 동안은 보호자가 지도를 보지 않아도 빠른 주기(2.5~15초)로 보냅니다.\n- **보호자가 지도를 보고 있는 동안**: 2.5~15초마다 보내 실시간처럼 보여 줍니다(보호자가 화면을 닫으면 곧 평소로 돌아갑니다). 이때 가족구성원 앱의 맨 위 줄과 알림에 \"부모님이 지금 내 위치를 보고 있어요\"가 표시됩니다.\n\n## 4. 개인정보를 제3자에게 제공하는 경우\n- 가족구성원의 위치는 **연결된 보호자에게만** 제공됩니다. 그 밖의 제3자에게 제공하지 않습니다. (법령에 따른 요청이 있는 경우는 제외)\n\n## 5. 처리 위탁 및 국외 이전\n서비스 운영을 위해 아래 사업자의 서비스를 사용합니다. 아래 사업자의 서버는 국외에 있을 수 있습니다.\n\n| 수탁자 | 위탁 업무 | 이전되는 항목 | 비고 |\n|---|---|---|---|\n| Cloudflare, Inc. | 서버 운영, 데이터베이스 보관 | 2항의 서버 보관 항목 전체 | 국외 처리 가능 |\n| Google LLC (Firebase Cloud Messaging) | 푸시 알림 전송 | 푸시 토큰, 알림 문구 | 국외 처리 가능 |\n| Google LLC (Google Play 결제 · Play Developer API) | 유료 구독 결제 처리, 구독 확인 | 구매 토큰(운영자 서버가 구글에 확인) | 카드 등 결제 정보는 구글이 처리하며 운영자는 받지 않습니다. 국외 처리 가능 |\n| Open-Meteo | 날씨·대기질 조회 | 대략의 위치(좌표, 소수 2자리 · 약 1km 단위) | 개인 식별 정보 없음 |\n| OpenFreeMap / OpenStreetMap | 지도 이미지 | 보고 있는 지도 범위 | 개인 식별 정보 없음 |\n| Kakao (로컬 API, 운영자 서버 경유) | 주소·장소 검색 | 검색어 | 보호자가 장소 등록 때 검색한 때만. 같은 검색을 빠르게 하려고 운영자 서버가 검색어와 결과를 최대 90일 임시 저장할 수 있으며, 이용자 식별 정보는 함께 저장하지 않습니다 |\n| 기기 운영체제(안드로이드 위치 변환 기능) | 가족구성원 기기가 위치로 동네 이름을 알아내는 기능 | 기기 안에서 처리되며, 기기 제조사·구글 서비스로 위치가 전달될 수 있습니다 | 운영자 서버를 거치지 않음 |\n\n## 6. 보호자와 가족구성원의 권리\n- 보호자와 가족구성원은 언제든 연결을 끊을 수 있고, 끊으면 해당 가족구성원의 위치·경로·머문 곳·장소·대화·미션·알림 기록이 **즉시 삭제**됩니다(법정 보관 대상인 6항의 이용·제공 사실 자료는 제외).\n- 가족구성원은 가족구성원 앱 설정에서 위치 공유를 끄거나 동의를 철회할 수 있습니다.\n- 만 14세 미만 가족구성원의 개인정보는 법정대리인(보호자)의 동의를 받아 처리하며, 서비스는 가족구성원 본인의 동의도 함께 받습니다.\n- 열람·정정·삭제·처리정지 요청은 아래 연락처로 하실 수 있습니다. 10일 안에 답변드립니다.\n- 개인위치정보의 이용·제공 사실 확인 자료(시각·가족구성원·보호자·종류, 좌표 없음)는 위치정보법 제16조에 따라 약 200일 보관합니다. 연결을 끊거나 삭제를 요청하셔도 이 자료는 법정 기간 동안 남습니다.\n\n## 7. 파기\n보유 기간이 지나거나 목적을 이룬 개인정보는 지체 없이 삭제합니다. 서버는 10분마다 기간이 지난 기록을 지웁니다. 삭제된 정보는 복구하지 않습니다.\n\n## 8. 안전성 확보 조치\n- 기기와 서버 사이의 통신은 암호화(HTTPS)합니다.\n- 기기별 비밀키로 요청을 확인하고, 연결된 보호자만 해당 가족구성원의 정보를 볼 수 있습니다.\n- 기록은 위 기간이 지나면 자동으로 지웁니다.\n\n## 9. 개인정보 보호책임자 및 문의\n- 책임자: {{OP_MGR}}\n- 연락처: {{OP_CONTACT}}\n- 침해 신고·상담: 개인정보침해신고센터 (privacy.kisa.or.kr, 118), 개인정보분쟁조정위원회 (kopico.go.kr, 1833-6972)\n\n## 10. 변경\n이 방침이 바뀌면 시행 7일 전에 앱과 {{LEGAL_URL}}에 알립니다. 수집 항목이나 위치 보고 방식이 달라지는 중요한 변경은 보호자와 가족구성원의 동의를 다시 받습니다.\n", "terms": "# 길동무 패밀리 위치기반서비스 이용약관\n\n> 시행일: {{LEGAL_DATE}} · 버전 1.0\n\n## 제1조 (목적)\n이 약관은 {{OP_NAME}}가 제공하는 길동무 패밀리 서비스(이하 \"서비스\")의 이용과 관련해 운영자와 이용자(보호자·가족구성원)의 권리와 의무를 정합니다.\n\n## 제2조 (용어)\n1. \"보호자\": 가족구성원을 보호할 법적 권한이 있는 사람으로, 가족구성원 휴대폰과 연결한 사람.\n2. \"가족구성원\": 길동무 패밀리 앱을 쓰며 위치를 알리는 사람.\n3. \"개인위치정보\": 가족구성원의 위치(위도·경도·시각)에 관한 정보.\n4. \"위치기반서비스\": 개인위치정보를 이용해 제공하는 이 서비스의 기능 일체.\n\n## 제3조 (서비스 내용)\n1. 가족구성원의 현재 위치와 지난 길 보기\n2. 장소 등록과 도착·출발·낯선 곳·날씨·배터리 알림, 긴급 호출·데리러 와줘\n3. 가족 대화, 미션, 응원문구\n\n## 제3조의2 (유료 구독)\n1. 가족구성원 앱, 긴급 호출·데리러 와줘 알림은 구독과 관계없이 무료입니다. 보호자 앱에서 가족구성원의 실시간 위치를 보는 기능은 유료 구독이 필요할 수 있습니다. 유료로 바뀌는 시점은 앱과 이 약관으로 미리 알립니다.\n2. 요금은 월 2,900원(부가가치세 포함)이며, 한 달 단위로 결제되는 정기결제입니다(연 단위 요금제는 없습니다). 처음 구독하면 14일 무료 체험이 주어질 수 있으며, **체험 기간이 끝나기 전에 해지하지 않으면 월 2,900원이 자동으로 결제되고 이후 매달 갱신됩니다.**\n3. 결제·해지·환불은 구글 Play 의 정기결제 정책과 구글 Play 설정 > 정기결제에서 처리합니다. 해지해도 이미 결제한 이용 기간이 끝날 때까지는 계속 쓸 수 있습니다.\n4. 운영자는 구독 확인을 위해 구글에서 받은 구매 토큰과 이용 기간만 보관하며 카드 등 결제 정보는 받지 않습니다. 같은 구글 계정으로 다른 기기에서 '구매 복원'을 할 수 있습니다.\n5. 청약철회와 환불은 「전자상거래 등에서의 소비자보호에 관한 법률」과 구글 Play 의 환불 정책에 따릅니다.\n\n## 제4조 (이용 자격과 동의)\n1. 보호자는 가족구성원의 법정대리인(친권자·후견인)이어야 합니다. 가족구성원 위치를 보기 전에 앱에서 \"법정대리인이며 가족구성원은 만 9세 이상이고, 가족구성원에게 알렸다\"는 사항을 확인하며, 확인한 시각이 기록됩니다. 사실과 다르면 이용이 제한되고 그 책임은 보호자에게 있습니다.\n2. 가족구성원 앱을 처음 켤 때 **보호자의 동의와 가족구성원 본인의 동의를 모두** 받습니다. 둘 중 하나라도 없으면 위치 공유는 시작되지 않습니다.\n3. 서비스는 **만 9세 이상**의 가족구성원만 이용할 수 있습니다. 만 8세 이하 아동에 대해서는 제공하지 않습니다.\n4. 동의는 설정에서 언제든지 철회할 수 있습니다. 일부(예: 제3자 제공)만 철회할 수도 있습니다.\n\n## 제5조 (개인위치정보의 수집·이용·제공)\n1. 수집 방법: 가족구성원 휴대폰의 위치 센서(GPS 등)로 앱이 직접 측정합니다.\n2. 이용 목적: 연결된 보호자에게 가족구성원 위치를 보여 주고 안전 알림을 보내기 위해서입니다. 다른 목적으로 쓰지 않습니다.\n3. 제공: 가족구성원이 연결한 보호자에게만 제공합니다. 제공할 때마다 가족구성원 앱의 맨 위 줄과 알림으로 \"부모님이 지금 내 위치를 보고 있어요\"를 알립니다.\n4. 보유: 개인정보 처리방침에 적은 기간이 지나면 지웁니다.\n5. 이용·제공 사실 확인 자료(시각·가족구성원·보호자·종류, 좌표 없음)는 법령에 따라 약 200일 보관합니다.\n\n## 제6조 (보호자의 의무)\n1. 가족구성원의 안전을 위한 목적으로만 서비스를 사용하고, 가족구성원이 아닌 사람(배우자·연인·직장 동료 등)의 위치를 몰래 확인하는 데 쓰지 않습니다.\n2. 가족구성원의 나이와 성숙도에 맞게 위치 확인의 이유와 방식을 가족구성원과 이야기합니다.\n3. 얻은 위치정보를 제3자에게 공개·전달하지 않습니다.\n\n## 제7조 (운영자의 의무)\n1. 개인위치정보를 목적 밖에 쓰거나 동의 없이 제3자에게 제공하지 않습니다.\n2. 개인위치정보를 안전하게 지키기 위해 기술적·관리적 조치를 합니다.\n3. 개인위치정보 관련 불만·요청은 {{OP_CONTACT}}에서 받고 신속히 처리합니다.\n\n## 제8조 (서비스의 한계)\n1. 위치는 GPS·네트워크 상태에 따라 오차가 있거나 늦을 수 있습니다.\n2. 서비스는 안전을 돕는 보조 수단이며, 사고·실종 등 긴급 상황에서는 **112·119에 먼저 신고**해야 합니다.\n3. 휴대폰 꺼짐·절전·권한 거부·통신 불량으로 위치가 오지 않을 수 있습니다.\n\n## 제9조 (서비스 중단·종료)\n운영자는 점검·장애·사업 사정으로 서비스를 중단할 수 있으며, 미리 알립니다. 종료할 때는 30일 전에 알리고 자료를 지웁니다.\n\n## 제10조 (연결 해제와 탈퇴)\n보호자와 가족구성원은 언제든 연결을 끊을 수 있고, 끊으면 해당 가족구성원의 위치 관련 자료가 즉시 삭제됩니다.\n\n## 제11조 (손해배상·면책)\n운영자의 고의·과실로 이용자에게 손해가 생기면 법령에 따라 배상합니다. 천재지변·통신사 장애 등 운영자가 통제할 수 없는 사유는 책임이 제한됩니다.\n\n## 제12조 (분쟁 해결)\n위치정보와 관련한 분쟁은 방송미디어통신위원회 또는 개인정보분쟁조정위원회에 조정을 신청할 수 있습니다. 관할 법원은 민사소송법에 따릅니다.\n\n## 부칙\n이 약관은 {{LEGAL_DATE}}부터 시행합니다.\n"};
 // LEGAL-END
 const escH = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const inlineMd = (t) => escH(t).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -1533,11 +1533,11 @@ function mdHtml(md) {
 }
 /** /legal/delete — 데이터 삭제 안내(Play 데이터 보안 양식의 "삭제 요청 방법" 주소). 숫자는 docs/legal/01 처리방침 표와 같게 유지한다. */
 const DELETE_MD = [
-  '# 길동무 · 길동무 키즈 데이터 삭제 안내',
+  '# 길동무 · 길동무 패밀리 데이터 삭제 안내',
   '',
   '운영자: {{OP_NAME}} · 문의: {{OP_CONTACT}}',
   '',
-  '## 1. 길동무 키즈(자녀 앱)',
+  '## 1. 길동무 패밀리(가족구성원 앱)',
   '- **앱에서 바로 삭제**: 설정 → 관리 → "연결 모두 끊기". 서버에 있는 내 위치, 지난 길, 머문 곳, 등록한 장소, 대화·미션·알림 기록이 즉시 삭제됩니다.',
   '- **처음부터 다시**: 설정 → 관리 → "동의 철회하고 처음으로". 위치 공유 동의를 거두고 처음 화면으로 돌아갑니다.',
   '- 앱만 지우면 위치 전송은 멈추지만 서버 기록은 위 방법이나 이메일 요청으로 지워야 합니다.',
@@ -1563,7 +1563,7 @@ function legalPage(url, env) {
   const css = '<style>body{font-family:-apple-system,"Noto Sans KR",sans-serif;background:#f6f8fb;margin:0;color:#16202e;line-height:1.65}main{max-width:720px;margin:0 auto;padding:20px 18px 60px}h1{font-size:22px}h2{font-size:17px;margin-top:28px}p,li{font-size:14.5px}table{border-collapse:collapse;width:100%;font-size:13px;margin:10px 0}th,td{border:1px solid #d5dbe5;padding:6px 8px;text-align:left;vertical-align:top}th{background:#eaf0f8}.q{background:#fff3cd;border-radius:8px;padding:8px 12px;font-size:13px}code{background:#e9eef6;padding:1px 4px;border-radius:4px}a{color:#1d6fd6}@media(prefers-color-scheme:dark){body{background:#121418;color:#e6ebf2}th{background:#1d2430}th,td{border-color:#2b3441}code{background:#1d2430}a{color:#7db4ff}}</style>';
   const head = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">';
   const page = (title, inner) => new Response(head + '<title>' + title + '</title>' + css + '</head><body><main>' + inner + '</main></body></html>', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' } });
-  if (!kind) return page('길동무 키즈 약관', '<h1>길동무 키즈</h1><ul><li><a href="/legal/privacy">개인정보 처리방침</a></li><li><a href="/legal/terms">위치기반서비스 이용약관</a></li><li><a href="/legal/delete">데이터 삭제 안내</a></li></ul>');
+  if (!kind) return page('길동무 패밀리 약관', '<h1>길동무 패밀리</h1><ul><li><a href="/legal/privacy">개인정보 처리방침</a></li><li><a href="/legal/terms">위치기반서비스 이용약관</a></li><li><a href="/legal/delete">데이터 삭제 안내</a></li></ul>');
   const val = { OP_NAME: e.OP_NAME, OP_MGR: e.OP_MGR, OP_CONTACT: e.OP_CONTACT, LEGAL_DATE: e.LEGAL_DATE, LEGAL_URL: url.origin + '/legal/privacy' };
   const missing = ['OP_NAME', 'OP_MGR', 'OP_CONTACT', 'LEGAL_DATE'].filter((k) => !val[k]);
   let md = (kind === 'delete' ? DELETE_MD : LEGAL_DOCS[kind]).replace(/\{\{(\w+)\}\}/g, (a, k) => (val[k] ? String(val[k]).slice(0, 200) : '(입력 전)'));
@@ -1583,15 +1583,15 @@ async function handle(req, env, url) {
     return J({ ok: true, days: await mxRead(DB, +url.searchParams.get('days')) });
   }
   if (p === '/' || p === '/health') return J({ ok: true, name: 'gildongmu-kids', t: now });
-  if (p === '/q' && m === 'GET') {              // 자녀 폰 QR 을 기본 카메라로 찍으면 열리는 안내 쪽: '길동무로 열기' 한 번이면 부모 앱이 바로 연결한다
+  if (p === '/q' && m === 'GET') {              // 가족구성원 폰 QR 을 기본 카메라로 찍으면 열리는 안내 쪽: '길동무로 열기' 한 번이면 부모 앱이 바로 연결한다
     const k = String(url.searchParams.get('k') || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 11);
     const deep = 'gildongmu-kids://pair?k=' + k;
     const intent = 'intent://pair?k=' + k + '#Intent;scheme=gildongmu-kids;package=com.dullyyj.subway;end';
-    const html = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>길동무 키즈 연결</title>'
+    const html = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>길동무 패밀리 연결</title>'
       + '<style>body{font-family:sans-serif;background:#f3f6fb;margin:0;padding:28px 20px;color:#16202e;text-align:center}.c{max-width:420px;margin:40px auto;background:#fff;border-radius:18px;padding:28px 20px;box-shadow:0 2px 14px #0001}'
       + 'h1{font-size:19px;margin:0 0 8px}p{font-size:14px;color:#5b6778;margin:6px 0}.k{font-size:26px;font-weight:700;letter-spacing:2px;margin:18px 0;color:#1d8fe6}a.b{display:block;background:#1d8fe6;color:#fff;text-decoration:none;font-weight:700;border-radius:12px;padding:15px;margin-top:18px;font-size:16px}</style></head><body><div class="c">'
-      + '<h1>길동무 키즈 연결</h1><p>부모님 폰의 길동무 앱에서 열어 주세요</p><div class="k">' + (k || '----- -----') + '</div>'
-      + '<a class="b" href="' + intent + '">길동무로 열기</a><p style="margin-top:16px">앱이 열리지 않으면 길동무 설정 → 길동무 키즈 연결에서 위 시크릿 키를 직접 넣어 주세요</p></div></body></html>';
+      + '<h1>길동무 패밀리 연결</h1><p>부모님 폰의 길동무 앱에서 열어 주세요</p><div class="k">' + (k || '----- -----') + '</div>'
+      + '<a class="b" href="' + intent + '">길동무로 열기</a><p style="margin-top:16px">앱이 열리지 않으면 길동무 설정 → 길동무 패밀리 연결에서 위 시크릿 키를 직접 넣어 주세요</p></div></body></html>';
     return new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
   }
   const body = m === 'POST' ? await req.json().catch(() => ({})) : {};
@@ -1618,7 +1618,7 @@ async function handle(req, env, url) {
       await DB.batch([DB.prepare('DELETE FROM codes WHERE cid=?').bind(cid), DB.prepare('INSERT INTO codes(code,cid,exp) VALUES(?,?,?)').bind(code, cid, now + PAIR_TTL)]);
       return J({ ok: true, code, exp: now + PAIR_TTL });
     }
-    if (p === '/c/consent' && m === 'POST') {       // 자녀 앱에서 보호자 · 본인 동의를 마쳤다(증빙으로 버전과 시각만 남긴다)
+    if (p === '/c/consent' && m === 'POST') {       // 가족구성원 앱에서 보호자 · 본인 동의를 마쳤다(증빙으로 버전과 시각만 남긴다)
       const cv = Math.round(+body.v) || 0;
       if (cv < 1 || cv > 99) return bad('잘못된 요청이에요');
       await DB.prepare('INSERT INTO cons(cid,v,t) VALUES(?,?,?) ON CONFLICT(cid) DO UPDATE SET v=excluded.v,t=excluded.t').bind(cid, cv, now).run();
@@ -1708,7 +1708,7 @@ async function handle(req, env, url) {
         if (rtSaved) { await bump(DB, cid); evd = true; }                 // 지난 경로가 하나 늘었다 — 부모 화면의 '지난 경로' 줄이 바로 바뀐다
         if (!evd) {                                  // 제자리(15m 안)에서 보낸 위치는 1분에 한 번만 부모 화면을 깨운다 — 가만히 있을 때 화면이 계속 다시 그려지지 않게
           const lb = locBumpAt.get(cid) || 0;
-          if (wch && ((last ? hav(last.la, last.lo, la, lo) : 1e9) >= 15 || now - lb >= 1500)) { locBumpAt.set(cid, now); await bump(DB, cid); }      // s426: 부모가 키즈 화면을 보는 중일 때만 깨운다(1.5초마다). 아무도 안 보면 쓰지 않는다 — 부모가 앱을 열면 어차피 현재 위치를 새로 받는다
+          if (wch && ((last ? hav(last.la, last.lo, la, lo) : 1e9) >= 15 || now - lb >= 1500)) { locBumpAt.set(cid, now); await bump(DB, cid); }      // s426: 부모가 가족 화면을 보는 중일 때만 깨운다(1.5초마다). 아무도 안 보면 쓰지 않는다 — 부모가 앱을 열면 어차피 현재 위치를 새로 받는다
         }
         if (!wch && acc <= 150 && last && hav(last.la, last.lo, la, lo) < 100 && (!mtNow || now - mtNow >= SLOW_STILL_MS)) {      // s426: 가만히 있다 → 장소·약속과 멀면 보고 주기를 늘려도 된다
           slowOk = !pls2.some((q) => hav(la, lo, q.la, q.lo) <= SLOW_PLACE_M) && !trs.some((r) => { if (r.tc) return false; const eta = etaOf(r, now); return now >= eta - SLOW_LEAD_MS && now < eta + STAY; });
@@ -1718,7 +1718,7 @@ async function handle(req, env, url) {
       if (n > 0 && !wch && acc <= 150 && slowOk) sl = 1;
       return J(sl ? { ok: true, linked: n, w: watchCode(wch, mtNow, now), sl: 1 } : { ok: true, linked: n, w: watchCode(wch, mtNow, now) });
     }
-    if (p === '/c/ev' && m === 'POST') {          // 자녀 앱이 알리는 활동(밥 · 놀기 · 공부 · 잠 · 응가) — 연결된 부모가 있을 때만, 같은 일은 60초에 한 번만
+    if (p === '/c/ev' && m === 'POST') {          // 가족구성원 앱이 알리는 활동(밥 · 놀기 · 공부 · 잠 · 응가) — 연결된 부모가 있을 때만, 같은 일은 60초에 한 번만
       const k = String(body.k || ''), x = String(body.x || '').replace(/\s+/g, ' ').trim().slice(0, 12);
       if (['play', 'study', 'sleep', 'poop'].includes(k)) return J({ ok: true, linked: await linkedCount(DB, cid) });      // 옛 앱: 친구들 행동은 더 이상 기록하지 않는다
       if (!EVK.has(k) || !x) return bad('형식이 맞지 않아요');
@@ -1726,7 +1726,7 @@ async function handle(req, env, url) {
       if (n > 0 && !(await DB.prepare('SELECT 1 a FROM evs WHERE cid=? AND k=? AND x=? AND t>? LIMIT 1').bind(cid, k, x, now - 60000).first())) await ev(DB, cid, k, x, now);
       return J({ ok: true, linked: n });
     }
-    if (p === '/c/wear' && m === 'POST') {        // s423: 자녀가 꾸민 모습을 알린다 — 바뀐 때만 저장하고 연결된 부모 앱에 조용한 알림
+    if (p === '/c/wear' && m === 'POST') {        // s423: 가족구성원이 꾸민 모습을 알린다 — 바뀐 때만 저장하고 연결된 부모 앱에 조용한 알림
       const w = String(body.w || '');
       if (!wearOk(w)) return bad('형식이 맞지 않아요');
       const old = await DB.prepare('SELECT w FROM wear WHERE cid=?').bind(cid).first();
@@ -1736,11 +1736,11 @@ async function handle(req, env, url) {
       }
       return J({ ok: true });
     }
-    if (p === '/c/call' && m === 'POST') {        // 자녀가 긴급 호출 · 안전하게 도착 · 데리러 와줘 를 누른다(op:'cancel' 은 긴급 호출 · 데리러 와줘 취소)
+    if (p === '/c/call' && m === 'POST') {        // 가족구성원이 긴급 호출 · 안전하게 도착 · 데리러 와줘 를 누른다(op:'cancel' 은 긴급 호출 · 데리러 와줘 취소)
       const r = await callRequest(env, DB, cid, body, now);
       return r.err ? bad(r.err) : J(r);
     }
-    if (p === '/c/share' && m === 'POST') {       // 자녀가 위치 공유를 켜고 끈다고 알린다 — 끄면 부모에게 알리고, 끈 동안은 '위치 끊김' 알림을 보내지 않는다
+    if (p === '/c/share' && m === 'POST') {       // 가족구성원이 위치 공유를 켜고 끈다고 알린다 — 끄면 부모에게 알리고, 끈 동안은 '위치 끊김' 알림을 보내지 않는다
       const on = body.on ? 1 : 0;
       await DB.prepare('INSERT OR IGNORE INTO cst(cid) VALUES(?)').bind(cid).run();
       const prev = ((await DB.prepare('SELECT sh FROM cst WHERE cid=?').bind(cid).first()) || { sh: 1 }).sh;
@@ -1751,20 +1751,20 @@ async function handle(req, env, url) {
       }
       return J({ ok: true });
     }
-    if (p === '/c/unlink' && m === 'POST') {      // 자녀가 모든 연결을 끊는다(위치도 함께 지운다)
+    if (p === '/c/unlink' && m === 'POST') {      // 가족구성원이 모든 연결을 끊는다(위치도 함께 지운다)
       await DB.batch([DB.prepare('DELETE FROM links WHERE cid=?').bind(cid), DB.prepare('DELETE FROM loc WHERE cid=?').bind(cid), DB.prepare('DELETE FROM locs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM routes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM rtst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cst WHERE cid=?').bind(cid), DB.prepare('DELETE FROM stops WHERE cid=?').bind(cid), DB.prepare('DELETE FROM zt WHERE k LIKE ?').bind(cid + ':%'), DB.prepare('DELETE FROM drafts WHERE cid=?').bind(cid), DB.prepare('DELETE FROM codes WHERE cid=?').bind(cid), DB.prepare('DELETE FROM places WHERE cid=?').bind(cid), DB.prepare('DELETE FROM trips WHERE cid=?').bind(cid), DB.prepare('DELETE FROM cheers WHERE cid=?').bind(cid), DB.prepare('DELETE FROM evs WHERE cid=?').bind(cid), DB.prepare('DELETE FROM calls WHERE cid=?').bind(cid)]);
       await bump(DB, cid);
       return J({ ok: true });
     }
     if (p === '/c/state' && m === 'GET') return J(Object.assign({ ok: true, rev: await revOf(DB, cid) }, await childState(DB, cid, now)));
-    if (p === '/c/ws' && m === 'GET') {           // s426: 초인종 연결(켜져 있고 이 자녀가 대상일 때만 · 아니면 404 — 앱은 예전 긴 대기를 그대로 쓴다)
+    if (p === '/c/ws' && m === 'GET') {           // s426: 초인종 연결(켜져 있고 이 가족구성원이 대상일 때만 · 아니면 404 — 앱은 예전 긴 대기를 그대로 쓴다)
       const hub = wsOn(env, cid) ? famHub(cid) : null;
       if (!hub) return bad('없어요', 404);
       return hub.fetch(new Request('https://hub/ws', req));
     }
-    if (p === '/c/wait' && m === 'GET') {         // 바뀔 때까지 붙들어 두었다가 새 묶음을 준다(자녀 앱이 늘 이걸 걸어 둔다)
+    if (p === '/c/wait' && m === 'GET') {         // 바뀔 때까지 붙들어 두었다가 새 묶음을 준다(가족구성원 앱이 늘 이걸 걸어 둔다)
       const since = +url.searchParams.get('since') || 0, tab = url.searchParams.get('tab'), qt = url.searchParams.get('qt');
-      if (tab === 'chat' && url.searchParams.get('fg') === '1') await markRd(DB, cid, 'c');      // 자녀 앱이 앞에 떠서 대화 탭을 보는 중(fg=1) = 부모 글을 읽는 중
+      if (tab === 'chat' && url.searchParams.get('fg') === '1') await markRd(DB, cid, 'c');      // 가족구성원 앱이 앞에 떠서 대화 탭을 보는 중(fg=1) = 부모 글을 읽는 중
       const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // nw=1: 초인종이 이어져 있다 — 붙들지 않고 지금 값으로 바로 답한다
       const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
       if (nw && rev === since) return J({ ok: true, rev, same: 1, ws: 1, wa: WS_WAIT_MS });
@@ -1783,7 +1783,7 @@ async function handle(req, env, url) {
       if (v === 'chat.send' && arg) {
         await DB.prepare('INSERT INTO chat(cid,f,x,t) VALUES(?,?,?,?)').bind(cid, 'c', arg, now).run();
         await markRd(DB, cid, 'c');
-        later(notifyParents(env, DB, cid, (nm) => ({ k: 'chat', title: nm || '길동무 키즈', body: cut(arg, 80), tag: 'chat' })));
+        later(notifyParents(env, DB, cid, (nm) => ({ k: 'chat', title: nm || '길동무 패밀리', body: cut(arg, 80), tag: 'chat' })));
       } else if (v === 'quest.send' && arg) {        // 부모님 미션 보내기: 길동무포인트 SEND_COST 가 있어야 한다(아직 대기 중인 것의 몫은 미리 빼 둔다)
         const have = await starsOf(DB, cid);
         const waiting = (await DB.prepare("SELECT COUNT(*) n FROM quests WHERE cid=? AND k='p' AND s=?").bind(cid, QS_WAIT).first())?.n || 0;
@@ -1792,21 +1792,21 @@ async function handle(req, env, url) {
           await DB.prepare('INSERT INTO quests(id,cid,k,x,s,t,pt,fl) VALUES(?,?,?,?,0,?,?,1)').bind(rid(), cid, 'p', arg, now, SEND_COST).run();
           later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + ' 부모님 미션을 보냈어요. 승낙해 주세요: ' + cut(arg, 40), tag: 'quest' })));
         }
-      } else if (v.startsWith('quest.accept:') || v.startsWith('quest.reject:')) {      // 자녀 미션(부모가 준 것): 자녀가 승낙(진행) 또는 거절
+      } else if (v.startsWith('quest.accept:') || v.startsWith('quest.reject:')) {      // 가족구성원 미션(부모가 준 것): 가족구성원이 승낙(진행) 또는 거절
         const yes = v.startsWith('quest.accept:'), qid = v.slice(13);
         const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='c' AND s=?").bind(yes ? QS_ON : QS_NO, qid, cid, QS_WAIT).run();
         if (r && r.meta && r.meta.changes > 0) later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + (yes ? ' 미션을 승낙했어요' : ' 미션을 거절했어요'), tag: 'quest' })));
         else changed = false;
-      } else if (v.startsWith('quest.fin:')) {      // 자녀 미션: 자녀가 해냈다고 완료를 누른다 — 부모가 확인하면 길동무포인트가 올라간다
+      } else if (v.startsWith('quest.fin:')) {      // 가족구성원 미션: 가족구성원이 해냈다고 완료를 누른다 — 부모가 확인하면 길동무포인트가 올라간다
         const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='c' AND s=?").bind(QS_REP, v.slice(10), cid, QS_ON).run();
         if (r && r.meta && r.meta.changes > 0) later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + ' 미션을 완료했대요. 확인해 주세요', tag: 'quest' })));
         else changed = false;
-      } else if (v.startsWith('quest.confirm:') || v.startsWith('quest.pdone:')) {      // 부모님 미션: 부모님이 완료한 것을 자녀가 확인하면 끝(완료)
+      } else if (v.startsWith('quest.confirm:') || v.startsWith('quest.pdone:')) {      // 부모님 미션: 부모님이 완료한 것을 가족구성원이 확인하면 끝(완료)
         const qid = v.startsWith('quest.confirm:') ? v.slice(14) : v.slice(12);
         const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='p' AND s=?").bind(QS_DONE, qid, cid, QS_REP).run();
         if (r && r.meta && r.meta.changes > 0) later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + ' 부모님 미션 완료를 확인했어요', tag: 'quest' })));
         else changed = false;
-      } else if (v.startsWith('quest.done:')) {   // 옛 자녀 앱: 자녀가 해냈다고 알린다 — 부모가 길동무에서 확인해야 길동무포인트가 오른다
+      } else if (v.startsWith('quest.done:')) {   // 옛 가족구성원 앱: 가족구성원이 해냈다고 알린다 — 부모가 길동무에서 확인해야 길동무포인트가 오른다
         const qd = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='c' AND s IN (0,1)").bind(QS_REP, v.slice(11), cid).run();
         if (qd && qd.meta && qd.meta.changes > 0) later(notifyParents(env, DB, cid, (nm) => ({ k: 'quest', title: '길동무', body: who(nm) + ' 미션을 해냈대요. 확인해 주세요', tag: 'quest' })));
       } else if (v.startsWith('trip.')) {         // 장소 알림: 확인(그냥 끔) · 출발 · 도착 확인(100m 안에서 길동무포인트 10)
@@ -1843,8 +1843,8 @@ async function handle(req, env, url) {
       await DB.batch([DB.prepare('INSERT OR IGNORE INTO links(cid,pid,t,nm) VALUES(?,?,?,?)').bind(row.cid, pid, now, nm), DB.prepare('DELETE FROM codes WHERE code=?').bind(code)]);
       await mxAdd(DB, 'pair', now);
       if (nm) await DB.prepare('UPDATE links SET nm=? WHERE cid=? AND pid=?').bind(nm, row.cid, pid).run();
-      await bump(DB, row.cid);                   // 자녀 앱이 곧바로 '연결됐어요' 를 받는다
-      later(notifyChild(env, DB, row.cid, { k: 'link', title: '길동무 키즈', body: '부모님과 연결됐어요', tag: 'link' }));
+      await bump(DB, row.cid);                   // 가족구성원 앱이 곧바로 '연결됐어요' 를 받는다
+      later(notifyChild(env, DB, row.cid, { k: 'link', title: '길동무 패밀리', body: '부모님과 연결됐어요', tag: 'link' }));
       locAskAt.set(row.cid, now);                                                       // 연결 직후에도 위치를 한 번 바로 받아 온다(허브가 또 묻지 않게 3분 표시)
       later(notifyChild(env, DB, row.cid, { k: 'locreq', tag: 'locreq' }));
       return J({ ok: true, cid: row.cid });
@@ -1865,7 +1865,7 @@ async function handle(req, env, url) {
       return J({ ok: true, children: rows });
     }
     if (p === '/p/setrow' && m === 'GET') { const [nodes, start, wr] = await Promise.all([settingsRow(DB, pid, url.searchParams.get('kn') === '1'), startPref(DB, pid), wearFor(DB, pid, url.searchParams.get('cid') || '')]); return J({ ok: true, nodes, start, tab: KIDS_TAB, w: wr.w }); }          // s423: 같이 꾸민 모습(w)도 — 앱을 켤 때마다 하던 이 한 번의 통신으로 받는다     // 설정 탭에 끼울 한 줄(연결 없으면 null)
-    if (p === '/p/wear' && m === 'GET') {         // s423: 연결된 자녀가 꾸민 모습(없으면 빈 글) — 부모 앱이 홈 장면에 입힌다
+    if (p === '/p/wear' && m === 'GET') {         // s423: 연결된 가족구성원이 꾸민 모습(없으면 빈 글) — 부모 앱이 홈 장면에 입힌다
       const wr = await wearFor(DB, pid, url.searchParams.get('cid') || '');
       return J({ ok: true, cid: wr.cid, w: wr.w });
     }
@@ -1876,14 +1876,14 @@ async function handle(req, env, url) {
       const cid = kids.some((k) => k.cid === cid0) ? cid0 : kids[0] ? kids[0].cid : '';
       if (!cid) return J({ ok: true, linked: 0, screen: await hubScreen(DB, pid, '', now) });
       if (v === 'cheer') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await cheerSheet(DB, pid, cid, '') });
-      if (v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');                    // 대화방을 열었다 = 자녀 글을 읽었다(허브 미리 받기 v=hub 는 읽음이 아니다)
+      if (v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');                    // 대화방을 열었다 = 가족구성원 글을 읽었다(허브 미리 받기 v=hub 는 읽음이 아니다)
       if (v === 'chat') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await chatSheet(DB, pid, cid, now) });
       if (v === 'fam') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await famScreen(DB, pid, cid, now) });
       if (v === 'quest') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await questSheet(DB, pid, cid, url.searchParams.get('qt')) });
-      if (v === 'hub' && await locOk(DB, pid, now)) { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                // 보는 중 표시(+ 새로 보기 시작하면 자녀 폰에 watch 푸시) · 위치가 없거나 오래됐으면 자녀 폰에 한 번 요청
+      if (v === 'hub' && await locOk(DB, pid, now)) { await watchTouch(env, DB, pid, cid, now); await askLoc(env, DB, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                // 보는 중 표시(+ 새로 보기 시작하면 가족구성원 폰에 watch 푸시) · 위치가 없거나 오래됐으면 가족구성원 폰에 한 번 요청
       return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await hubScreen(DB, pid, cid, now), pop: v === 'hub' ? await popOf(DB, pid, cid, now) : null });
     }
-    if (p === '/p/ws' && m === 'GET') {           // s426: 초인종 연결(부모) — 이 부모에게 연결된 자녀만, 켜져 있고 대상일 때만. 아니면 404
+    if (p === '/p/ws' && m === 'GET') {           // s426: 초인종 연결(부모) — 이 부모에게 연결된 가족구성원만, 켜져 있고 대상일 때만. 아니면 404
       const cid0 = url.searchParams.get('cid') || '';
       const hub = (await childrenOf(DB, pid)).some((k) => k.cid === cid0) && wsOn(env, cid0) ? famHub(cid0) : null;
       if (!hub) return bad('없어요', 404);
@@ -1894,7 +1894,7 @@ async function handle(req, env, url) {
       const kids0 = await childrenOf(DB, pid);
       const cid = kids0.some((k) => k.cid === cid0) ? cid0 : kids0[0] ? kids0[0].cid : '';
       if (!cid) return J({ ok: true, linked: 0, rev: 0 });
-      if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');         // 부모 앱이 키즈 화면을 보는 동안에만 긴 대기를 건다 — 그동안은 자녀 글을 읽는 중
+      if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');         // 부모 앱이 가족 화면을 보는 동안에만 긴 대기를 건다 — 그동안은 가족구성원 글을 읽는 중
       if (v === 'hub' && await locOk(DB, pid, now)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // 실시간 보기(s393): 대기가 이어져 있는 동안 '보는 중'
       const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // s426: nw=1 — 초인종이 이어져 있다. 붙들지 않고 지금 값으로 바로 답한다(보는 중 표시 · 읽음은 위에서 그대로 처리)
       const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
@@ -1925,7 +1925,7 @@ async function handle(req, env, url) {
         const pop = await popOf(DB, pid, cid, now);
         return R(pop ? { pop, cid } : { hub: 1 });
       }
-      if (v === 'kx.ack' || v === 'kx.done') {          // 부모가 긴급 호출 · 데리러 와줘 를 확인했다 / 끝났다 — s415: 앱은 누르자마자 팝업을 닫는다. 여기서는 최소한만 하고 자녀에게 바로 알린다(화면은 앱이 따로 받는다)
+      if (v === 'kx.ack' || v === 'kx.done') {          // 부모가 긴급 호출 · 데리러 와줘 를 확인했다 / 끝났다 — s415: 앱은 누르자마자 팝업을 닫는다. 여기서는 최소한만 하고 가족구성원에게 바로 알린다(화면은 앱이 따로 받는다)
         if (!cid || !t) return R({ hub: 1 });
         const ack = v === 'kx.ack';
         const [r, c] = await Promise.all([
@@ -1933,7 +1933,7 @@ async function handle(req, env, url) {
           DB.prepare('SELECT k FROM calls WHERE id=?').bind(String(t)).first(),
         ]);
         if (r && r.meta && r.meta.changes > 0) {
-          if (c) later(notifyChild(env, DB, cid, ack ? { k: 'callack', title: '길동무 키즈', body: callAck(c.k), tag: 'callack' } : { k: 'calldone', title: '길동무 키즈', body: callDone(c.k), tag: 'calldone' }));
+          if (c) later(notifyChild(env, DB, cid, ack ? { k: 'callack', title: '길동무 패밀리', body: callAck(c.k), tag: 'callack' } : { k: 'calldone', title: '길동무 패밀리', body: callDone(c.k), tag: 'calldone' }));
           await bump(DB, cid);
         }
         return R({ hub: 1, cid });
@@ -1941,7 +1941,7 @@ async function handle(req, env, url) {
       // 연결 관리
       if (v === 'kl.open') return R({ screen: await linkSheet(DB, pid, '') });
       if (v === 'kl.close') return R({ close: true });
-      if (v === 'kl.start') {                      // 설정 토글: 키즈 화면으로 시작
+      if (v === 'kl.start') {                      // 설정 토글: 가족 화면으로 시작
         if (!kids.length) return R({ start: 0 });
         await DB.prepare('UPDATE devices SET kh=? WHERE id=?').bind(t === '1' ? 1 : 0, pid).run();
         return R({ start: t === '1' ? 1 : 0 });
@@ -1961,10 +1961,10 @@ async function handle(req, env, url) {
         if (pn0) await DB.prepare('UPDATE links SET pnm=? WHERE pid=?').bind(pn0, pid).run();
         else { const old = await pnOf(DB, pid); if (old) await DB.prepare('UPDATE links SET pnm=? WHERE cid=? AND pid=?').bind(old, row.cid, pid).run(); }
         await bump(DB, row.cid);
-        later(notifyChild(env, DB, row.cid, { k: 'link', title: '길동무 키즈', body: '부모님과 연결됐어요', tag: 'link' }));
-        return R({ screen: await linkSheet(DB, pid, '연결됐어요'), linked: 1, notice: '길동무 키즈와 연동되었습니다' });
+        later(notifyChild(env, DB, row.cid, { k: 'link', title: '길동무 패밀리', body: '부모님과 연결됐어요', tag: 'link' }));
+        return R({ screen: await linkSheet(DB, pid, '연결됐어요'), linked: 1, notice: '길동무 패밀리와 연동되었습니다' });
       }
-      if (v === 'kl.pname') {                      // 부모가 자기 이름을 정한다(연결된 모든 자녀에게 같은 이름)
+      if (v === 'kl.pname') {                      // 부모가 자기 이름을 정한다(연결된 모든 가족구성원에게 같은 이름)
         const pn = String(f.kpn || '').replace(/\s+/g, ' ').trim().slice(0, 8);
         await DB.prepare('UPDATE links SET pnm=? WHERE pid=?').bind(pn, pid).run();
         for (const k of kids) await bump(DB, k.cid);
@@ -1983,9 +1983,9 @@ async function handle(req, env, url) {
         const left = await childrenOf(DB, pid);
         return R({ screen: await linkSheet(DB, pid, '연결을 끊었어요'), linked: left.length, notice: '연결을 끊었어요' });
       }
-      if (!cid) return bad('연결된 자녀가 없어요', 403);
+      if (!cid) return bad('연결된 가족구성원이 없어요', 403);
       // 가족 대화
-      if (v === 'kn.open') return R({ screen: await kidMenuSheet(DB, pid) });                  // 설정 > 길동무 키즈 팝업
+      if (v === 'kn.open') return R({ screen: await kidMenuSheet(DB, pid) });                  // 설정 > 길동무 패밀리 팝업
       if (v === 'km.open') return R({ screen: await kidMarkerSheet(DB, pid) });                // 마커 변경 팝업 (사진 고르기 · 기본으로는 앱이 이 폰 안에서 처리)
       if (v === 'kh.cheer') return R({ screen: await cheerSheet(DB, pid, kids.some((k) => k.cid === id) ? id : cid, ''), cid: kids.some((k) => k.cid === id) ? id : cid, sheet: 'cheer' });
       if (v === 'kh.ca' || v === 'kh.cd') {
@@ -2010,7 +2010,7 @@ async function handle(req, env, url) {
         if (((cn0) || { n: 0 }).n >= MAX_PLACES) return R({ close: true, notice: '장소는 ' + MAX_PLACES + '곳까지 등록할 수 있어요' });
         const la0 = l0 ? l0.la : 37.5665, lo0 = l0 ? l0.lo : 126.978;
         await saveDraft(DB, pid, cid, la0, lo0, '', '', now);
-        return R({ screen: regSheet({ la: la0, lo: lo0, name: '', q: '' }, null, l0 ? '' : '자녀 위치를 아직 몰라요. 주소를 찾아 주세요'), cid, sheet: 'ev' });
+        return R({ screen: regSheet({ la: la0, lo: lo0, name: '', q: '' }, null, l0 ? '' : '가족구성원 위치를 아직 몰라요. 주소를 찾아 주세요'), cid, sheet: 'ev' });
       }
       if (v.startsWith('kpg.')) {
         // s419: 초안이 없어도(열기 답이 늦어 아직 못 만들었어도) 팝업을 닫지 않고 그 자리에서 만든다
@@ -2093,7 +2093,7 @@ async function handle(req, env, url) {
         later(notifyChild(env, DB, cid, { k: 'quest', title: '새 퀘스트', body: cut(x, 80) + ' · 승낙해 주세요', tag: 'quest' }));
         return R({ screen: await questSheet(DB, pid, cid, 'c'), cid, clear: 'kqx', notice: '미션을 보냈어요' });
       }
-      if (v === 'kq.ok') {                          // 자녀 미션: 자녀가 완료했다고 한 것을 부모가 확인 → 종료 + 길동무포인트 지급
+      if (v === 'kq.ok') {                          // 가족구성원 미션: 가족구성원이 완료했다고 한 것을 부모가 확인 → 종료 + 길동무포인트 지급
         const q = await DB.prepare("SELECT pt FROM quests WHERE id=? AND cid=? AND k='c' AND s=?").bind(id, cid, QS_REP).first();
         let notice = '확인할 수 있는 상태가 아니에요';
         if (q) {
@@ -2103,15 +2103,15 @@ async function handle(req, env, url) {
         return R({ screen: await questSheet(DB, pid, cid, 'c'), cid, notice });
       }
       if (v === 'kq.redo') { const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='c' AND s=?").bind(QS_ON, id, cid, QS_REP).run(); if (r && r.meta && r.meta.changes > 0) { await bump(DB, cid); later(notifyChild(env, DB, cid, { k: 'quest', title: '미션', body: '부모님이 다시 해 보래요', tag: 'quest' })); } return R({ screen: await questSheet(DB, pid, cid, 'c'), cid, notice: '다시 하게 돌려보냈어요' }); }
-      if (v === 'kq.accept') {                      // 부모님 미션: 부모가 승낙 → 자녀 길동무포인트 SEND_COST 차감(모자라면 승낙되지 않는다)
+      if (v === 'kq.accept') {                      // 부모님 미션: 부모가 승낙 → 가족구성원 길동무포인트 SEND_COST 차감(모자라면 승낙되지 않는다)
         const q = await DB.prepare("SELECT pt FROM quests WHERE id=? AND cid=? AND k='p' AND s=?").bind(id, cid, QS_WAIT).first();
         let notice = '이미 처리한 미션이에요';
         if (q) {
           const cost = q.pt || SEND_COST;
           const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='p' AND s=?").bind(QS_ON, id, cid, QS_WAIT).run();
           if (r && r.meta && r.meta.changes > 0) {
-            if (await takeStars(DB, cid, cost)) { notice = '승낙했어요 · 자녀 길동무포인트 ' + cost + ' 차감'; await bump(DB, cid); later(notifyChild(env, DB, cid, { k: 'quest', title: '미션 승낙', body: '부모님이 승낙했어요 · 길동무포인트 ' + cost + ' 차감', tag: 'quest' })); }
-            else { await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='p' AND s=?").bind(QS_WAIT, id, cid, QS_ON).run(); notice = '자녀의 길동무포인트가 모자라서 승낙할 수 없어요'; }
+            if (await takeStars(DB, cid, cost)) { notice = '승낙했어요 · 가족구성원 길동무포인트 ' + cost + ' 차감'; await bump(DB, cid); later(notifyChild(env, DB, cid, { k: 'quest', title: '미션 승낙', body: '부모님이 승낙했어요 · 길동무포인트 ' + cost + ' 차감', tag: 'quest' })); }
+            else { await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='p' AND s=?").bind(QS_WAIT, id, cid, QS_ON).run(); notice = '가족구성원의 길동무포인트가 모자라서 승낙할 수 없어요'; }
           }
         }
         return R({ screen: await questSheet(DB, pid, cid, 'p'), cid, notice });
@@ -2121,12 +2121,12 @@ async function handle(req, env, url) {
         if (r && r.meta && r.meta.changes > 0) { await bump(DB, cid); later(notifyChild(env, DB, cid, { k: 'quest', title: '미션', body: '부모님이 이번 미션은 어렵대요', tag: 'quest' })); }
         return R({ screen: await questSheet(DB, pid, cid, 'p'), cid, notice: '거절했어요' });
       }
-      if (v === 'kq.fin') {                         // 부모님 미션: 부모가 해냈다고 완료 → 자녀가 확인해야 종료
+      if (v === 'kq.fin') {                         // 부모님 미션: 부모가 해냈다고 완료 → 가족구성원이 확인해야 종료
         const r = await DB.prepare("UPDATE quests SET s=? WHERE id=? AND cid=? AND k='p' AND s=?").bind(QS_REP, id, cid, QS_ON).run();
         if (r && r.meta && r.meta.changes > 0) { await bump(DB, cid); later(notifyChild(env, DB, cid, { k: 'quest', title: '미션 완료', body: '부모님이 미션을 해냈어요. 확인해 주세요', tag: 'quest' })); }
-        return R({ screen: await questSheet(DB, pid, cid, 'p'), cid, notice: '자녀가 확인하면 완료돼요' });
+        return R({ screen: await questSheet(DB, pid, cid, 'p'), cid, notice: '가족구성원이 확인하면 완료돼요' });
       }
-      if (v === 'kq.done') return R({ screen: await questSheet(DB, pid, cid, 'p'), cid, notice: '부모님이 완료를 누르고 자녀가 확인해요' });      // 옛 앱 호환
+      if (v === 'kq.done') return R({ screen: await questSheet(DB, pid, cid, 'p'), cid, notice: '부모님이 완료를 누르고 가족구성원이 확인해요' });      // 옛 앱 호환
       // 장소 등록(지도를 3초 누르면 새 장소 · 핀을 누르면 고치기)
       if (v === 'kpl.new') {
         const [la, lo] = String(t).split(',').map(Number);
@@ -2172,11 +2172,11 @@ async function handle(req, env, url) {
         }
         return R({ screen: placeSheet(await readDraft(DB, pid), !!d.pl), cid });
       }
-      if (v.startsWith('kc.') && kids.some((k) => k.cid === v.slice(3))) return R({ screen: await hubScreen(DB, pid, v.slice(3), now), cid: v.slice(3) });   // 자녀 칩
+      if (v.startsWith('kc.') && kids.some((k) => k.cid === v.slice(3))) return R({ screen: await hubScreen(DB, pid, v.slice(3), now), cid: v.slice(3) });   // 가족구성원 칩
       return bad('없는 행동이에요', 404);
     }
     const cid = body.cid || url.searchParams.get('cid');
-    if (!okId(cid) || !(await isLinked(DB, cid, pid))) return bad('연결되지 않은 자녀예요', 403);
+    if (!okId(cid) || !(await isLinked(DB, cid, pid))) return bad('연결되지 않은 가족구성원이에요', 403);
     if (p === '/p/loc' && m === 'GET') {
       if (!(await locOk(DB, pid, now))) return J({ ok: true, loc: null });
       const r = await DB.prepare('SELECT la,lo,acc,t FROM loc WHERE cid=?').bind(cid).first();
@@ -2196,7 +2196,7 @@ async function handle(req, env, url) {
       later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '부모님', body: cut(x, 80), tag: 'chat' }));
       return J({ ok: true });
     }
-    if (p === '/p/quests' && m === 'GET') {       // s: 자녀 미션(k=c) 0 대기 · 1 자녀가 해냈다고 알림(확인 필요) · 2 확인함 / 부모님 미션(k=p) 0 대기 · 1 부모가 해냈다고 표시
+    if (p === '/p/quests' && m === 'GET') {       // s: 가족구성원 미션(k=c) 0 대기 · 1 가족구성원이 해냈다고 알림(확인 필요) · 2 확인함 / 부모님 미션(k=p) 0 대기 · 1 부모가 해냈다고 표시
       const rows = (await DB.prepare('SELECT id,k,x,s,pt,t FROM quests WHERE cid=? ORDER BY t DESC LIMIT ?').bind(cid, MAX_QUEST).all()).results || [];
       return J({ ok: true, quests: rows, stars: await starsOf(DB, cid) });
     }

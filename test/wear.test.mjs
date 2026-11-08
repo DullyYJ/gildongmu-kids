@@ -1,4 +1,4 @@
-// 꾸민 모습 연동 시험(s423): 자녀가 꾸민 모습을 서버에 올리면 부모가 같은 모습을 받고, 연결된 부모 앱에 조용한 알림(k:wear)이 간다
+// 꾸민 모습 연동 시험(s423): 가족구성원이 꾸민 모습을 서버에 올리면 부모가 같은 모습을 받고, 연결된 부모 앱에 조용한 알림(k:wear)이 간다
 // 실행: node --no-warnings test/wear.test.mjs
 import fs from 'fs';
 import crypto from 'crypto';
@@ -65,7 +65,7 @@ chk(!bd.ok && rows('SELECT * FROM wear').length === 0, '모양이 틀린 글은 
 const bd2 = await req('POST', '/c/wear', 'c', { w: W1.replace('19', '99') });
 chk(!bd2.ok && rows('SELECT * FROM wear').length === 0, '번호가 범위를 넘으면 받지 않는다');
 const r1 = await req('POST', '/c/wear', 'c', { w: W1 });
-chk(r1.ok && rows('SELECT w FROM wear WHERE cid=?', CID)[0].w === W1, '자녀가 꾸민 모습을 저장한다');
+chk(r1.ok && rows('SELECT w FROM wear WHERE cid=?', CID)[0].w === W1, '가족구성원이 꾸민 모습을 저장한다');
 const wp = pushes.slice(a).filter((p) => p.token === PTK && p.data.k === 'wear');
 chk(wp.length === 1 && wp[0].data.w === W1 && wp[0].data.cid === CID && !wp[0].data.title && !wp[0].data.body, '연결된 부모 앱에 조용한 알림(k:wear · 글만 · 알림 카드 글 없음) 1건');
 const g1 = await req('GET', '/p/wear?cid=' + CID, 'p');
@@ -76,9 +76,9 @@ chk(pushes.slice(a).filter((p) => p.data.k === 'wear').length === 0, '같은 모
 await req('POST', '/c/wear', 'c', { w: W2 });
 chk((await req('GET', '/p/wear?cid=' + CID, 'p')).w === W2 && pushes.slice(a).filter((p) => p.data.k === 'wear').length === 1, '모두 벗으면 그 모습으로 바뀌고 알림 1건');
 const other = await req('GET', '/p/wear?cid=nobody000001', 'p');
-chk(other.ok && other.cid === CID, '연결되지 않은 자녀는 읽을 수 없다(연결된 자녀 것으로 돌려준다)');
+chk(other.ok && other.cid === CID, '연결되지 않은 가족구성원은 읽을 수 없다(연결된 가족구성원 것으로 돌려준다)');
 
-// 자녀 앱: 올리는 글은 입은 것만(고르기만 바꿔서는 다시 올리지 않는다) · 성공해야 기억한다 · 엔진은 안드로이드를 모른다
+// 가족구성원 앱: 올리는 글은 입은 것만(고르기만 바꿔서는 다시 올리지 않는다) · 성공해야 기억한다 · 엔진은 안드로이드를 모른다
 {
   const en = fs.readFileSync(new URL('../app/src/main/java/com/dullyyj/kids/Engine.java', import.meta.url).pathname, 'utf8');
   chk(/return i < 0 \? e : "0,0" \+ e\.substring\(i\);/.test(en), '앱: 고른 친구 · 탭은 빼고 입은 것만 올린다');
