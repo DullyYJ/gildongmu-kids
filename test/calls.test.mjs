@@ -71,6 +71,7 @@ const s0 = await req('POST', '/c/call', 'c', { k: 'sos', la: 37.5, lo: 126.84 })
 chk(s0.ok && s0.id && s0.linked === 1, '긴급 호출을 서버가 받는다');
 const p0 = pk('sos', a);
 chk(p0.length === 1 && /긴급 호출/.test(p0[0].data.title + p0[0].data.body) && !/37\.5|126\.8/.test(JSON.stringify(p0[0].data)), '확인 전인 부모에게도 긴급 알림이 간다(알림 글에 좌표는 없다)');
+chk(p0.length === 1 && p0[0].data.la === undefined && p0[0].data.lo === undefined, '푸시 값에는 좌표가 없다(지도는 허브 응답으로만)');
 const h0 = await hubOf();
 chk(/kg\.ok/.test(JSON.stringify(h0.screen)) && !/kx\.ack/.test(JSON.stringify(h0.screen)), '확인 전에는 지도도 호출 카드도 안 보인다(보호자 확인이 먼저)');
 await req('POST', '/p/act', 'p', { v: 'kg.ok', cid: CID });
@@ -78,11 +79,15 @@ await req('POST', '/p/act', 'p', { v: 'kg.ok', cid: CID });
 // ── 확인 뒤: 카드 + 지도 핀 ──
 const h1 = await hubOf(), t1 = JSON.stringify(h1.screen);
 chk(/긴급 호출/.test(t1) && /kx\.open/.test(t1), '부모 화면 맨 위에 긴급 호출 줄(누르면 팝업)이 나온다');
-chk(h1.pop && h1.pop.k === 'sos' && h1.pop.ka === 'kx.ack' && h1.pop.bt === '확인했어요' && h1.pop.au === 1 && /긴급 호출/.test(h1.pop.pt), '엔진이 호출 팝업(제목 · 단추 · 저절로 뜸)을 응답에 실어 준다(s415)');
+chk(h1.pop && h1.pop.k === 'sos' && h1.pop.ka === 'kx.ack' && h1.pop.bt === '확인 완료' && h1.pop.au === 1 && /긴급 호출/.test(h1.pop.pt), '엔진이 호출 팝업(제목 · 단추 · 저절로 뜸)을 응답에 실어 준다(s415)');
 const tm = h1.screen.head.find((n) => n.t === 'tmap');
 const sosPin = tm.pts.findIndex((q) => q.n === '!');
 chk(sosPin >= 0 && Math.abs(tm.pts[sosPin].la - 37.5) < 1e-6 && tm.foc === sosPin, '지도에 긴급 위치가 찍히고 거기로 맞춰진다');
 chk(h1.screen.head[0].t === 'panel', '카드가 화면 맨 위다');
+chk(tm.pts[sosPin].v === 'kx.o.' + s0.id, '긴급 마커를 누르면 그 호출의 확인 팝업(kx.o.<호출>)이 열린다');
+chk(h1.pop.la === 37.5 && h1.pop.lo === 126.84 && h1.pop.mp === '긴급', '허브 응답의 팝업에는 지도용 좌표가 실린다(법정대리인 확인 뒤에만)');
+const pkOpen = await req('POST', '/p/act', 'p', { v: 'kx.o.' + s0.id, cid: CID });
+chk(pkOpen.ok && pkOpen.pop && pkOpen.pop.ci === s0.id && pkOpen.pop.la === 37.5 && pkOpen.pop.bt === '확인 완료' && pkOpen.pop.ka === 'kx.ack', '마커를 눌러 연 팝업: 좌표 + "확인 완료" 단추');
 chk(rows("SELECT * FROM evs WHERE k='sos'").length === 1, '"뭐하니?" 활동에 긴급 호출이 남는다');
 
 // ── 되풀이 방지 ──
@@ -99,6 +104,8 @@ a = pushes.length;
 const ack = await req('POST', '/p/act', 'p', { v: 'kx.ack', cid: CID, t: s2.id });
 const h2 = await hubOf();
 chk(ack.ok && ack.hub === 1 && h2.pop && h2.pop.ka === 'kx.done' && h2.pop.bt === '상황이 끝났어요' && h2.pop.au === 0, '확인했어요 → 팝업이 "상황이 끝났어요" 로 바뀌고 저절로는 안 뜬다(s415)');
+chk(!h2.screen.head.find((n) => n.t === 'tmap').pts.some((q) => q.n === '!'), '"확인 완료" 뒤에는 지도에서 긴급 마커가 사라진다');
+chk(h2.pop && h2.pop.la === 37.5, '확인 뒤에도 호출 줄 팝업(상황이 끝났어요)에는 위치가 있어 지도를 보인다');
 const cp = pushes.slice(a).filter((p) => p.data.k === 'callack' && p.token === CTK);
 chk(cp.length === 1 && /확인했어요/.test(cp[0].data.body), '가족구성원 폰에 "부모님이 확인했어요" 가 간다');
 const cs = await req('GET', '/c/state', 'c');

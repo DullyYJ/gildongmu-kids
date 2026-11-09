@@ -422,21 +422,21 @@ async function nearPlaceName(DB, cid, la, lo) {
 }
 /** s415: 호출 팝업(가운데)에 뭐라고 쓰고 · 어떤 단추가 있고 · 저절로 뜰지는 엔진이 정한다. 앱은 이 값으로 그리기만 한다(푸시에도 같은 값이 실려 가족 탭 밖에서도 같은 팝업이 뜬다).
  *  c: {id,k,t,la,lo,pl,st}  st 0 = 아직 확인 전(저절로 뜬다) · 1 = 확인함(허브 줄을 눌러 '만났어요') */
-function callPopData(c, nm) {
+function callPopData(c, nm, withLoc) {
   const sos = c.k === 'sos', arr = c.k === 'arr';
   const sub = clock(c.t) + (c.pl ? ' · ' + c.pl + ' 근처' : '') + (arr ? '' : c.st === 1 ? ' · 가족 중 한 분이 확인했어요' : '') + (arr ? '' : (c.la || c.lo) ? ' · 지도에 표시했어요' : ' · 위치를 아직 못 받았어요');
   const pt = arr ? '✅ ' + nm + ' 안전하게 도착했어요' : sos ? '🚨 ' + nm + ' 긴급 호출' : '🚗 ' + nm + ' 데리러 와 달라고 해요';
   const st = c.st || 0;
-  return { pk: c.id + ':' + st + ':' + c.t, ci: c.id || '', pt, ps: sub, bt: arr ? '확인' : st === 0 ? (sos ? '확인했어요' : '지금 가요') : (sos ? '상황이 끝났어요' : '만났어요'), ka: arr ? '' : st === 0 ? 'kx.ack' : 'kx.done', au: st === 0 ? 1 : 0, k: c.k };
+  return { pk: c.id + ':' + st + ':' + c.t, ci: c.id || '', pt, ps: sub, bt: arr ? '확인' : st === 0 ? (sos ? '확인 완료' : '지금 가요') : (sos ? '상황이 끝났어요' : '만났어요'), ka: arr ? '' : st === 0 ? 'kx.ack' : 'kx.done', au: st === 0 ? 1 : 0, k: c.k, ...(withLoc && !arr && (c.la || c.lo) ? { la: +Number(c.la).toFixed(5), lo: +Number(c.lo).toFixed(5), mp: sos ? '긴급' : '데리러' } : {}) };
 }
 /** 허브 응답에 실리는 호출 팝업(가장 급한 하나 — 긴급 우선, 아니면 최근). 열린 호출이 없거나 법정대리인 확인 전이면 null */
-async function popOf(DB, pid, cid, now) {
+async function popOf(DB, pid, cid, now, callId) {
   if (!(await gdOk(DB, pid))) return null;
   const calls = (await DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS).all()).results || [];
-  const c = calls.find((x) => x.k === 'sos') || calls[0];
+  const c = (callId && calls.find((x) => x.id === callId)) || calls.find((x) => x.k === 'sos') || calls[0];
   if (!c) return null;
   const cur = (await childrenOf(DB, pid)).find((k) => k.cid === cid);
-  return callPopData(c, nmOf(cur));
+  return callPopData(c, nmOf(cur), true);          // 허브 응답은 법정대리인 확인을 마친 부모에게만 가므로 좌표(지도용)를 함께 싣는다 — 푸시에는 싣지 않는다
 }
 const callAck = (k) => (k === 'sos' ? '가족이 확인했어요' : '가족이 데리러 가고 있어요');
 const callDone = (k) => (k === 'sos' ? '가족이 상황이 끝났다고 했어요' : '가족을 만났어요 😊');
@@ -597,7 +597,7 @@ async function addCol(DB, table, col, ddl) {              // 옛 표에 열을 �
   try { await DB.prepare('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + ddl).run(); } catch (e) { /* 다른 요청이 먼저 덧붙였다 */ }
 }
 // s424: 서버가 새로 뜰 때마다 표 · 열 확인(약 70번)을 하던 것을 '버전 한 줄 확인'으로 바꿨다. 표 · 열을 고치면(아래 migrate) SCHEMA_V 도 올려야 새 서버가 다시 준비한다(시험이 지켜 준다).
-const SCHEMA_V = 's431-1';
+const SCHEMA_V = 's431-2';
 async function init(DB) {
   if (ready) return;
   try {
@@ -669,6 +669,7 @@ async function migrate(DB) {
   await addCol(DB, 'links', 'pnm', "TEXT NOT NULL DEFAULT ''");          // 부모가 정한 자기 이름(가족구성원 화면에 보인다)
   await addCol(DB, 'chat', 'pn', "TEXT NOT NULL DEFAULT ''");            // 부모 글을 쓴 부모의 이름
   await addCol(DB, 'loc', 'dn', "TEXT NOT NULL DEFAULT ''");             // 가족구성원이 알려 준 동네 이름
+  try { await DB.prepare("INSERT OR IGNORE INTO meta(k,v) SELECT 'rdpp', CAST(COALESCE(MAX(id),0) AS TEXT) FROM chat").run(); } catch (e) { /* 다음 서버가 다시 한 번 준비한다 */ }      // 부모별 읽음 기록을 시작한 때의 가장 큰 글 번호(이 번호까지의 옛 글은 예전 '부모 누구든 읽었으면 읽음'을 따른다)
   await addCol(DB, 'loc', 'mva', 'REAL NOT NULL DEFAULT 0');             // 마지막으로 '이동 중' 줄을 남긴 자리(위도 · 경도 · 시각) — 0 이면 아직 없음
   await addCol(DB, 'loc', 'mvo', 'REAL NOT NULL DEFAULT 0');
   await addCol(DB, 'loc', 'mvt', 'INTEGER NOT NULL DEFAULT 0');
@@ -816,16 +817,31 @@ async function bump(DB, cid) {
 }
 /** 읽음(카톡의 '1'): 부모(p)·가족구성원(c)가 대화방을 실제로 보는 동안 가장 최근 글(chat.id)까지 읽은 것으로 적는다. 바뀌었을 때만 true(그리고 화면 갱신 신호). */
 async function rdMap(DB, cid) {
-  const o = { p: 0, c: 0 };
-  ((await DB.prepare('SELECT s,id FROM chat_rd WHERE cid=?').bind(cid).all()).results || []).forEach((r) => { if (r.s === 'p' || r.s === 'c') o[r.s] = r.id; });
+  const o = { p: 0, c: 0, pp: {} };      // pp: 부모 한 사람마다 어디까지 읽었나(가족대화의 안 읽은 사람 수 — 카톡처럼)
+  ((await DB.prepare('SELECT s,id FROM chat_rd WHERE cid=?').bind(cid).all()).results || []).forEach((r) => { if (r.s === 'p' || r.s === 'c') o[r.s] = r.id; else if (r.s.slice(0, 2) === 'p:') o.pp[r.s.slice(2)] = r.id; });
   return o;
 }
-async function markRd(DB, cid, side) {
+/** 부모 한 사람마다의 읽음 기록이 생기기 전 글(이 번호까지)은 예전 '부모 누구든 읽었으면 읽음' 기록을 그대로 쓴다. 처음 부를 때의 가장 큰 글 번호를 한 번만 적어 둔다. */
+async function rdBase(DB) {
+  let r = await DB.prepare("SELECT v FROM meta WHERE k='rdpp'").first();
+  if (!r) {
+    const m = await DB.prepare('SELECT MAX(id) m FROM chat').first();
+    await DB.prepare("INSERT OR IGNORE INTO meta(k,v) VALUES('rdpp',?)").bind(String((m && m.m) || 0)).run();
+    r = await DB.prepare("SELECT v FROM meta WHERE k='rdpp'").first();
+  }
+  return (r && +r.v) || 0;
+}
+async function markRd(DB, cid, side, pid) {
   const m = await DB.prepare('SELECT MAX(id) m FROM chat WHERE cid=?').bind(cid).first();
   const mx = (m && m.m) || 0;
   if (!mx) return false;
+  if (side === 'p' && pid) await rdBase(DB);
   const r = await DB.prepare('INSERT INTO chat_rd(cid,s,id) VALUES(?,?,?) ON CONFLICT(cid,s) DO UPDATE SET id=excluded.id WHERE chat_rd.id<excluded.id').bind(cid, side, mx).run();
-  const ch = !!(r && r.meta && r.meta.changes > 0);
+  let ch = !!(r && r.meta && r.meta.changes > 0);
+  if (side === 'p' && pid) {                                                    // 이 부모가 읽었다는 것도 따로 적는다(다른 부모가 먼저 읽었어도 이 부모의 몫은 따로 센다)
+    const r2 = await DB.prepare('INSERT INTO chat_rd(cid,s,id) VALUES(?,?,?) ON CONFLICT(cid,s) DO UPDATE SET id=excluded.id WHERE chat_rd.id<excluded.id').bind(cid, 'p:' + pid, mx).run();
+    if (r2 && r2.meta && r2.meta.changes > 0) ch = true;
+  }
   if (ch) await bump(DB, cid);
   return ch;
 }
@@ -937,14 +953,21 @@ function kst(t) {
 
 async function chatScreen(DB, cid, now) {
   const rows = (await DB.prepare('SELECT id,f,x,t,pn FROM chat WHERE cid=? AND t>=? ORDER BY id ASC LIMIT ?').bind(cid, now - CHAT_KEEP, MAX_CHAT).all()).results || [];
-  const rd = await rdMap(DB, cid);
+  const [rd, base, lk] = await Promise.all([rdMap(DB, cid), rdBase(DB), DB.prepare('SELECT pid,t FROM links WHERE cid=?').bind(cid).all()]);
+  const ps = (lk.results || []).map((r) => ({ t: r.t, rd: Math.max(rd.pp[r.pid] || 0, Math.min(rd.p, base)) }));      // 부모마다 어디까지 읽었나(글 번호)
+  const unread = (m) => ps.filter((p) => p.t <= m.t && p.rd < m.id).length;      // 카톡처럼: 그 글을 쓴 사람과 나를 뺀, 아직 안 본 사람 수(글보다 나중에 연결된 부모는 세지 않는다)
+  const today = kstParts(now).ds;
+  const stamp = (t) => (kstParts(t).ds === today ? '' : kstParts(t).mo + '/' + kstParts(t).d + ' ') + clock(t);
   const a = [b('head', { text: '가족대화' })];
   const k1 = [b('text', { text: '글자만 보낼 수 있어요. 대화는 7일이 지나면 지워져요.', sub: '1', tight: '1' })];
   if (!rows.length) k1.push(b('text', { text: '아직 대화가 없어요. 가족이 연결되면 여기서 이야기할 수 있어요.', sub: '1', tight: '1' }));
   a.push(b('box', { flush: '1', kids: k1 }));
-  const k2 = rows.map((m) => b('msg', Object.assign({ text: m.x, me: m.f === 'c' ? '1' : '0', time: (m.f === 'p' && m.pn ? m.pn + ' · ' : '') + kst(m.t) }, m.f === 'c' && m.id > rd.p ? { un: '1' } : {})));      // 내 글을 부모가 아직 안 읽었으면 un
+  const k2 = rows.map((m) => {
+    const n = unread(m), me = m.f === 'c';
+    return b('msg', Object.assign({ text: m.x, me: me ? '1' : '0', time: stamp(m.t) }, me ? {} : { nick: m.pn || '가족' }, n > 0 ? { un: String(n) } : {}));
+  });
   k2.push(b('input', { hint: '메시지를 입력해요', act: 'chat.send' }));
-  a.push(b('box', { fill: '1', flush: '1', kids: k2 }));
+  a.push(b('box', { fill: '1', flush: '1', kids: k2, unall: String(ps.length) }));      // unall: 방금 보낸 글에 앱이 먼저 붙일 '안 읽은 사람 수'(= 연결된 부모 수)
   return { mode: 'scroll', bottom: '1', blocks: a };
 }
 
@@ -1112,7 +1135,7 @@ async function hubScreen(DB, pid, cid, now) {
   if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, g: 'kid.' + markerKey(cid), ...(heading >= 0 ? { h: heading } : {}) });
   pls.slice(0, 9).forEach((p, i) => pins.push({ la: p.la, lo: p.lo, k: 's', n: String(i + 1), l: p.name, v: 'kp.' + p.id }));
   let cpin = -1;                                                                  // 긴급 호출 · 데리러 와줘 가 있으면 그 자리를 지도에 찍고 거기로 맞춘다
-  for (const c of calls) if ((c.la || c.lo) && cpin < 0) { cpin = pins.length; pins.push({ la: c.la, lo: c.lo, k: 's', n: '!', l: c.k === 'sos' ? '긴급' : '데리러' }); }
+  for (const c of calls) if (c.st === 0 && (c.la || c.lo) && cpin < 0) { cpin = pins.length; pins.push({ la: c.la, lo: c.lo, k: 's', n: '!', l: c.k === 'sos' ? '긴급' : '데리러', v: 'kx.o.' + c.id }); }          // 아직 확인 전인 호출만 지도에 — 마커를 누르면 확인 팝업, '확인 완료'를 누르면(st 1) 마커가 사라진다
   const noLoc = !pins.length;
   if (noLoc) pins.push({ la: 37.5665, lo: 126.978, k: 's', n: '', l: '' });
   // 이동 경로: 지난 TRAIL_MS 동안 쌓인 점(최대 TRAIL_PTS 개로 솎음) + 지금 위치
@@ -1876,7 +1899,7 @@ async function handle(req, env, url) {
       const cid = kids.some((k) => k.cid === cid0) ? cid0 : kids[0] ? kids[0].cid : '';
       if (!cid) return J({ ok: true, linked: 0, screen: await hubScreen(DB, pid, '', now) });
       if (v === 'cheer') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await cheerSheet(DB, pid, cid, '') });
-      if (v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');                    // 대화방을 열었다 = 가족구성원 글을 읽었다(허브 미리 받기 v=hub 는 읽음이 아니다)
+      if (v === 'chat' || v === 'fam') await markRd(DB, cid, 'p', pid);                    // 대화방을 열었다 = 가족구성원 글을 읽었다(허브 미리 받기 v=hub 는 읽음이 아니다)
       if (v === 'chat') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await chatSheet(DB, pid, cid, now) });
       if (v === 'fam') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await famScreen(DB, pid, cid, now) });
       if (v === 'quest') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await questSheet(DB, pid, cid, url.searchParams.get('qt')) });
@@ -1894,7 +1917,7 @@ async function handle(req, env, url) {
       const kids0 = await childrenOf(DB, pid);
       const cid = kids0.some((k) => k.cid === cid0) ? cid0 : kids0[0] ? kids0[0].cid : '';
       if (!cid) return J({ ok: true, linked: 0, rev: 0 });
-      if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');         // 부모 앱이 가족 화면을 보는 동안에만 긴 대기를 건다 — 그동안은 가족구성원 글을 읽는 중
+      if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p', pid);         // 부모 앱이 가족 화면을 보는 동안에만 긴 대기를 건다 — 그동안은 가족구성원 글을 읽는 중
       if (v === 'hub' && await locOk(DB, pid, now)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // 실시간 보기(s393): 대기가 이어져 있는 동안 '보는 중'
       const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // s426: nw=1 — 초인종이 이어져 있다. 붙들지 않고 지금 값으로 바로 답한다(보는 중 표시 · 읽음은 위에서 그대로 처리)
       const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
@@ -1921,8 +1944,8 @@ async function handle(req, env, url) {
       }
       if (/^k(r|pg|p|pl|ps|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
       if (/^k(r|pg|p|pl|ps|d)\./.test(v) && !(await subOk(DB, pid, now))) return R({ close: true, hub: 1 });          // s431: 구독이 필요한 때 지난 길 · 장소 같은 위치 동작도 받지 않는다(긴급 호출 확인 kx.* 는 늘 받는다)
-      if (v === 'kx.open') {                          // s415: 허브의 호출 줄을 눌렀다 — 그 호출의 팝업(앱이 그림)
-        const pop = await popOf(DB, pid, cid, now);
+      if (v === 'kx.open' || v.startsWith('kx.o.')) {                          // s415: 허브의 호출 줄(또는 지도의 호출 마커 kx.o.<호출>)을 눌렀다 — 그 호출의 팝업(앱이 그림)
+        const pop = await popOf(DB, pid, cid, now, v.startsWith('kx.o.') ? v.slice(5) : '');
         return R(pop ? { pop, cid } : { hub: 1 });
       }
       if (v === 'kx.ack' || v === 'kx.done') {          // 부모가 긴급 호출 · 데리러 와줘 를 확인했다 / 끝났다 — s415: 앱은 누르자마자 팝업을 닫는다. 여기서는 최소한만 하고 가족구성원에게 바로 알린다(화면은 앱이 따로 받는다)
@@ -2001,7 +2024,7 @@ async function handle(req, env, url) {
         } else { await DB.prepare('DELETE FROM cheers WHERE id=? AND cid=?').bind(Math.round(Number(t)) || 0, c2).run(); await bump(DB, c2); }
         return R({ screen: await cheerSheet(DB, pid, c2, note), cid: c2, sheet: 'cheer', clear: 'kch' });
       }
-      if (v === 'kc.open') { await markRd(DB, cid, 'p'); return R({ screen: await chatSheet(DB, pid, cid, now), cid, sheet: 'chat' }); }
+      if (v === 'kc.open') { await markRd(DB, cid, 'p', pid); return R({ screen: await chatSheet(DB, pid, cid, now), cid, sheet: 'chat' }); }
       if (v === 'kd.open') return R({ screen: await evSheet(DB, pid, cid, now), cid, sheet: 'ev' });
       if (v === 'kps.open') return R({ screen: await placesSheet(DB, cid), cid, sheet: 'ev' });
       // 장소 등록(s392)
@@ -2067,17 +2090,17 @@ async function handle(req, env, url) {
       }
       if (v === 'kh.say') {                         // 길동무 확인 화면 아래 입력줄에서 보낸 글
         const x = txt(f.khc);
-        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p'); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '부모님', body: cut(x, 80), tag: 'chat' })); }
+        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p', pid); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '부모님', body: cut(x, 80), tag: 'chat' })); }
         return R({ cid, clear: 'khc', light: 1 });                  // 가볍게: 새 화면은 앱이 방금 그린 글(낙관적 표시)과 긴 대기(바뀜 0.6초 안)가 이어 받는다
       }
       if (v === 'kf.send') {                        // 커뮤니티 가족대화 본문에서 보낸 글
         const x = txt(f.kct);
-        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p'); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '부모님', body: cut(x, 80), tag: 'chat' })); }
+        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p', pid); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '부모님', body: cut(x, 80), tag: 'chat' })); }
         return R({ screen: await famScreen(DB, pid, cid, now), cid, clear: 'kct' });
       }
       if (v === 'kc.send') {
         const x = txt(f.kct);
-        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p'); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '부모님', body: cut(x, 80), tag: 'chat' })); }
+        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p', pid); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '부모님', body: cut(x, 80), tag: 'chat' })); }
         return R({ screen: await chatSheet(DB, pid, cid, now), cid, clear: 'kct' });
       }
       // 퀘스트

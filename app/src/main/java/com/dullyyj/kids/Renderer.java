@@ -855,23 +855,40 @@ lp2.height = Math.max(1, bt - t - 2 * inset);
 
     private View msg(JSONObject b) {
         boolean me = "1".equals(b.optString("me"));
+        int side = me ? Gravity.END : Gravity.START;
         LinearLayout r = new LinearLayout(ctx);
         r.setOrientation(LinearLayout.VERTICAL);
-        r.setGravity(me ? Gravity.END : Gravity.START);
+        r.setGravity(side);
+        String nick = b.optString("nick");
+        if (!me && !nick.isEmpty()) {                                          // 상대가 쓴 글: 말풍선 위에 쓴 사람 이름(엔진이 정해 준 글자를 그대로 그린다)
+            TextView nk = Ui.text(ctx, nick, 10.5f, Pal.c(Pal.SUB), false);
+            LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            nl.gravity = Gravity.START;
+            nl.leftMargin = Ui.dpi(ctx, 4);
+            nl.bottomMargin = Ui.dpi(ctx, 2);
+            r.addView(nk, nl);
+        }
         TextView t = Ui.text(ctx, b.optString("text"), 13f, me ? Pal.c(Pal.ONGOLD) : Pal.c(Pal.TEXT), false);
         int ph = Ui.dpi(ctx, 14), pv = Ui.dpi(ctx, 9);
         t.setPadding(ph, pv, ph, pv);
         t.setMaxWidth(ctx.getResources().getDisplayMetrics().widthPixels * 3 / 4);
         t.setBackground(me ? Ui.box(ctx, Pal.c(Pal.GOLD), 18, 0) : Ui.box(ctx, Pal.c(Pal.CARD), 18, Pal.c(Pal.BORDER)));
-        r.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        TextView tm = Ui.text(ctx, b.optString("time"), 9.5f, Pal.c(Pal.SUB), false);
-        if ("1".equals(b.optString("un"))) {                                   // 상대가 아직 안 읽은 내 글: 시각 앞에 노란 '1'(카톡처럼)
-            android.text.SpannableString ss = new android.text.SpannableString("1  " + b.optString("time"));
-            ss.setSpan(new android.text.style.ForegroundColorSpan(Pal.c(Pal.GOLD)), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            ss.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.gravity = side;
+        r.addView(t, bp);
+        String time = b.optString("time");
+        String un = b.optString("un");
+        TextView tm = Ui.text(ctx, time, 9.5f, Pal.c(Pal.SUB), false);
+        if (!un.isEmpty() && !"0".equals(un)) {                                // 아직 안 읽은 사람 수: 시각 앞에 노란 숫자(카톡처럼 — 몇 명인지는 엔진이 센다)
+            android.text.SpannableString ss = new android.text.SpannableString(un + "  " + time);
+            ss.setSpan(new android.text.style.ForegroundColorSpan(Pal.c(Pal.GOLD)), 0, un.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            ss.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, un.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             tm.setText(ss);
         }
-        r.addView(tm);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tp.gravity = side;                                                     // 내 글의 시각은 내 말풍선 아래 오른쪽, 상대 글은 아래 왼쪽
+        tp.topMargin = Ui.dpi(ctx, 2);
+        r.addView(tm, tp);
         r.setLayoutParams(lp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 8));
         return r;
     }

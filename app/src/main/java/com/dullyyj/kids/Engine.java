@@ -1217,7 +1217,8 @@ final class Engine {
             JSONArray k = bx.getJSONArray("kids");
             JSONArray n = new JSONArray();
             for (int i = 0; i < k.length() - 1; i++) n.put(k.get(i));
-            n.put(b("msg", "text", s, "me", "1", "un", "1", "time", new SimpleDateFormat("M/d a h:mm", Locale.KOREA).format(new Date(now))));
+            String unall = bx.optString("unall", "");                      // 엔진이 알려 준 '안 읽은 사람 수의 처음 값'(연결된 부모 수) — 서버 화면이 오기 전까지 그대로 붙여 그린다
+            n.put(b("msg", "text", s, "me", "1", "un", "0".equals(unall) ? "" : unall, "time", new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date(now))));
             n.put(k.get(k.length() - 1));
             bx.put("kids", n);
             remPut("chat", o.toString());
@@ -1664,7 +1665,7 @@ final class Engine {
         put(bx1, "kids", k1);
         a.put(bx1);
         JSONArray k2 = new JSONArray();
-        SimpleDateFormat fmt = new SimpleDateFormat("M/d a h:mm", Locale.KOREA);
+        SimpleDateFormat fmt = new SimpleDateFormat("HH:mm", Locale.KOREA);
         for (int i = 0; i < chat.length(); i++) {
             JSONObject m = chat.optJSONObject(i);
             if (m == null) continue;

@@ -422,21 +422,21 @@ async function nearPlaceName(DB, cid, la, lo) {
 }
 /** s415: \ud638\ucd9c \ud31d\uc5c5(\uac00\uc6b4\ub370)\uc5d0 \ubb50\ub77c\uace0 \uc4f0\uace0 \u00b7 \uc5b4\ub5a4 \ub2e8\ucd94\uac00 \uc788\uace0 \u00b7 \uc800\uc808\ub85c \ub730\uc9c0\ub294 \uc5d4\uc9c4\uc774 \uc815\ud55c\ub2e4. \uc571\uc740 \uc774 \uac12\uc73c\ub85c \uadf8\ub9ac\uae30\ub9cc \ud55c\ub2e4(\ud478\uc2dc\uc5d0\ub3c4 \uac19\uc740 \uac12\uc774 \uc2e4\ub824 \uac00\uc871 \ud0ed \ubc16\uc5d0\uc11c\ub3c4 \uac19\uc740 \ud31d\uc5c5\uc774 \ub72c\ub2e4).
  *  c: {id,k,t,la,lo,pl,st}  st 0 = \uc544\uc9c1 \ud655\uc778 \uc804(\uc800\uc808\ub85c \ub72c\ub2e4) \u00b7 1 = \ud655\uc778\ud568(\ud5c8\ube0c \uc904\uc744 \ub20c\ub7ec '\ub9cc\ub0ac\uc5b4\uc694') */
-function callPopData(c, nm) {
+function callPopData(c, nm, withLoc) {
   const sos = c.k === 'sos', arr = c.k === 'arr';
   const sub = clock(c.t) + (c.pl ? ' \u00b7 ' + c.pl + ' \uadfc\ucc98' : '') + (arr ? '' : c.st === 1 ? ' \u00b7 \uac00\uc871 \uc911 \ud55c \ubd84\uc774 \ud655\uc778\ud588\uc5b4\uc694' : '') + (arr ? '' : (c.la || c.lo) ? ' \u00b7 \uc9c0\ub3c4\uc5d0 \ud45c\uc2dc\ud588\uc5b4\uc694' : ' \u00b7 \uc704\uce58\ub97c \uc544\uc9c1 \ubabb \ubc1b\uc558\uc5b4\uc694');
   const pt = arr ? '\u2705 ' + nm + ' \uc548\uc804\ud558\uac8c \ub3c4\ucc29\ud588\uc5b4\uc694' : sos ? '\ud83d\udea8 ' + nm + ' \uae34\uae09 \ud638\ucd9c' : '\ud83d\ude97 ' + nm + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694';
   const st = c.st || 0;
-  return { pk: c.id + ':' + st + ':' + c.t, ci: c.id || '', pt, ps: sub, bt: arr ? '\ud655\uc778' : st === 0 ? (sos ? '\ud655\uc778\ud588\uc5b4\uc694' : '\uc9c0\uae08 \uac00\uc694') : (sos ? '\uc0c1\ud669\uc774 \ub05d\ub0ac\uc5b4\uc694' : '\ub9cc\ub0ac\uc5b4\uc694'), ka: arr ? '' : st === 0 ? 'kx.ack' : 'kx.done', au: st === 0 ? 1 : 0, k: c.k };
+  return { pk: c.id + ':' + st + ':' + c.t, ci: c.id || '', pt, ps: sub, bt: arr ? '\ud655\uc778' : st === 0 ? (sos ? '\ud655\uc778 \uc644\ub8cc' : '\uc9c0\uae08 \uac00\uc694') : (sos ? '\uc0c1\ud669\uc774 \ub05d\ub0ac\uc5b4\uc694' : '\ub9cc\ub0ac\uc5b4\uc694'), ka: arr ? '' : st === 0 ? 'kx.ack' : 'kx.done', au: st === 0 ? 1 : 0, k: c.k, ...(withLoc && !arr && (c.la || c.lo) ? { la: +Number(c.la).toFixed(5), lo: +Number(c.lo).toFixed(5), mp: sos ? '\uae34\uae09' : '\ub370\ub9ac\ub7ec' } : {}) };
 }
 /** \ud5c8\ube0c \uc751\ub2f5\uc5d0 \uc2e4\ub9ac\ub294 \ud638\ucd9c \ud31d\uc5c5(\uac00\uc7a5 \uae09\ud55c \ud558\ub098 \u2014 \uae34\uae09 \uc6b0\uc120, \uc544\ub2c8\uba74 \ucd5c\uadfc). \uc5f4\ub9b0 \ud638\ucd9c\uc774 \uc5c6\uac70\ub098 \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc774\uba74 null */
-async function popOf(DB, pid, cid, now) {
+async function popOf(DB, pid, cid, now, callId) {
   if (!(await gdOk(DB, pid))) return null;
   const calls = (await DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS).all()).results || [];
-  const c = calls.find((x) => x.k === 'sos') || calls[0];
+  const c = (callId && calls.find((x) => x.id === callId)) || calls.find((x) => x.k === 'sos') || calls[0];
   if (!c) return null;
   const cur = (await childrenOf(DB, pid)).find((k) => k.cid === cid);
-  return callPopData(c, nmOf(cur));
+  return callPopData(c, nmOf(cur), true);          // \ud5c8\ube0c \uc751\ub2f5\uc740 \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778\uc744 \ub9c8\uce5c \ubd80\ubaa8\uc5d0\uac8c\ub9cc \uac00\ubbc0\ub85c \uc88c\ud45c(\uc9c0\ub3c4\uc6a9)\ub97c \ud568\uaed8 \uc2e3\ub294\ub2e4 \u2014 \ud478\uc2dc\uc5d0\ub294 \uc2e3\uc9c0 \uc54a\ub294\ub2e4
 }
 const callAck = (k) => (k === 'sos' ? '\uac00\uc871\uc774 \ud655\uc778\ud588\uc5b4\uc694' : '\uac00\uc871\uc774 \ub370\ub9ac\ub7ec \uac00\uace0 \uc788\uc5b4\uc694');
 const callDone = (k) => (k === 'sos' ? '\uac00\uc871\uc774 \uc0c1\ud669\uc774 \ub05d\ub0ac\ub2e4\uace0 \ud588\uc5b4\uc694' : '\uac00\uc871\uc744 \ub9cc\ub0ac\uc5b4\uc694 \ud83d\ude0a');
@@ -597,7 +597,7 @@ async function addCol(DB, table, col, ddl) {              // \uc61b \ud45c\uc5d0
   try { await DB.prepare('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + ddl).run(); } catch (e) { /* \ub2e4\ub978 \uc694\uccad\uc774 \uba3c\uc800 \ub367\ubd99\uc600\ub2e4 */ }
 }
 // s424: \uc11c\ubc84\uac00 \uc0c8\ub85c \ub730 \ub54c\ub9c8\ub2e4 \ud45c \u00b7 \uc5f4 \ud655\uc778(\uc57d 70\ubc88)\uc744 \ud558\ub358 \uac83\uc744 '\ubc84\uc804 \ud55c \uc904 \ud655\uc778'\uc73c\ub85c \ubc14\uafe8\ub2e4. \ud45c \u00b7 \uc5f4\uc744 \uace0\uce58\uba74(\uc544\ub798 migrate) SCHEMA_V \ub3c4 \uc62c\ub824\uc57c \uc0c8 \uc11c\ubc84\uac00 \ub2e4\uc2dc \uc900\ube44\ud55c\ub2e4(\uc2dc\ud5d8\uc774 \uc9c0\ucf1c \uc900\ub2e4).
-const SCHEMA_V = 's431-1';
+const SCHEMA_V = 's431-2';
 async function init(DB) {
   if (ready) return;
   try {
@@ -669,6 +669,7 @@ async function migrate(DB) {
   await addCol(DB, 'links', 'pnm', "TEXT NOT NULL DEFAULT ''");          // \ubd80\ubaa8\uac00 \uc815\ud55c \uc790\uae30 \uc774\ub984(\uac00\uc871\uad6c\uc131\uc6d0 \ud654\uba74\uc5d0 \ubcf4\uc778\ub2e4)
   await addCol(DB, 'chat', 'pn', "TEXT NOT NULL DEFAULT ''");            // \ubd80\ubaa8 \uae00\uc744 \uc4f4 \ubd80\ubaa8\uc758 \uc774\ub984
   await addCol(DB, 'loc', 'dn', "TEXT NOT NULL DEFAULT ''");             // \uac00\uc871\uad6c\uc131\uc6d0\uc774 \uc54c\ub824 \uc900 \ub3d9\ub124 \uc774\ub984
+  try { await DB.prepare("INSERT OR IGNORE INTO meta(k,v) SELECT 'rdpp', CAST(COALESCE(MAX(id),0) AS TEXT) FROM chat").run(); } catch (e) { /* \ub2e4\uc74c \uc11c\ubc84\uac00 \ub2e4\uc2dc \ud55c \ubc88 \uc900\ube44\ud55c\ub2e4 */ }      // \ubd80\ubaa8\ubcc4 \uc77d\uc74c \uae30\ub85d\uc744 \uc2dc\uc791\ud55c \ub54c\uc758 \uac00\uc7a5 \ud070 \uae00 \ubc88\ud638(\uc774 \ubc88\ud638\uae4c\uc9c0\uc758 \uc61b \uae00\uc740 \uc608\uc804 '\ubd80\ubaa8 \ub204\uad6c\ub4e0 \uc77d\uc5c8\uc73c\uba74 \uc77d\uc74c'\uc744 \ub530\ub978\ub2e4)
   await addCol(DB, 'loc', 'mva', 'REAL NOT NULL DEFAULT 0');             // \ub9c8\uc9c0\ub9c9\uc73c\ub85c '\uc774\ub3d9 \uc911' \uc904\uc744 \ub0a8\uae34 \uc790\ub9ac(\uc704\ub3c4 \u00b7 \uacbd\ub3c4 \u00b7 \uc2dc\uac01) \u2014 0 \uc774\uba74 \uc544\uc9c1 \uc5c6\uc74c
   await addCol(DB, 'loc', 'mvo', 'REAL NOT NULL DEFAULT 0');
   await addCol(DB, 'loc', 'mvt', 'INTEGER NOT NULL DEFAULT 0');
@@ -816,16 +817,31 @@ async function bump(DB, cid) {
 }
 /** \uc77d\uc74c(\uce74\ud1a1\uc758 '1'): \ubd80\ubaa8(p)\u00b7\uac00\uc871\uad6c\uc131\uc6d0(c)\uac00 \ub300\ud654\ubc29\uc744 \uc2e4\uc81c\ub85c \ubcf4\ub294 \ub3d9\uc548 \uac00\uc7a5 \ucd5c\uadfc \uae00(chat.id)\uae4c\uc9c0 \uc77d\uc740 \uac83\uc73c\ub85c \uc801\ub294\ub2e4. \ubc14\ub00c\uc5c8\uc744 \ub54c\ub9cc true(\uadf8\ub9ac\uace0 \ud654\uba74 \uac31\uc2e0 \uc2e0\ud638). */
 async function rdMap(DB, cid) {
-  const o = { p: 0, c: 0 };
-  ((await DB.prepare('SELECT s,id FROM chat_rd WHERE cid=?').bind(cid).all()).results || []).forEach((r) => { if (r.s === 'p' || r.s === 'c') o[r.s] = r.id; });
+  const o = { p: 0, c: 0, pp: {} };      // pp: \ubd80\ubaa8 \ud55c \uc0ac\ub78c\ub9c8\ub2e4 \uc5b4\ub514\uae4c\uc9c0 \uc77d\uc5c8\ub098(\uac00\uc871\ub300\ud654\uc758 \uc548 \uc77d\uc740 \uc0ac\ub78c \uc218 \u2014 \uce74\ud1a1\ucc98\ub7fc)
+  ((await DB.prepare('SELECT s,id FROM chat_rd WHERE cid=?').bind(cid).all()).results || []).forEach((r) => { if (r.s === 'p' || r.s === 'c') o[r.s] = r.id; else if (r.s.slice(0, 2) === 'p:') o.pp[r.s.slice(2)] = r.id; });
   return o;
 }
-async function markRd(DB, cid, side) {
+/** \ubd80\ubaa8 \ud55c \uc0ac\ub78c\ub9c8\ub2e4\uc758 \uc77d\uc74c \uae30\ub85d\uc774 \uc0dd\uae30\uae30 \uc804 \uae00(\uc774 \ubc88\ud638\uae4c\uc9c0)\uc740 \uc608\uc804 '\ubd80\ubaa8 \ub204\uad6c\ub4e0 \uc77d\uc5c8\uc73c\uba74 \uc77d\uc74c' \uae30\ub85d\uc744 \uadf8\ub300\ub85c \uc4f4\ub2e4. \ucc98\uc74c \ubd80\ub97c \ub54c\uc758 \uac00\uc7a5 \ud070 \uae00 \ubc88\ud638\ub97c \ud55c \ubc88\ub9cc \uc801\uc5b4 \ub454\ub2e4. */
+async function rdBase(DB) {
+  let r = await DB.prepare("SELECT v FROM meta WHERE k='rdpp'").first();
+  if (!r) {
+    const m = await DB.prepare('SELECT MAX(id) m FROM chat').first();
+    await DB.prepare("INSERT OR IGNORE INTO meta(k,v) VALUES('rdpp',?)").bind(String((m && m.m) || 0)).run();
+    r = await DB.prepare("SELECT v FROM meta WHERE k='rdpp'").first();
+  }
+  return (r && +r.v) || 0;
+}
+async function markRd(DB, cid, side, pid) {
   const m = await DB.prepare('SELECT MAX(id) m FROM chat WHERE cid=?').bind(cid).first();
   const mx = (m && m.m) || 0;
   if (!mx) return false;
+  if (side === 'p' && pid) await rdBase(DB);
   const r = await DB.prepare('INSERT INTO chat_rd(cid,s,id) VALUES(?,?,?) ON CONFLICT(cid,s) DO UPDATE SET id=excluded.id WHERE chat_rd.id<excluded.id').bind(cid, side, mx).run();
-  const ch = !!(r && r.meta && r.meta.changes > 0);
+  let ch = !!(r && r.meta && r.meta.changes > 0);
+  if (side === 'p' && pid) {                                                    // \uc774 \ubd80\ubaa8\uac00 \uc77d\uc5c8\ub2e4\ub294 \uac83\ub3c4 \ub530\ub85c \uc801\ub294\ub2e4(\ub2e4\ub978 \ubd80\ubaa8\uac00 \uba3c\uc800 \uc77d\uc5c8\uc5b4\ub3c4 \uc774 \ubd80\ubaa8\uc758 \ubaab\uc740 \ub530\ub85c \uc13c\ub2e4)
+    const r2 = await DB.prepare('INSERT INTO chat_rd(cid,s,id) VALUES(?,?,?) ON CONFLICT(cid,s) DO UPDATE SET id=excluded.id WHERE chat_rd.id<excluded.id').bind(cid, 'p:' + pid, mx).run();
+    if (r2 && r2.meta && r2.meta.changes > 0) ch = true;
+  }
   if (ch) await bump(DB, cid);
   return ch;
 }
@@ -937,14 +953,21 @@ function kst(t) {
 
 async function chatScreen(DB, cid, now) {
   const rows = (await DB.prepare('SELECT id,f,x,t,pn FROM chat WHERE cid=? AND t>=? ORDER BY id ASC LIMIT ?').bind(cid, now - CHAT_KEEP, MAX_CHAT).all()).results || [];
-  const rd = await rdMap(DB, cid);
+  const [rd, base, lk] = await Promise.all([rdMap(DB, cid), rdBase(DB), DB.prepare('SELECT pid,t FROM links WHERE cid=?').bind(cid).all()]);
+  const ps = (lk.results || []).map((r) => ({ t: r.t, rd: Math.max(rd.pp[r.pid] || 0, Math.min(rd.p, base)) }));      // \ubd80\ubaa8\ub9c8\ub2e4 \uc5b4\ub514\uae4c\uc9c0 \uc77d\uc5c8\ub098(\uae00 \ubc88\ud638)
+  const unread = (m) => ps.filter((p) => p.t <= m.t && p.rd < m.id).length;      // \uce74\ud1a1\ucc98\ub7fc: \uadf8 \uae00\uc744 \uc4f4 \uc0ac\ub78c\uacfc \ub098\ub97c \ube80, \uc544\uc9c1 \uc548 \ubcf8 \uc0ac\ub78c \uc218(\uae00\ubcf4\ub2e4 \ub098\uc911\uc5d0 \uc5f0\uacb0\ub41c \ubd80\ubaa8\ub294 \uc138\uc9c0 \uc54a\ub294\ub2e4)
+  const today = kstParts(now).ds;
+  const stamp = (t) => (kstParts(t).ds === today ? '' : kstParts(t).mo + '/' + kstParts(t).d + ' ') + clock(t);
   const a = [b('head', { text: '\uac00\uc871\ub300\ud654' })];
   const k1 = [b('text', { text: '\uae00\uc790\ub9cc \ubcf4\ub0bc \uc218 \uc788\uc5b4\uc694. \ub300\ud654\ub294 7\uc77c\uc774 \uc9c0\ub098\uba74 \uc9c0\uc6cc\uc838\uc694.', sub: '1', tight: '1' })];
   if (!rows.length) k1.push(b('text', { text: '\uc544\uc9c1 \ub300\ud654\uac00 \uc5c6\uc5b4\uc694. \uac00\uc871\uc774 \uc5f0\uacb0\ub418\uba74 \uc5ec\uae30\uc11c \uc774\uc57c\uae30\ud560 \uc218 \uc788\uc5b4\uc694.', sub: '1', tight: '1' }));
   a.push(b('box', { flush: '1', kids: k1 }));
-  const k2 = rows.map((m) => b('msg', Object.assign({ text: m.x, me: m.f === 'c' ? '1' : '0', time: (m.f === 'p' && m.pn ? m.pn + ' \u00b7 ' : '') + kst(m.t) }, m.f === 'c' && m.id > rd.p ? { un: '1' } : {})));      // \ub0b4 \uae00\uc744 \ubd80\ubaa8\uac00 \uc544\uc9c1 \uc548 \uc77d\uc5c8\uc73c\uba74 un
+  const k2 = rows.map((m) => {
+    const n = unread(m), me = m.f === 'c';
+    return b('msg', Object.assign({ text: m.x, me: me ? '1' : '0', time: stamp(m.t) }, me ? {} : { nick: m.pn || '\uac00\uc871' }, n > 0 ? { un: String(n) } : {}));
+  });
   k2.push(b('input', { hint: '\uba54\uc2dc\uc9c0\ub97c \uc785\ub825\ud574\uc694', act: 'chat.send' }));
-  a.push(b('box', { fill: '1', flush: '1', kids: k2 }));
+  a.push(b('box', { fill: '1', flush: '1', kids: k2, unall: String(ps.length) }));      // unall: \ubc29\uae08 \ubcf4\ub0b8 \uae00\uc5d0 \uc571\uc774 \uba3c\uc800 \ubd99\uc77c '\uc548 \uc77d\uc740 \uc0ac\ub78c \uc218'(= \uc5f0\uacb0\ub41c \ubd80\ubaa8 \uc218)
   return { mode: 'scroll', bottom: '1', blocks: a };
 }
 
@@ -1112,7 +1135,7 @@ async function hubScreen(DB, pid, cid, now) {
   if (loc) pins.push({ la: loc.la, lo: loc.lo, k: 'm', l: nm, g: 'kid.' + markerKey(cid), ...(heading >= 0 ? { h: heading } : {}) });
   pls.slice(0, 9).forEach((p, i) => pins.push({ la: p.la, lo: p.lo, k: 's', n: String(i + 1), l: p.name, v: 'kp.' + p.id }));
   let cpin = -1;                                                                  // \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \uac00 \uc788\uc73c\uba74 \uadf8 \uc790\ub9ac\ub97c \uc9c0\ub3c4\uc5d0 \ucc0d\uace0 \uac70\uae30\ub85c \ub9de\ucd98\ub2e4
-  for (const c of calls) if ((c.la || c.lo) && cpin < 0) { cpin = pins.length; pins.push({ la: c.la, lo: c.lo, k: 's', n: '!', l: c.k === 'sos' ? '\uae34\uae09' : '\ub370\ub9ac\ub7ec' }); }
+  for (const c of calls) if (c.st === 0 && (c.la || c.lo) && cpin < 0) { cpin = pins.length; pins.push({ la: c.la, lo: c.lo, k: 's', n: '!', l: c.k === 'sos' ? '\uae34\uae09' : '\ub370\ub9ac\ub7ec', v: 'kx.o.' + c.id }); }          // \uc544\uc9c1 \ud655\uc778 \uc804\uc778 \ud638\ucd9c\ub9cc \uc9c0\ub3c4\uc5d0 \u2014 \ub9c8\ucee4\ub97c \ub204\ub974\uba74 \ud655\uc778 \ud31d\uc5c5, '\ud655\uc778 \uc644\ub8cc'\ub97c \ub204\ub974\uba74(st 1) \ub9c8\ucee4\uac00 \uc0ac\ub77c\uc9c4\ub2e4
   const noLoc = !pins.length;
   if (noLoc) pins.push({ la: 37.5665, lo: 126.978, k: 's', n: '', l: '' });
   // \uc774\ub3d9 \uacbd\ub85c: \uc9c0\ub09c TRAIL_MS \ub3d9\uc548 \uc313\uc778 \uc810(\ucd5c\ub300 TRAIL_PTS \uac1c\ub85c \uc18e\uc74c) + \uc9c0\uae08 \uc704\uce58
@@ -1876,7 +1899,7 @@ async function handle(req, env, url) {
       const cid = kids.some((k) => k.cid === cid0) ? cid0 : kids[0] ? kids[0].cid : '';
       if (!cid) return J({ ok: true, linked: 0, screen: await hubScreen(DB, pid, '', now) });
       if (v === 'cheer') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await cheerSheet(DB, pid, cid, '') });
-      if (v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');                    // \ub300\ud654\ubc29\uc744 \uc5f4\uc5c8\ub2e4 = \uac00\uc871\uad6c\uc131\uc6d0 \uae00\uc744 \uc77d\uc5c8\ub2e4(\ud5c8\ube0c \ubbf8\ub9ac \ubc1b\uae30 v=hub \ub294 \uc77d\uc74c\uc774 \uc544\ub2c8\ub2e4)
+      if (v === 'chat' || v === 'fam') await markRd(DB, cid, 'p', pid);                    // \ub300\ud654\ubc29\uc744 \uc5f4\uc5c8\ub2e4 = \uac00\uc871\uad6c\uc131\uc6d0 \uae00\uc744 \uc77d\uc5c8\ub2e4(\ud5c8\ube0c \ubbf8\ub9ac \ubc1b\uae30 v=hub \ub294 \uc77d\uc74c\uc774 \uc544\ub2c8\ub2e4)
       if (v === 'chat') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await chatSheet(DB, pid, cid, now) });
       if (v === 'fam') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await famScreen(DB, pid, cid, now) });
       if (v === 'quest') return J({ ok: true, linked: kids.length, rev: await revOf(DB, cid), cid, screen: await questSheet(DB, pid, cid, url.searchParams.get('qt')) });
@@ -1894,7 +1917,7 @@ async function handle(req, env, url) {
       const kids0 = await childrenOf(DB, pid);
       const cid = kids0.some((k) => k.cid === cid0) ? cid0 : kids0[0] ? kids0[0].cid : '';
       if (!cid) return J({ ok: true, linked: 0, rev: 0 });
-      if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p');         // \ubd80\ubaa8 \uc571\uc774 \uac00\uc871 \ud654\uba74\uc744 \ubcf4\ub294 \ub3d9\uc548\uc5d0\ub9cc \uae34 \ub300\uae30\ub97c \uac74\ub2e4 \u2014 \uadf8\ub3d9\uc548\uc740 \uac00\uc871\uad6c\uc131\uc6d0 \uae00\uc744 \uc77d\ub294 \uc911
+      if (v === 'hub' || v === 'chat' || v === 'fam') await markRd(DB, cid, 'p', pid);         // \ubd80\ubaa8 \uc571\uc774 \uac00\uc871 \ud654\uba74\uc744 \ubcf4\ub294 \ub3d9\uc548\uc5d0\ub9cc \uae34 \ub300\uae30\ub97c \uac74\ub2e4 \u2014 \uadf8\ub3d9\uc548\uc740 \uac00\uc871\uad6c\uc131\uc6d0 \uae00\uc744 \uc77d\ub294 \uc911
       if (v === 'hub' && await locOk(DB, pid, now)) { await watchTouch(env, DB, pid, cid, now); await lbsLog(DB, cid, pid, 'v', now, 60000); }                          // \uc2e4\uc2dc\uac04 \ubcf4\uae30(s393): \ub300\uae30\uac00 \uc774\uc5b4\uc838 \uc788\ub294 \ub3d9\uc548 '\ubcf4\ub294 \uc911'
       const ws = wsOn(env, cid), nw = ws && url.searchParams.get('nw') === '1';      // s426: nw=1 \u2014 \ucd08\uc778\uc885\uc774 \uc774\uc5b4\uc838 \uc788\ub2e4. \ubd99\ub4e4\uc9c0 \uc54a\uace0 \uc9c0\uae08 \uac12\uc73c\ub85c \ubc14\ub85c \ub2f5\ud55c\ub2e4(\ubcf4\ub294 \uc911 \ud45c\uc2dc \u00b7 \uc77d\uc74c\uc740 \uc704\uc5d0\uc11c \uadf8\ub300\ub85c \ucc98\ub9ac)
       const rev = nw ? await revOf(DB, cid) : await waitRev(DB, cid, since, now);
@@ -1921,8 +1944,8 @@ async function handle(req, env, url) {
       }
       if (/^k(r|pg|p|pl|ps|d|x)\./.test(v) && !(await gdOk(DB, pid))) return R({ close: true, hub: 1 });
       if (/^k(r|pg|p|pl|ps|d)\./.test(v) && !(await subOk(DB, pid, now))) return R({ close: true, hub: 1 });          // s431: \uad6c\ub3c5\uc774 \ud544\uc694\ud55c \ub54c \uc9c0\ub09c \uae38 \u00b7 \uc7a5\uc18c \uac19\uc740 \uc704\uce58 \ub3d9\uc791\ub3c4 \ubc1b\uc9c0 \uc54a\ub294\ub2e4(\uae34\uae09 \ud638\ucd9c \ud655\uc778 kx.* \ub294 \ub298 \ubc1b\ub294\ub2e4)
-      if (v === 'kx.open') {                          // s415: \ud5c8\ube0c\uc758 \ud638\ucd9c \uc904\uc744 \ub20c\ub800\ub2e4 \u2014 \uadf8 \ud638\ucd9c\uc758 \ud31d\uc5c5(\uc571\uc774 \uadf8\ub9bc)
-        const pop = await popOf(DB, pid, cid, now);
+      if (v === 'kx.open' || v.startsWith('kx.o.')) {                          // s415: \ud5c8\ube0c\uc758 \ud638\ucd9c \uc904(\ub610\ub294 \uc9c0\ub3c4\uc758 \ud638\ucd9c \ub9c8\ucee4 kx.o.<\ud638\ucd9c>)\uc744 \ub20c\ub800\ub2e4 \u2014 \uadf8 \ud638\ucd9c\uc758 \ud31d\uc5c5(\uc571\uc774 \uadf8\ub9bc)
+        const pop = await popOf(DB, pid, cid, now, v.startsWith('kx.o.') ? v.slice(5) : '');
         return R(pop ? { pop, cid } : { hub: 1 });
       }
       if (v === 'kx.ack' || v === 'kx.done') {          // \ubd80\ubaa8\uac00 \uae34\uae09 \ud638\ucd9c \u00b7 \ub370\ub9ac\ub7ec \uc640\uc918 \ub97c \ud655\uc778\ud588\ub2e4 / \ub05d\ub0ac\ub2e4 \u2014 s415: \uc571\uc740 \ub204\ub974\uc790\ub9c8\uc790 \ud31d\uc5c5\uc744 \ub2eb\ub294\ub2e4. \uc5ec\uae30\uc11c\ub294 \ucd5c\uc18c\ud55c\ub9cc \ud558\uace0 \uac00\uc871\uad6c\uc131\uc6d0\uc5d0\uac8c \ubc14\ub85c \uc54c\ub9b0\ub2e4(\ud654\uba74\uc740 \uc571\uc774 \ub530\ub85c \ubc1b\ub294\ub2e4)
@@ -2001,7 +2024,7 @@ async function handle(req, env, url) {
         } else { await DB.prepare('DELETE FROM cheers WHERE id=? AND cid=?').bind(Math.round(Number(t)) || 0, c2).run(); await bump(DB, c2); }
         return R({ screen: await cheerSheet(DB, pid, c2, note), cid: c2, sheet: 'cheer', clear: 'kch' });
       }
-      if (v === 'kc.open') { await markRd(DB, cid, 'p'); return R({ screen: await chatSheet(DB, pid, cid, now), cid, sheet: 'chat' }); }
+      if (v === 'kc.open') { await markRd(DB, cid, 'p', pid); return R({ screen: await chatSheet(DB, pid, cid, now), cid, sheet: 'chat' }); }
       if (v === 'kd.open') return R({ screen: await evSheet(DB, pid, cid, now), cid, sheet: 'ev' });
       if (v === 'kps.open') return R({ screen: await placesSheet(DB, cid), cid, sheet: 'ev' });
       // \uc7a5\uc18c \ub4f1\ub85d(s392)
@@ -2067,17 +2090,17 @@ async function handle(req, env, url) {
       }
       if (v === 'kh.say') {                         // \uae38\ub3d9\ubb34 \ud655\uc778 \ud654\uba74 \uc544\ub798 \uc785\ub825\uc904\uc5d0\uc11c \ubcf4\ub0b8 \uae00
         const x = txt(f.khc);
-        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p'); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '\ubd80\ubaa8\ub2d8', body: cut(x, 80), tag: 'chat' })); }
+        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p', pid); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '\ubd80\ubaa8\ub2d8', body: cut(x, 80), tag: 'chat' })); }
         return R({ cid, clear: 'khc', light: 1 });                  // \uac00\ubccd\uac8c: \uc0c8 \ud654\uba74\uc740 \uc571\uc774 \ubc29\uae08 \uadf8\ub9b0 \uae00(\ub099\uad00\uc801 \ud45c\uc2dc)\uacfc \uae34 \ub300\uae30(\ubc14\ub01c 0.6\ucd08 \uc548)\uac00 \uc774\uc5b4 \ubc1b\ub294\ub2e4
       }
       if (v === 'kf.send') {                        // \ucee4\ubba4\ub2c8\ud2f0 \uac00\uc871\ub300\ud654 \ubcf8\ubb38\uc5d0\uc11c \ubcf4\ub0b8 \uae00
         const x = txt(f.kct);
-        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p'); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '\ubd80\ubaa8\ub2d8', body: cut(x, 80), tag: 'chat' })); }
+        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p', pid); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '\ubd80\ubaa8\ub2d8', body: cut(x, 80), tag: 'chat' })); }
         return R({ screen: await famScreen(DB, pid, cid, now), cid, clear: 'kct' });
       }
       if (v === 'kc.send') {
         const x = txt(f.kct);
-        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p'); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '\ubd80\ubaa8\ub2d8', body: cut(x, 80), tag: 'chat' })); }
+        if (x) { await prune(DB, cid, now); const pn_ = await pnOf(DB, pid); await DB.prepare('INSERT INTO chat(cid,f,x,t,pn) VALUES(?,?,?,?,?)').bind(cid, 'p', x, now, pn_).run(); await bump(DB, cid); await markRd(DB, cid, 'p', pid); later(notifyChild(env, DB, cid, { k: 'chat', title: pn_ || '\ubd80\ubaa8\ub2d8', body: cut(x, 80), tag: 'chat' })); }
         return R({ screen: await chatSheet(DB, pid, cid, now), cid, clear: 'kct' });
       }
       // \ud018\uc2a4\ud2b8

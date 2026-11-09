@@ -13,7 +13,7 @@ const chk = (c, msg) => { if (c) { ok++; console.log('  ok  ', msg); } else { ba
 const mg = src.slice(src.indexOf('async function migrate(DB)'), src.indexOf('async function sha('));
 const mgSha = crypto.createHash('sha256').update(mg).digest('hex').slice(0, 16);
 const SV = (src.match(/const SCHEMA_V = '([^']+)'/) || [])[1];
-const KNOWN = { 's431-1': '9a60b091d6ed5e6d' };
+const KNOWN = { 's431-1': '9a60b091d6ed5e6d', 's431-2': '202309974c97e329' };
 chk(!!SV && KNOWN[SV] !== undefined, 'SCHEMA_V 가 있다: ' + SV);
 chk(KNOWN[SV] === mgSha, 'migrate 를 고쳤으면 SCHEMA_V 를 올리고 이 시험의 KNOWN 을 바꾼다(지금 ' + SV + ' = ' + mgSha + ')');
 
