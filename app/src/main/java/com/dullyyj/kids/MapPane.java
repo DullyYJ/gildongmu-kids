@@ -32,6 +32,7 @@ import org.json.JSONObject;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -61,6 +62,8 @@ final class MapPane extends LinearLayout {
     private int headSeq = 0;
     private Dialog sheet;
     private TtSheet tt;
+    private BrSheet br;                                              // 버스 노선 상세(세부 위치) 시트 — 길동무와 같은 엔진 화면(part "br")
+    private final HashMap<Integer, ArrayList<String[]>> rts = new HashMap<Integer, ArrayList<String[]>>();   // 정류장 번호 → 줄마다 [노선 id, 번호, 종류] (엔진 info.rts)
     private String mode = "bus";                                   // 길동무처럼 노선도를 열면 🚌 버스 탭부터
     private final ScreenView bus;
     private String busVw = "near";
@@ -603,6 +606,7 @@ head.setScreen(sc, true);
                 final int[] lim = new int[] {aliasMax};
                 final long[] pl = new long[] {pollTick, pollStale, pollRetry};
                 final String[] editMsg = new String[] {""};
+                final HashMap<Integer, ArrayList<String[]>> rtsNow = new HashMap<Integer, ArrayList<String[]>>();
                 if (r != null) {
                     try {
                         JSONObject info = new JSONObject(r).optJSONObject("info");
@@ -611,6 +615,28 @@ head.setScreen(sc, true);
                             for (int i = 0; i < sa.length() && i < 40; i++) {
                                 JSONObject so = sa.optJSONObject(i);
                                 stopsNow.add(so == null ? "{}" : so.toString());
+                            }
+                        }
+                        JSONObject rj = info == null ? null : info.optJSONObject("rts");
+                        if (rj != null) {
+                            Iterator<String> ki = rj.keys();
+                            while (ki.hasNext()) {
+                                String rk = ki.next();
+                                JSONArray ra = rj.optJSONArray(rk);
+                                if (ra == null) continue;
+                                int rsi;
+                                try {
+                                    rsi = Integer.parseInt(rk);
+                                } catch (NumberFormatException nfe) {
+                                    continue;
+                                }
+                                ArrayList<String[]> rl = new ArrayList<String[]>();
+                                for (int j = 0; j < ra.length() && rl.size() < 40; j++) {
+                                    JSONArray rx = ra.optJSONArray(j);
+                                    if (rx == null || rx.length() < 3) continue;
+                                    rl.add(new String[] {rx.optString(0, ""), rx.optString(1, ""), rx.optString(2, "")});
+                                }
+                                rtsNow.put(rsi, rl);
                             }
                         }
                         JSONObject fp = info == null ? null : info.optJSONObject("favp");
@@ -679,6 +705,8 @@ head.setScreen(sc, true);
                         }
                         lastStops.clear();
                         lastStops.addAll(stopsNow);
+                        rts.clear();
+                        rts.putAll(rtsNow);
                         aliasMax = lim[0];
                         pollTick = pl[0];
                         pollStale = pl[1];
@@ -703,6 +731,10 @@ head.setScreen(sc, true);
         public void run() {
             busTicking = false;
             if (!"bus".equals(mode) || !isShown()) return;
+            if (br != null) {                                          // 노선 상세가 떠 있는 동안은 뒤 목록을 새로 받지 않는다
+                busTickStart();
+                return;
+            }
             if (System.currentTimeMillis() - busAt > pollStale) loadBus(true);
             busTickStart();
         }
@@ -829,7 +861,7 @@ head.setScreen(sc, true);
             busRes.clear();
             loadBus(true);
         } else if (v.startsWith("br.")) {
-            toast("이 기능은 곧 열려요");
+            openRoute(v);
         }
     }
 
@@ -1376,6 +1408,414 @@ head.setScreen(sc, true);
         }
     }
 
+
+    /** 정류장 카드의 노선 줄을 눌렀다("br.<정류장>.<줄>") — 길동무처럼 그 노선의 정류장 표 + 달리는 버스 위치를 시트로 연다. */
+    private void openRoute(String v) {
+        String[] pr = v.split("\\.");
+        if (pr.length != 3) return;
+        int si, ri;
+        try {
+            si = Integer.parseInt(pr[1]);
+            ri = Integer.parseInt(pr[2]);
+        } catch (NumberFormatException e) {
+            return;
+        }
+        ArrayList<String[]> rl = rts.get(si);
+        if (rl == null || ri < 0 || ri >= rl.size() || si < 0 || si >= lastStops.size() || rl.get(ri)[0].isEmpty()) {
+            toast("이 노선 정보는 아직 열 수 없어요");
+            return;
+        }
+        JSONObject sm;
+        try {
+            sm = new JSONObject(lastStops.get(si));
+        } catch (Exception e) {
+            return;
+        }
+        String[] r = rl.get(ri);
+        closeSheet();
+        BrSheet b = new BrSheet(r[0], r[1], r[2], sm);
+        br = b;
+        b.show();
+    }
+
+    /** 패밀리 앱은 출발·도착을 고르지 않는다 — 엔진이 np 를 모르는 옛 버전이어도 정류장 줄의 선택 단추·글과 아래 바를 뺀다. */
+    private static String noPick(String json) {
+        try {
+            JSONObject root = new JSONObject(json);
+            JSONArray body = root.optJSONArray("body");
+            for (int i = 0; body != null && i < body.length(); i++) {
+                JSONObject o = body.optJSONObject(i);
+                if (o != null && "brs".equals(o.optString("t", ""))) {
+                    o.remove("act");
+                    o.remove("lab");
+                    o.remove("ps");
+                }
+            }
+            root.put("foot", new JSONArray());
+            return root.toString();
+        } catch (Throwable t) {
+            return json;
+        }
+    }
+
+    /** 길동무처럼 노선 상세 창을 아래로 부드럽게 내린 뒤 닫는다. */
+    private void closeBrAnim() {
+        final BrSheet b = br;
+        final Dialog dlg = sheet;
+        if (b == null || dlg == null || b.dv == null) {
+            closeSheet();
+            return;
+        }
+        br = null;
+        b.gen++;
+        sheet = null;
+        b.dv.animate().alpha(0f).translationY(b.dv.getHeight() * 0.35f).setDuration(200L).setInterpolator(new android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)).withEndAction(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    dlg.dismiss();
+                } catch (Throwable t) {
+                    // 이미 닫힘
+                }
+            }
+        }).start();
+    }
+
+    /**
+     * 노선 상세 시트: 계산·문구·배치는 모두 서버(part "br"). 기기는 서버가 'need' 로 남긴 공공 API 주소(정류장 표 · 버스 위치)를
+     * 직접 받아 다시 부탁하고, 8초마다 버스 위치만 새로 받는다(길동무 ShellActivity.brRound/brFetchOne 과 같은 길).
+     * 패밀리 앱은 출발·도착을 고르지 않으므로 np:1 로 줄 선택 단추를 뺀다.
+     */
+    private final class BrSheet {
+        final String rid, no, tp, src;
+        String oJson = "{}", cc = "", via = "", stnJson = "", lastJs = "";
+        int gen = 0, rounds = 0;
+        boolean shown = false, busy = false, poll = false, ticking = false;
+        double[] me;
+        final LinkedHashMap<String, String> res = new LinkedHashMap<String, String>();
+        ScreenView sv;
+        Dialog d;
+        View dv;
+
+        BrSheet(String rid, String no, String tp, JSONObject sm) {
+            this.rid = rid;
+            this.no = no;
+            this.tp = tp;
+            String id = sm.optString("id", "");
+            String s = sm.optString("src", "");
+            src = id.startsWith("GG:") || "gbis".equals(s) ? "gbis" : id.startsWith("SEOUL:") || "topis".equals(s) ? "topis" : "";
+            try {
+                JSONObject o = new JSONObject();
+                o.put("id", id);
+                o.put("nm", sm.optString("nm", ""));
+                o.put("la", sm.optDouble("la", 0));
+                o.put("lo", sm.optDouble("lo", 0));
+                o.put("city", sm.optString("city", ""));
+                oJson = o.toString();
+            } catch (Exception e) {
+                oJson = "{}";
+            }
+            me = Core.engine.hasFix() ? Core.engine.where() : null;
+        }
+
+        void show() {
+            sv = SvHost.make(ctx, new SvHost.Cb() {
+                @Override
+                public void act(String kind, String v) {
+                    if ("call".equals(kind)) onAct(v);
+                }
+            });
+            int[] pal = SvHost.palette(theme);
+            sv.setPalette(pal);
+            sv.setParentIntercept(true);
+            ScreenCore.Screen loc = SvHost.parse(localLoading());
+            if (loc != null) sv.setScreen(loc, false);
+            FrameLayout box = new FrameLayout(ctx);
+            box.addView(sv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            d = new Dialog(ctx, android.R.style.Theme_Material_Light_Dialog_NoActionBar);
+            d.setContentView(box);
+            int hpx = Math.round(ctx.getResources().getDisplayMetrics().heightPixels * 0.86f);
+            try {
+                Window w = d.getWindow();
+                w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, hpx);
+                w.setGravity(Gravity.BOTTOM);
+                w.setBackgroundDrawable(new ColorDrawable(pal[0]));
+                w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+                w.setWindowAnimations(0);
+                dv = w.getDecorView();
+                dv.setAlpha(0f);
+                dv.setTranslationY(hpx * 0.35f);
+                final Dialog mine = d;
+                d.setOnDismissListener(new DialogInterface.OnDismissListener() {
+                    @Override
+                    public void onDismiss(DialogInterface x) {
+                        gen++;
+                        if (sheet == mine) sheet = null;
+                        if (br == BrSheet.this) br = null;
+                    }
+                });
+                sheet = d;
+                round();                                                // 창이 올라오는 그림보다 먼저 서버에 묻는다
+                d.show();
+                dv.animate().alpha(1f).translationY(0f).setDuration(340L).setInterpolator(new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f)).start();
+            } catch (Throwable t) {
+                if (dv != null) {
+                    dv.setAlpha(1f);
+                    dv.setTranslationY(0f);
+                }
+                sheet = null;
+                br = null;
+                gen++;
+            }
+        }
+
+        /** 서버 답을 기다리는 동안 바로 보이는 화면(서버의 '불러오는 중' 화면과 같은 모양). */
+        String localLoading() {
+            try {
+                JSONObject h = new JSONObject();
+                h.put("t", "brh");
+                h.put("no", no.isEmpty() ? "-" : no);
+                h.put("tp", tp);
+                h.put("c", "#7f8c8d");
+                h.put("act", new JSONObject().put("a", "call").put("v", "br.rf"));
+                h.put("bact", new JSONObject().put("a", "call").put("v", "br.x"));
+                JSONObject t = new JSONObject();
+                t.put("t", "text");
+                t.put("s", "🚌 노선 정보 불러오는 중...");
+                t.put("size", 13);
+                t.put("color", "sub");
+                t.put("align", "center");
+                t.put("pad", new JSONArray().put(40).put(20).put(40).put(20));
+                JSONObject o = new JSONObject();
+                o.put("ok", true);
+                o.put("v", 1);
+                o.put("screen", "mapbr");
+                o.put("cover", "tab");
+                o.put("head", new JSONArray().put(h));
+                o.put("body", new JSONArray().put(t));
+                o.put("foot", new JSONArray());
+                o.put("rev", "local-br");
+                return o.toString();
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        void onAct(String v) {
+            if ("br.x".equals(v)) {
+                closeBrAnim();
+            } else if ("br.rf".equals(v)) {                             // ↻ — 받아 둔 것을 비우고 처음부터(정류장 표도 다시)
+                res.clear();
+                stnJson = "";
+                via = "";
+                rounds = 0;
+                poll = false;
+                round();
+            }
+        }
+
+        String body() {
+            JSONObject o = new JSONObject();
+            try {
+                JSONObject f = new JSONObject();
+                f.put("part", "br");
+                f.put("th", theme);
+                JSONObject b = new JSONObject();
+                b.put("rid", rid);
+                b.put("no", no);
+                b.put("tp", tp);
+                b.put("src", src);
+                b.put("o", new JSONObject(oJson));
+                if (!cc.isEmpty()) b.put("cc", cc);
+                if (me != null) b.put("me", new JSONArray().put(me[0]).put(me[1]));
+                if (!stnJson.isEmpty()) {
+                    b.put("stn", new JSONArray(stnJson));
+                    b.put("via", via);
+                }
+                b.put("sel", -1);
+                b.put("np", 1);
+                JSONObject rs = new JSONObject();
+                for (Map.Entry<String, String> e : res.entrySet()) rs.put(e.getKey(), e.getValue());
+                b.put("res", rs);
+                f.put("br", b);
+                o.put("cap", Wire.CAP);
+                o.put("f", f);
+            } catch (Exception e) {
+                // 빈 요청이 가면 서버가 거절한다
+            }
+            return o.toString();
+        }
+
+        /** 서버에 한 번 묻고, 답을 그리거나 더 받을 주소를 받아 온다. */
+        void round() {
+            final int my = ++gen;
+            busy = true;
+            final String b = body();
+            final boolean pl = poll;
+            Wire.EX.execute(new Runnable() {
+                @Override
+                public void run() {
+                    final String r = Wire.post("/screen/map", b, 12000);
+                    final ScreenCore.Screen sc = r == null ? null : SvHost.parse(noPick(SvHost.strip(r)));
+                    final ArrayList<String[]> nn = new ArrayList<String[]>();
+                    final String[] meta = new String[] {"", "", ""};     // 정류장 표(JSON) · via · 도시 코드
+                    if (r != null) {
+                        try {
+                            JSONObject im = new JSONObject(r).optJSONObject("info");
+                            JSONObject ib = im == null ? null : im.optJSONObject("br");
+                            if (ib != null) {
+                                JSONArray nd = ib.optJSONArray("need");
+                                for (int i = 0; nd != null && i < nd.length() && nn.size() < 4; i++) {
+                                    JSONObject x = nd.optJSONObject(i);
+                                    if (x == null) continue;
+                                    String k = x.optString("k", "");
+                                    String u = x.optString("url", "");
+                                    if (k.matches("[a-z]{2}") && u.length() > 0 && u.length() < 600) nn.add(new String[] {k, u});
+                                }
+                                JSONArray st = ib.optJSONArray("stn");
+                                if (st != null && st.length() > 0) {
+                                    meta[0] = st.toString();
+                                    meta[1] = ib.optString("via", "");
+                                    meta[2] = ib.optString("cc", "");
+                                }
+                            }
+                        } catch (Exception e) {
+                            nn.clear();
+                        }
+                    }
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (my != gen || br != BrSheet.this) return;
+                            if (sc == null) {
+                                busy = false;
+                                if (!shown) toast("노선 정보를 불러오지 못했어요. 위쪽 새로고침(↻)을 눌러 주세요");
+                                poll = false;
+                                arm();
+                                return;
+                            }
+                            if (!meta[0].isEmpty() && stnJson.isEmpty()) {
+                                stnJson = meta[0];
+                                via = meta[1];
+                                cc = meta[2];
+                                res.remove("gs");
+                                res.remove("ts");
+                            }
+                            boolean more = !nn.isEmpty();
+                            if (!(shown && more) && !r.equals(lastJs)) {      // 이미 그림이 있는데 받을 게 남았으면 다 받은 뒤에 그린다(깜박임 없음)
+                                lastJs = r;
+                                sv.setScreen(sc, shown);
+                            }
+                            shown = true;
+                            if (more && rounds < 4) {
+                                fetch(nn, my, pl);
+                            } else {
+                                if (more) toast("버스 위치를 다 받지 못했어요");
+                                rounds = 0;
+                                poll = false;
+                                busy = false;
+                                arm();
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
+        /** 서버가 'need' 로 남긴 주소를 기기가 직접 받는다. 위치는 실패하면 0.8초 뒤 다시(최대 5번), 표는 한 번 더. */
+        void fetch(final ArrayList<String[]> work, final int my, final boolean pl) {
+            rounds++;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    final LinkedHashMap<String, String> got = new LinkedHashMap<String, String>();
+                    ArrayList<Thread> ts = new ArrayList<Thread>();
+                    for (final String[] n : work) {
+                        Thread t = new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                boolean pos = n[0].endsWith("p");
+                                String b = "";
+                                for (int a = 0; a < (pos ? 5 : 2) && b.isEmpty(); a++) {
+                                    if (a > 0) {
+                                        try {
+                                            Thread.sleep(pos ? 800L : 300L);
+                                        } catch (InterruptedException e) {
+                                            return;
+                                        }
+                                    }
+                                    if (my != gen) return;
+                                    String x = busFetch(n[1]);
+                                    if (x != null) b = x;
+                                }
+                                synchronized (got) {
+                                    got.put(n[0], b.length() > 200000 ? b.substring(0, 200000) : b);
+                                }
+                            }
+                        });
+                        t.start();
+                        ts.add(t);
+                    }
+                    long end = System.currentTimeMillis() + 16000L;
+                    for (Thread t : ts) {
+                        try {
+                            t.join(Math.max(1L, end - System.currentTimeMillis()));
+                        } catch (InterruptedException e) {
+                            break;
+                        }
+                    }
+                    final LinkedHashMap<String, String> snap;
+                    synchronized (got) {
+                        snap = new LinkedHashMap<String, String>(got);
+                    }
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (my != gen || br != BrSheet.this) return;
+                            if (pl) {                                   // 8초 갱신이 비면 버린다 — 보던 위치를 그대로
+                                boolean any = false;
+                                for (String v : snap.values()) if (!v.isEmpty()) any = true;
+                                if (!any) {
+                                    poll = false;
+                                    rounds = 0;
+                                    busy = false;
+                                    arm();
+                                    return;
+                                }
+                            }
+                            res.putAll(snap);
+                            round();
+                        }
+                    });
+                }
+            }).start();
+        }
+
+        final Runnable tick = new Runnable() {
+            @Override
+            public void run() {
+                ticking = false;
+                if (br != BrSheet.this || d == null || !d.isShowing()) return;
+                if (!busy && shown && !stnJson.isEmpty() && MapPane.this.isShown()) {
+                    res.remove("gp");
+                    res.remove("tp");
+                    poll = true;
+                    rounds = 0;
+                    round();
+                } else {
+                    arm();
+                }
+            }
+        };
+
+        /** 8초 뒤 버스 위치만 새로 받는다(길동무 BR_POLL_MS). */
+        void arm() {
+            if (ticking || br != this) return;
+            ticking = true;
+            ui.postDelayed(tick, 8000L);
+        }
+    }
+
     /** 길동무처럼 시간표 창을 아래로 부드럽게 내린 뒤 닫는다(160~240ms 감속). */
     private void closeSheetAnim() {
         final TtSheet ts = tt;
@@ -1404,6 +1844,9 @@ head.setScreen(sc, true);
         TtSheet ts = tt;
         tt = null;
         if (ts != null) ts.gen++;
+        BrSheet bs = br;
+        br = null;
+        if (bs != null) bs.gen++;
         Dialog d = sheet;
         sheet = null;
         if (d != null) {
