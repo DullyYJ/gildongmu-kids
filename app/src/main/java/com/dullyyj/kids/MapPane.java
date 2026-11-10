@@ -33,6 +33,7 @@ import org.json.JSONObject;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -1467,7 +1468,7 @@ head.setScreen(sc, true);
             return;
         }
         br = null;
-        b.gen++;
+        b.alive = false;
         sheet = null;
         b.dv.animate().alpha(0f).translationY(b.dv.getHeight() * 0.35f).setDuration(200L).setInterpolator(new android.view.animation.PathInterpolator(0.4f, 0f, 0.2f, 1f)).withEndAction(new Runnable() {
             @Override
@@ -1481,18 +1482,82 @@ head.setScreen(sc, true);
         }).start();
     }
 
+    private static final String[] BUS_ERR = {"OpenAPI_ServiceResponse", "cmmMsgHeader", "SERVICE_KEY_IS_NOT_REGISTERED_ERROR", "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR"};
+
+    /** 공공 API 오류 봉투(짧은 본문)가 아닌 정상 본문인가. */
+    private static boolean busOk(String b) {
+        if (b == null || b.isEmpty()) return false;
+        if (b.length() > 4000) return true;
+        for (String m : BUS_ERR) if (b.indexOf(m) >= 0) return false;
+        return true;
+    }
+
     /**
-     * 노선 상세 시트: 계산·문구·배치는 모두 서버(part "br"). 기기는 서버가 'need' 로 남긴 공공 API 주소(정류장 표 · 버스 위치)를
-     * 직접 받아 다시 부탁하고, 8초마다 버스 위치만 새로 받는다(길동무 ShellActivity.brRound/brFetchOne 과 같은 길).
+     * 노선 상세용 받기(길동무 MapCore.busGet 과 같은 길): 정류장 표는 버스 서버와 route-v2 두 길에 동시에 보내 먼저 온 정상 본문을 쓰고,
+     * 버스 위치는 시도마다 길을 바꿔 가며 한 길씩 받는다. 허용 주소가 아니면 빈 글.
+     */
+    private static String busRace(String raw, final int ms, boolean pos, int attempt) {
+        if (raw == null || !raw.matches("^https?://(apis\\.data\\.go\\.kr|ws\\.bus\\.go\\.kr)/.*")) return "";
+        final String u, alt;
+        try {
+            String e = java.net.URLEncoder.encode(raw, "UTF-8");
+            u = "https://gildongmu-bus.phg0643.workers.dev/tago?url=" + e;
+            alt = "https://route-v2.phg0643.workers.dev/bus-tago?url=" + e;
+        } catch (java.io.UnsupportedEncodingException x) {
+            return "";
+        }
+        if (pos) {
+            String b = Wire.get((attempt & 1) == 1 ? alt : u, ms);
+            return busOk(b) ? b : "";
+        }
+        final Object lock = new Object();
+        final String[] win = new String[1];
+        final int[] done = new int[1];
+        for (int i = 0; i < 2; i++) {
+            final String url = i == 0 ? u : alt;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    String b = Wire.get(url, ms);
+                    synchronized (lock) {
+                        if (win[0] == null && busOk(b)) win[0] = b;
+                        done[0]++;
+                        lock.notifyAll();
+                    }
+                }
+            }, "kids-brr").start();
+        }
+        synchronized (lock) {
+            long end = System.currentTimeMillis() + ms + 1500L;
+            while (win[0] == null && done[0] < 2) {
+                long w = end - System.currentTimeMillis();
+                if (w <= 0) break;
+                try {
+                    lock.wait(w);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+            return win[0] == null ? "" : win[0];
+        }
+    }
+
+    /**
+     * 노선 상세 시트(길동무 ShellActivity.openBusRoute/brRound/brFetchOne 과 같은 길): 계산·문구·배치는 모두 서버(part "br").
+     * 서버가 'need' 로 남긴 주소(정류장 표 · 버스 위치)는 각각 따로 동시에 받아, 오는 대로 바로 다시 묻고 다시 그린다(표가 오면 위치를 기다리지 않고 그린다).
+     * 정류장 표는 이 기기에 7일 두었다가 다음엔 바로 쓰고, 버스 위치만 새로 받는다. 8초마다 위치만 새로 받는다.
      * 패밀리 앱은 출발·도착을 고르지 않으므로 np:1 로 줄 선택 단추를 뺀다.
      */
     private final class BrSheet {
         final String rid, no, tp, src;
         String oJson = "{}", cc = "", via = "", stnJson = "", lastJs = "";
-        int gen = 0, rounds = 0;
-        boolean shown = false, busy = false, poll = false, ticking = false;
+        volatile boolean alive = true;
+        int req = 0, retryN = 0;
+        boolean shown = false, busy = false, ticking = false, cached = false, cachePut = false;
+        long busyAt = 0L;
         double[] me;
         final LinkedHashMap<String, String> res = new LinkedHashMap<String, String>();
+        final HashSet<String> flight = new HashSet<String>();            // 지금 받는 중인 주소 열쇠(같은 것을 두 번 받지 않는다) — 메인 스레드에서만
         ScreenView sv;
         Dialog d;
         View dv;
@@ -1534,28 +1599,26 @@ head.setScreen(sc, true);
             box.addView(sv, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             d = new Dialog(ctx, android.R.style.Theme_Material_Light_Dialog_NoActionBar);
             d.setContentView(box);
-            int hpx = Math.round(ctx.getResources().getDisplayMetrics().heightPixels * 0.86f);
             try {
                 Window w = d.getWindow();
-                w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, hpx);
+                w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);   // 길동무와 같이 화면 전체
                 w.setGravity(Gravity.BOTTOM);
                 w.setBackgroundDrawable(new ColorDrawable(pal[0]));
                 w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
                 w.setWindowAnimations(0);
                 dv = w.getDecorView();
                 dv.setAlpha(0f);
-                dv.setTranslationY(hpx * 0.35f);
+                dv.setTranslationY(56f * dpr);
                 final Dialog mine = d;
                 d.setOnDismissListener(new DialogInterface.OnDismissListener() {
                     @Override
                     public void onDismiss(DialogInterface x) {
-                        gen++;
+                        alive = false;
                         if (sheet == mine) sheet = null;
                         if (br == BrSheet.this) br = null;
                     }
                 });
                 sheet = d;
-                round();                                                // 창이 올라오는 그림보다 먼저 서버에 묻는다
                 d.show();
                 dv.animate().alpha(1f).translationY(0f).setDuration(340L).setInterpolator(new android.view.animation.PathInterpolator(0.32f, 0.72f, 0f, 1f)).start();
             } catch (Throwable t) {
@@ -1565,8 +1628,78 @@ head.setScreen(sc, true);
                 }
                 sheet = null;
                 br = null;
-                gen++;
+                alive = false;
+                toast("노선 상세를 열지 못했어요");
+                return;
             }
+            // 기기에 둔 정류장 표를 뒤 스레드에서 읽어 오고(메인 스레드는 막지 않는다), 서버에 묻는다
+            Wire.EX.execute(new Runnable() {
+                @Override
+                public void run() {
+                    final String[] c = readCache();
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!alive) return;
+                            if (c != null) {
+                                stnJson = c[0];
+                                via = c[1];
+                                cc = c[2];
+                                cached = true;
+                            }
+                            busy = true;
+                            busyAt = System.currentTimeMillis();
+                            round(false);
+                            arm();
+                        }
+                    });
+                }
+            });
+        }
+
+        /** 7일 안에 받아 둔 이 노선의 정류장 표: {표 JSON, via, 도시 코드}. 없으면 null. */
+        String[] readCache() {
+            try {
+                String raw = ctx.getSharedPreferences("kids_busmap", Context.MODE_PRIVATE).getString("brc_" + rid, "");
+                if (raw.isEmpty()) return null;
+                JSONObject o = new JSONObject(raw);
+                JSONArray st = o.optJSONArray("s");
+                if (st == null || st.length() == 0 || System.currentTimeMillis() - o.optLong("t", 0L) > 7L * 24L * 3600000L) return null;
+                return new String[] {st.toString(), o.optString("v", ""), o.optString("c", "")};
+            } catch (Throwable t) {
+                return null;
+            }
+        }
+
+        /** 받은 정류장 표를 기기에 둔다(최근 8개 노선만). 한 시트에서 한 번만. */
+        void putCache() {
+            if (cached || cachePut || stnJson.isEmpty() || stnJson.length() > 120000 || rid.isEmpty() || rid.length() > 40) return;
+            cachePut = true;
+            final String sj = stnJson, v = via, c = cc;
+            Wire.EX.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        SharedPreferences sp = ctx.getSharedPreferences("kids_busmap", Context.MODE_PRIVATE);
+                        JSONObject o = new JSONObject();
+                        o.put("t", System.currentTimeMillis());
+                        o.put("v", v);
+                        o.put("c", c);
+                        o.put("s", new JSONArray(sj));
+                        String idx = sp.getString("brc_idx", "");
+                        ArrayList<String> ids = new ArrayList<String>();
+                        if (!idx.isEmpty()) for (String x : idx.split(",")) if (!x.isEmpty() && !x.equals(rid)) ids.add(x);
+                        ids.add(rid);
+                        SharedPreferences.Editor ed = sp.edit();
+                        while (ids.size() > 8) ed.remove("brc_" + ids.remove(0));
+                        StringBuilder sb = new StringBuilder();
+                        for (String x : ids) sb.append(sb.length() > 0 ? "," : "").append(x);
+                        ed.putString("brc_" + rid, o.toString()).putString("brc_idx", sb.toString()).apply();
+                    } catch (Throwable t) {
+                        // 저장 실패는 이번 실행에서만 유지
+                    }
+                }
+            });
         }
 
         /** 서버 답을 기다리는 동안 바로 보이는 화면(서버의 '불러오는 중' 화면과 같은 모양). */
@@ -1604,13 +1737,12 @@ head.setScreen(sc, true);
         void onAct(String v) {
             if ("br.x".equals(v)) {
                 closeBrAnim();
-            } else if ("br.rf".equals(v)) {                             // ↻ — 받아 둔 것을 비우고 처음부터(정류장 표도 다시)
+            } else if ("br.rf".equals(v)) {                             // ↻ — 받아 둔 위치·표 본문을 비우고 다시(길동무와 같다: 정류장 표 목록은 둔다)
                 res.clear();
-                stnJson = "";
-                via = "";
-                rounds = 0;
-                poll = false;
-                round();
+                retryN = 0;
+                busy = true;
+                busyAt = System.currentTimeMillis();
+                round(false);
             }
         }
 
@@ -1646,20 +1778,18 @@ head.setScreen(sc, true);
             return o.toString();
         }
 
-        /** 서버에 한 번 묻고, 답을 그리거나 더 받을 주소를 받아 온다. */
-        void round() {
-            final int my = ++gen;
-            busy = true;
+        /** 서버에 지금 상태를 보내 화면을 받는다. 더 받아야 할 주소는 각각 따로 받아, 오는 대로 바로 다시 그린다. */
+        void round(final boolean pl) {
+            final int my = ++req;
             final String b = body();
-            final boolean pl = poll;
             Wire.EX.execute(new Runnable() {
                 @Override
                 public void run() {
-                    final String r = Wire.post("/screen/map", b, 12000);
+                    final String r = Wire.post("/screen/map", b, 8000);
                     final ScreenCore.Screen sc = r == null ? null : SvHost.parse(noPick(SvHost.strip(r)));
                     final ArrayList<String[]> nn = new ArrayList<String[]>();
                     final String[] meta = new String[] {"", "", ""};     // 정류장 표(JSON) · via · 도시 코드
-                    if (r != null) {
+                    if (sc != null) {
                         try {
                             JSONObject im = new JSONObject(r).optJSONObject("info");
                             JSONObject ib = im == null ? null : im.optJSONObject("br");
@@ -1686,14 +1816,31 @@ head.setScreen(sc, true);
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
-                            if (my != gen || br != BrSheet.this) return;
+                            if (!alive) return;
                             if (sc == null) {
-                                busy = false;
-                                if (!shown) toast("노선 정보를 불러오지 못했어요. 위쪽 새로고침(↻)을 눌러 주세요");
-                                poll = false;
-                                arm();
+                                if (my == req && flight.isEmpty()) busy = false;
+                                if (!shown) {                              // 처음 한 번 못 받았다고 빈 시트로 두지 않는다 — 0.4 · 1.2 · 2.5초 뒤 조용히 다시(세 번까지), 그래도 안 되면 알린다
+                                    if (retryN < 3) {
+                                        long wait = retryN == 0 ? 400L : retryN == 1 ? 1200L : 2500L;
+                                        retryN++;
+                                        ui.postDelayed(new Runnable() {
+                                            @Override
+                                            public void run() {
+                                                if (alive && !shown) {
+                                                    busy = true;
+                                                    busyAt = System.currentTimeMillis();
+                                                    round(false);
+                                                }
+                                            }
+                                        }, wait);
+                                    } else {
+                                        toast("노선 정보를 받지 못했어요. 위쪽 새로고침(↻)을 눌러 주세요");
+                                    }
+                                }
                                 return;
                             }
+                            retryN = 0;                                    // 갱신이 실패하면 보던 화면을 그대로 둔다
+                            if (my != req) return;                         // 더 새 요청이 이미 나갔다 — 그 답이 이 내용까지 담는다
                             if (!meta[0].isEmpty() && stnJson.isEmpty()) {
                                 stnJson = meta[0];
                                 via = meta[1];
@@ -1701,20 +1848,17 @@ head.setScreen(sc, true);
                                 res.remove("gs");
                                 res.remove("ts");
                             }
-                            boolean more = !nn.isEmpty();
-                            if (!(shown && more) && !r.equals(lastJs)) {      // 이미 그림이 있는데 받을 게 남았으면 다 받은 뒤에 그린다(깜박임 없음)
-                                lastJs = r;
-                                sv.setScreen(sc, shown);
+                            if (!(pl && !nn.isEmpty())) {                  // 위치를 새로 받는 중이면 옛 위치가 그려진 화면 위에 중간 화면을 덮지 않는다
+                                if (!r.equals(lastJs)) {
+                                    lastJs = r;
+                                    sv.setScreen(sc, shown);
+                                }
+                                shown = true;
                             }
-                            shown = true;
-                            if (more && rounds < 4) {
-                                fetch(nn, my, pl);
-                            } else {
-                                if (more) toast("버스 위치를 다 받지 못했어요");
-                                rounds = 0;
-                                poll = false;
+                            for (String[] nd : nn) if (flight.add(nd[0])) fetchOne(nd[0], nd[1], pl);
+                            if (nn.isEmpty() && flight.isEmpty()) {
                                 busy = false;
-                                arm();
+                                putCache();
                             }
                         }
                     });
@@ -1722,95 +1866,62 @@ head.setScreen(sc, true);
             });
         }
 
-        /** 서버가 'need' 로 남긴 주소를 기기가 직접 받는다. 위치는 실패하면 0.8초 뒤 다시(최대 5번), 표는 한 번 더. */
-        void fetch(final ArrayList<String[]> work, final int my, final boolean pl) {
-            rounds++;
+        /** 주소 하나를 따로 받는다. 위치는 실패하면 0.8초 뒤 다시(최대 5번), 표는 한 번 더. 받자마자 다시 묻는다. */
+        void fetchOne(final String k, final String url, final boolean pl) {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    final LinkedHashMap<String, String> got = new LinkedHashMap<String, String>();
-                    ArrayList<Thread> ts = new ArrayList<Thread>();
-                    for (final String[] n : work) {
-                        Thread t = new Thread(new Runnable() {
-                            @Override
-                            public void run() {
-                                boolean pos = n[0].endsWith("p");
-                                String b = "";
-                                for (int a = 0; a < (pos ? 5 : 2) && b.isEmpty(); a++) {
-                                    if (a > 0) {
-                                        try {
-                                            Thread.sleep(pos ? 800L : 300L);
-                                        } catch (InterruptedException e) {
-                                            return;
-                                        }
-                                    }
-                                    if (my != gen) return;
-                                    String x = busFetch(n[1]);
-                                    if (x != null) b = x;
-                                }
-                                synchronized (got) {
-                                    got.put(n[0], b.length() > 200000 ? b.substring(0, 200000) : b);
-                                }
+                    boolean pos = k.endsWith("p");
+                    String body = "";
+                    for (int a = 0; a < (pos ? 5 : 2) && body.isEmpty(); a++) {
+                        if (a > 0) {
+                            try {
+                                Thread.sleep(pos ? 800L : 300L);
+                            } catch (InterruptedException e) {
+                                break;
                             }
-                        });
-                        t.start();
-                        ts.add(t);
-                    }
-                    long end = System.currentTimeMillis() + 16000L;
-                    for (Thread t : ts) {
-                        try {
-                            t.join(Math.max(1L, end - System.currentTimeMillis()));
-                        } catch (InterruptedException e) {
-                            break;
                         }
+                        if (!alive) return;
+                        body = busRace(url, pos ? 6000 : 9000, pos, a);
                     }
-                    final LinkedHashMap<String, String> snap;
-                    synchronized (got) {
-                        snap = new LinkedHashMap<String, String>(got);
-                    }
+                    final String got = body.length() > 200000 ? body.substring(0, 200000) : body;
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
-                            if (my != gen || br != BrSheet.this) return;
-                            if (pl) {                                   // 8초 갱신이 비면 버린다 — 보던 위치를 그대로
-                                boolean any = false;
-                                for (String v : snap.values()) if (!v.isEmpty()) any = true;
-                                if (!any) {
-                                    poll = false;
-                                    rounds = 0;
-                                    busy = false;
-                                    arm();
-                                    return;
-                                }
+                            flight.remove(k);
+                            if (!alive) return;
+                            if (pl && got.isEmpty()) {                     // 8초 갱신이 비면 버린다 — 보던 위치를 그대로
+                                if (flight.isEmpty()) busy = false;
+                                return;
                             }
-                            res.putAll(snap);
-                            round();
+                            res.put(k, got);
+                            round(pl);
                         }
                     });
                 }
-            }).start();
+            }, "kids-brf").start();
         }
 
         final Runnable tick = new Runnable() {
             @Override
             public void run() {
                 ticking = false;
-                if (br != BrSheet.this || d == null || !d.isShowing()) return;
+                if (!alive || br != BrSheet.this || d == null || !d.isShowing()) return;
+                if (busy && System.currentTimeMillis() - busyAt > 20000L) busy = false;
                 if (!busy && shown && !stnJson.isEmpty() && MapPane.this.isShown()) {
+                    busy = true;
+                    busyAt = System.currentTimeMillis();
                     res.remove("gp");
                     res.remove("tp");
-                    poll = true;
-                    rounds = 0;
-                    round();
-                } else {
-                    arm();
+                    round(true);
                 }
+                arm();
             }
         };
 
-        /** 8초 뒤 버스 위치만 새로 받는다(길동무 BR_POLL_MS). */
+        /** 8초마다 버스 위치만 새로 받는다(길동무 BR_POLL_MS). */
         void arm() {
-            if (ticking || br != this) return;
+            if (ticking || !alive) return;
             ticking = true;
             ui.postDelayed(tick, 8000L);
         }
@@ -1846,7 +1957,7 @@ head.setScreen(sc, true);
         if (ts != null) ts.gen++;
         BrSheet bs = br;
         br = null;
-        if (bs != null) bs.gen++;
+        if (bs != null) bs.alive = false;
         Dialog d = sheet;
         sheet = null;
         if (d != null) {
