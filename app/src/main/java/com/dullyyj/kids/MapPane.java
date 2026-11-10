@@ -1439,7 +1439,7 @@ head.setScreen(sc, true);
         b.show();
     }
 
-    /** 패밀리 앱은 출발·도착을 고르지 않는다 — 엔진이 np 를 모르는 옛 버전이어도 정류장 줄의 선택 단추·글과 아래 바를 뺀다. */
+    /** 패밀리 앱은 출발·도착을 고르지 않는다 — 엔진이 np 를 모르는 옛 버전이어도 정류장 줄의 선택 글·표시와 아래 바를 뺀다. */
     private static String noPick(String json) {
         try {
             JSONObject root = new JSONObject(json);
@@ -1447,8 +1447,7 @@ head.setScreen(sc, true);
             for (int i = 0; body != null && i < body.length(); i++) {
                 JSONObject o = body.optJSONObject(i);
                 if (o != null && "brs".equals(o.optString("t", ""))) {
-                    o.remove("act");
-                    o.remove("lab");
+                    o.remove("lab");                                   // act 는 둔다 — 앱 검증기가 정류장 줄에 act 가 없으면 화면을 통째로 거절한다(눌러도 onAct 가 무시)
                     o.remove("ps");
                 }
             }
