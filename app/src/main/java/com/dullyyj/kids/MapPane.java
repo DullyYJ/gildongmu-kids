@@ -708,6 +708,7 @@ head.setScreen(sc, true);
                         lastStops.addAll(stopsNow);
                         rts.clear();
                         rts.putAll(rtsNow);
+                        routePrefetch();
                         aliasMax = lim[0];
                         pollTick = pl[0];
                         pollStale = pl[1];
@@ -1410,6 +1411,48 @@ head.setScreen(sc, true);
     }
 
 
+    private String pfSig = "";
+    private long pfAt = 0L;
+
+    /**
+     * 가까운 정류장이 정해져 도착정보가 뜨면, 그 정류장 노선들의 정류장 표를 모두 동시에 뒤에서 받아 기기에 둔다(길동무 brPrefetch).
+     * 노선 줄을 누르면 표는 바로 그리고 버스 위치만 새로 받는다. 같은 정류장·노선이면 10분 안에는 다시 하지 않는다.
+     */
+    private void routePrefetch() {
+        ArrayList<String[]> rl = rts.get(0);
+        if (rl == null || rl.isEmpty() || lastStops.isEmpty()) return;
+        final JSONObject sm;
+        try {
+            sm = new JSONObject(lastStops.get(0));
+        } catch (Exception e) {
+            return;
+        }
+        StringBuilder sg = new StringBuilder(sm.optString("id", "")).append('|');
+        final ArrayList<String[]> jobs = new ArrayList<String[]>();
+        for (int i = 0; i < rl.size() && jobs.size() < 8; i++) {
+            String[] r = rl.get(i);
+            if (r[0].isEmpty()) continue;
+            jobs.add(r);
+            sg.append(r[0]).append(',');
+        }
+        long now = System.currentTimeMillis();
+        if (jobs.isEmpty() || (sg.toString().equals(pfSig) && now - pfAt < 600000L)) return;
+        pfSig = sg.toString();
+        pfAt = now;
+        for (final String[] r : jobs) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        new BrSheet(r[0], r[1], r[2], sm).prefetch();
+                    } catch (Throwable t) {
+                        // 미리 받기는 덤 — 실패해도 열 때 받는다
+                    }
+                }
+            }, "kids-brpf").start();
+        }
+    }
+
     /** 정류장 카드의 노선 줄을 눌렀다("br.<정류장>.<줄>") — 길동무처럼 그 노선의 정류장 표 + 달리는 버스 위치를 시트로 연다. */
     private void openRoute(String v) {
         String[] pr = v.split("\\.");
@@ -1777,6 +1820,60 @@ head.setScreen(sc, true);
             return o.toString();
         }
 
+        /** 서버 답에서 더 받을 주소(need)와 정류장 표(stn · via · cc)를 읽는다(뒤 스레드). */
+        void parseBr(String r, ArrayList<String[]> nn, String[] meta) {
+            try {
+                JSONObject im = new JSONObject(r).optJSONObject("info");
+                JSONObject ib = im == null ? null : im.optJSONObject("br");
+                if (ib == null) return;
+                JSONArray nd = ib.optJSONArray("need");
+                for (int i = 0; nd != null && i < nd.length() && nn.size() < 4; i++) {
+                    JSONObject x = nd.optJSONObject(i);
+                    if (x == null) continue;
+                    String k = x.optString("k", "");
+                    String u = x.optString("url", "");
+                    if (k.matches("[a-z]{2}") && u.length() > 0 && u.length() < 600) nn.add(new String[] {k, u});
+                }
+                JSONArray st = ib.optJSONArray("stn");
+                if (st != null && st.length() > 0) {
+                    meta[0] = st.toString();
+                    meta[1] = ib.optString("via", "");
+                    meta[2] = ib.optString("cc", "");
+                }
+            } catch (Exception e) {
+                nn.clear();
+            }
+        }
+
+        /**
+         * 미리 받기(뒤 스레드, 길동무 brPrefetch 와 같다): 이 노선의 정류장 표를 서버·공공 API 에서 받아 기기에 7일 둔다.
+         * 버스 위치는 금방 낡으므로 받지 않는다 — 열 때 표와 함께 바로 받는다. 이미 둔 것이 있으면 건너뛴다.
+         */
+        void prefetch() {
+            if (readCache() != null) return;
+            for (int round = 0; round < 3 && stnJson.isEmpty(); round++) {
+                String r = Wire.post("/screen/map", body(), 8000);
+                if (r == null) return;
+                ArrayList<String[]> nn = new ArrayList<String[]>();
+                String[] meta = new String[] {"", "", ""};
+                parseBr(r, nn, meta);
+                if (!meta[0].isEmpty()) {
+                    stnJson = meta[0];
+                    via = meta[1];
+                    cc = meta[2];
+                    break;
+                }
+                boolean any = false;
+                for (String[] nd : nn) {
+                    if (!nd[0].endsWith("s")) continue;                // 표만(위치는 열 때 새로 받는다)
+                    res.put(nd[0], busRace(nd[1], 9000, false, 0));
+                    any = true;
+                }
+                if (!any) return;
+            }
+            if (!stnJson.isEmpty()) putCache();
+        }
+
         /** 서버에 지금 상태를 보내 화면을 받는다. 더 받아야 할 주소는 각각 따로 받아, 오는 대로 바로 다시 그린다. */
         void round(final boolean pl) {
             final int my = ++req;
@@ -1788,30 +1885,7 @@ head.setScreen(sc, true);
                     final ScreenCore.Screen sc = r == null ? null : SvHost.parse(noPick(SvHost.strip(r)));
                     final ArrayList<String[]> nn = new ArrayList<String[]>();
                     final String[] meta = new String[] {"", "", ""};     // 정류장 표(JSON) · via · 도시 코드
-                    if (sc != null) {
-                        try {
-                            JSONObject im = new JSONObject(r).optJSONObject("info");
-                            JSONObject ib = im == null ? null : im.optJSONObject("br");
-                            if (ib != null) {
-                                JSONArray nd = ib.optJSONArray("need");
-                                for (int i = 0; nd != null && i < nd.length() && nn.size() < 4; i++) {
-                                    JSONObject x = nd.optJSONObject(i);
-                                    if (x == null) continue;
-                                    String k = x.optString("k", "");
-                                    String u = x.optString("url", "");
-                                    if (k.matches("[a-z]{2}") && u.length() > 0 && u.length() < 600) nn.add(new String[] {k, u});
-                                }
-                                JSONArray st = ib.optJSONArray("stn");
-                                if (st != null && st.length() > 0) {
-                                    meta[0] = st.toString();
-                                    meta[1] = ib.optString("via", "");
-                                    meta[2] = ib.optString("cc", "");
-                                }
-                            }
-                        } catch (Exception e) {
-                            nn.clear();
-                        }
-                    }
+                    if (sc != null) parseBr(r, nn, meta);
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
