@@ -69,6 +69,8 @@ final class MapPane extends LinearLayout {
     private final ScreenView bus;
     private String busVw = "near";
     private int busSel = -1, busSeq = 0;
+    /** 지도를 2초 꾹 눌러 고른 곳(위도, 경도) — 있으면 서버(엔진)가 그 주변 100m 정류장을 찾는다. 내 위치(새로고침)를 누르면 버린다. */
+    private double[] busPin;
     private long busAt = 0L;
     private boolean busShown = false, busTicking = false;
     private String lastBusJs = "";
@@ -552,6 +554,12 @@ head.setScreen(sc, true);
             b.put("svb", busShown ? 2500 : 300); // 첫 그림은 빨리(300ms), 갱신은 서버가 도착정보를 더 기다려 받아 오게(길동무와 같다)
             b.put("lat", g[0]);
             b.put("lng", g[1]);
+            if (busPin != null) {
+                JSONArray pa = new JSONArray();
+                pa.put(busPin[0]);
+                pa.put(busPin[1]);
+                b.put("pin", pa);
+            }
             b.put("fav", new JSONArray(favRaw == null ? "[]" : favRaw));
             b.put("nx", new JSONObject());
             b.put("al", new JSONObject(alRaw == null ? "{}" : alRaw));
@@ -844,9 +852,25 @@ head.setScreen(sc, true);
             busVw = nv;
             busSel = -1;
             loadBus(true);
-        } else if ("mp.rf".equals(v)) {
+        } else if ("mp.rf".equals(v) || "mp.loc".equals(v)) {
+            busSel = -1;
+            busPin = null;                                         // 새로고침 · 내 위치로 돌아가기: 꾹 눌러 고른 곳은 버린다
+            busRes.clear();
+            loadBus(true);
+        } else if (v.startsWith("mp.lp.")) {                       // 지도 2초 꾹 → 그 주변 100m 정류장(좌표는 앱이 붙이고 무엇을 찾을지는 엔진이 정한다)
+            if (!"near".equals(busVw)) return;
+            try {
+                String t = v.substring(6);
+                int u = t.indexOf('_');
+                double la = Double.parseDouble(t.substring(0, u)), lo = Double.parseDouble(t.substring(u + 1));
+                if (u < 1 || !(Math.abs(la) <= 85.0) || !(Math.abs(lo) <= 180.0)) return;
+                busPin = new double[] {la, lo};
+            } catch (RuntimeException e) {
+                return;
+            }
             busSel = -1;
             busRes.clear();
+            toast("고른 곳 주변 100m 정류장을 찾는 중...");
             loadBus(true);
         } else if (v.startsWith("mp.pc.") || v.startsWith("mp.pm.")) {
             try {
