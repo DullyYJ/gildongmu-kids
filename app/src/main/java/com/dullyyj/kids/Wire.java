@@ -33,6 +33,7 @@ final class Wire {
     /** POST 로 보내고 답 글을 돌려준다. 실패하면 null. */
     static String post(String path, String body, int timeoutMs) {
         HttpURLConnection c = null;
+        boolean reuse = false;                                  // 답을 끝까지 읽었으면 연결을 끊지 않는다 — 다음 요청이 같은 연결(TLS 이미 끝남)을 이어 쓴다(길동무 NetPost 와 같다)
         try {
             c = (HttpURLConnection) new URL(BASE + path).openConnection();
             c.setConnectTimeout(timeoutMs);
@@ -59,20 +60,23 @@ final class Wire {
                     bo.write(buf, 0, n);
                     if (bo.size() > MAX_RES) return null;
                 }
-                return bo.toString("UTF-8");
+                String out = bo.toString("UTF-8");
+                reuse = true;
+                return out;
             } finally {
                 in.close();
             }
         } catch (Throwable t) {
             return null;
         } finally {
-            if (c != null) c.disconnect();
+            if (c != null && !reuse) c.disconnect();
         }
     }
 
     /** 다른 길동무 서버 주소에서 글을 받아 온다(GET). 실패하면 null. */
     static String get(String url, int timeoutMs) {
         HttpURLConnection c = null;
+        boolean reuse = false;                                  // 답을 끝까지 읽었으면 연결을 끊지 않는다 — 다음 요청이 같은 연결(TLS 이미 끝남)을 이어 쓴다(길동무 NetPost 와 같다)
         try {
             c = (HttpURLConnection) new URL(url).openConnection();
             c.setConnectTimeout(timeoutMs);
@@ -89,14 +93,16 @@ final class Wire {
                     bo.write(buf, 0, n);
                     if (bo.size() > MAX_RES) return null;
                 }
-                return bo.toString("UTF-8");
+                String out = bo.toString("UTF-8");
+                reuse = true;
+                return out;
             } finally {
                 in.close();
             }
         } catch (Throwable t) {
             return null;
         } finally {
-            if (c != null) c.disconnect();
+            if (c != null && !reuse) c.disconnect();
         }
     }
 }
