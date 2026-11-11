@@ -1524,6 +1524,16 @@ head.setScreen(sc, true);
         }).start();
     }
 
+    /** 노선 상세 전용 통신 줄: 공용 Wire.EX(3줄)가 버스 목록 갱신·다른 통신에 묶여 있어도 노선 상세는 기다리지 않는다. */
+    private static final java.util.concurrent.ExecutorService BR_EX = java.util.concurrent.Executors.newCachedThreadPool(new java.util.concurrent.ThreadFactory() {
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread t = new Thread(r, "kids-br");
+            t.setDaemon(true);
+            return t;
+        }
+    });
+
     private static final String[] BUS_ERR = {"OpenAPI_ServiceResponse", "cmmMsgHeader", "SERVICE_KEY_IS_NOT_REGISTERED_ERROR", "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR"};
 
     /** 공공 API 오류 봉투(짧은 본문)가 아닌 정상 본문인가. */
@@ -1593,6 +1603,7 @@ head.setScreen(sc, true);
     private final class BrSheet {
         final String rid, no, tp, src;
         String oJson = "{}", cc = "", via = "", stnJson = "", lastJs = "";
+        volatile String pk = "", pu = "";                     // 버스 위치 주소 열쇠 · 주소(서버가 need 로 준 것 — 기기에 두었다가 다음엔 서버 답을 기다리지 않고 바로 받는다)
         volatile boolean alive = true;
         int req = 0, retryN = 0;
         boolean shown = false, busy = false, ticking = false, cached = false, cachePut = false;
@@ -1675,7 +1686,7 @@ head.setScreen(sc, true);
                 return;
             }
             // 기기에 둔 정류장 표를 뒤 스레드에서 읽어 오고(메인 스레드는 막지 않는다), 서버에 묻는다
-            Wire.EX.execute(new Runnable() {
+            BR_EX.execute(new Runnable() {
                 @Override
                 public void run() {
                     final String[] c = readCache();
@@ -1687,10 +1698,16 @@ head.setScreen(sc, true);
                                 stnJson = c[0];
                                 via = c[1];
                                 cc = c[2];
+                                pk = c[3];
+                                pu = c[4];
                                 cached = true;
                             }
                             busy = true;
                             busyAt = System.currentTimeMillis();
+                            if (cached && !pk.isEmpty() && !pu.isEmpty() && pu.length() < 600) {      // 표를 기기에 둔 노선은 버스 위치도 서버 답을 기다리지 않고 바로(표를 그리는 통신과 동시에) 받는다
+                                flight.add(pk);
+                                fetchOne(pk, pu, false, true);
+                            }
                             round(false);
                             arm();
                         }
@@ -1707,7 +1724,7 @@ head.setScreen(sc, true);
                 JSONObject o = new JSONObject(raw);
                 JSONArray st = o.optJSONArray("s");
                 if (st == null || st.length() == 0 || System.currentTimeMillis() - o.optLong("t", 0L) > 7L * 24L * 3600000L) return null;
-                return new String[] {st.toString(), o.optString("v", ""), o.optString("c", "")};
+                return new String[] {st.toString(), o.optString("v", ""), o.optString("c", ""), o.optString("pk", ""), o.optString("pu", "")};
             } catch (Throwable t) {
                 return null;
             }
@@ -1717,8 +1734,8 @@ head.setScreen(sc, true);
         void putCache() {
             if (cached || cachePut || stnJson.isEmpty() || stnJson.length() > 120000 || rid.isEmpty() || rid.length() > 40) return;
             cachePut = true;
-            final String sj = stnJson, v = via, c = cc;
-            Wire.EX.execute(new Runnable() {
+            final String sj = stnJson, v = via, c = cc, kk = pk, uu = pu;
+            BR_EX.execute(new Runnable() {
                 @Override
                 public void run() {
                     try {
@@ -1727,6 +1744,10 @@ head.setScreen(sc, true);
                         o.put("t", System.currentTimeMillis());
                         o.put("v", v);
                         o.put("c", c);
+                        if (!kk.isEmpty() && !uu.isEmpty() && uu.length() < 600) {
+                            o.put("pk", kk);
+                            o.put("pu", uu);
+                        }
                         o.put("s", new JSONArray(sj));
                         String idx = sp.getString("brc_idx", "");
                         ArrayList<String> ids = new ArrayList<String>();
@@ -1832,7 +1853,13 @@ head.setScreen(sc, true);
                     if (x == null) continue;
                     String k = x.optString("k", "");
                     String u = x.optString("url", "");
-                    if (k.matches("[a-z]{2}") && u.length() > 0 && u.length() < 600) nn.add(new String[] {k, u});
+                    if (k.matches("[a-z]{2}") && u.length() > 0 && u.length() < 600) {
+                        nn.add(new String[] {k, u});
+                        if (k.endsWith("p") && pk.isEmpty()) {
+                            pk = k;
+                            pu = u;
+                        }
+                    }
                 }
                 JSONArray st = ib.optJSONArray("stn");
                 if (st != null && st.length() > 0) {
@@ -1878,7 +1905,7 @@ head.setScreen(sc, true);
         void round(final boolean pl) {
             final int my = ++req;
             final String b = body();
-            Wire.EX.execute(new Runnable() {
+            BR_EX.execute(new Runnable() {
                 @Override
                 public void run() {
                     final String r = Wire.post("/screen/map", b, 8000);
@@ -1928,7 +1955,7 @@ head.setScreen(sc, true);
                                 }
                                 shown = true;
                             }
-                            for (String[] nd : nn) if (flight.add(nd[0])) fetchOne(nd[0], nd[1], pl);
+                            for (String[] nd : nn) if (flight.add(nd[0])) fetchOne(nd[0], nd[1], pl, false);
                             if (nn.isEmpty() && flight.isEmpty()) {
                                 busy = false;
                                 putCache();
@@ -1940,13 +1967,13 @@ head.setScreen(sc, true);
         }
 
         /** 주소 하나를 따로 받는다. 위치는 실패하면 0.8초 뒤 다시(최대 5번), 표는 한 번 더. 받자마자 다시 묻는다. */
-        void fetchOne(final String k, final String url, final boolean pl) {
+        void fetchOne(final String k, final String url, final boolean pl, final boolean early) {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
                     boolean pos = k.endsWith("p");
                     String body = "";
-                    for (int a = 0; a < (pos ? 5 : 2) && body.isEmpty(); a++) {
+                    for (int a = 0; a < (pos ? (early ? 2 : 5) : 2) && body.isEmpty(); a++) {
                         if (a > 0) {
                             try {
                                 Thread.sleep(pos ? 800L : 300L);
@@ -1963,6 +1990,12 @@ head.setScreen(sc, true);
                         public void run() {
                             flight.remove(k);
                             if (!alive) return;
+                            if (early && got.isEmpty()) {                  // 기기에 둔 주소로 못 받았다 — 둔 주소를 버리고 서버가 주는 주소로 처음부터
+                                pk = "";
+                                pu = "";
+                                round(false);
+                                return;
+                            }
                             if (pl && got.isEmpty()) {                     // 8초 갱신이 비면 버린다 — 보던 위치를 그대로
                                 if (flight.isEmpty()) busy = false;
                                 return;
