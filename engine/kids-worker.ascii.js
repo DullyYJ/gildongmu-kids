@@ -705,9 +705,10 @@ function wrapDB(env) {
   };
 }
 /** 1\ubd84 \ud06c\ub860: \uc544\uc9c1 \uc554\ud638\ud654\ub418\uc9c0 \uc54a\uc740 \uc61b \uc88c\ud45c\ub97c \ud55c \ubc88\uc5d0 150\ud589\uae4c\uc9c0 \uc62e\uae34\ub2e4(\ub2e4 \uc62e\uae30\uba74 \uc870\ud68c \ud55c \ubc88\uc73c\ub85c \ub05d). \uc77d\uc740 \ub4a4 \uadf8 \uc0ac\uc774 \uac12\uc774 \ubc14\ub00c\uc5c8\uc73c\uba74(\uc870\uac74 \ubd88\uc77c\uce58) \uac74\ub4dc\ub9ac\uc9c0 \uc54a\ub294\ub2e4. */
+let encNextAt = 0;
 async function encMigrate(env) {
   const kp = encKey(env);
-  if (!kp) return;
+  if (!kp || Date.now() < encNextAt) return;
   const RAW = env.DB;
   let budget = 150;
   for (const t of Object.keys(LOC_TABLES)) {
@@ -726,6 +727,7 @@ async function encMigrate(env) {
     for (let i = 0; i < st.length; i += 50) await RAW.batch(st.slice(i, i + 50));
     budget -= rows.length;
   }
+  encNextAt = budget === 150 ? Date.now() + 30 * 60000 : 0;      // \uc62e\uae38 \uac8c \uc5c6\uc5c8\uc73c\uba74 30\ubd84 \ub4a4\uc5d0 \ub2e4\uc2dc \uc0b4\ud3b4\ubcf8\ub2e4(\uc870\ud68c 8\ubc88\uc744 \ub9e4\ubd84 \ud558\uc9c0 \uc54a\ub294\ub2e4)
 }
 
 let ready = false;
