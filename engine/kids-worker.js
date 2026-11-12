@@ -705,9 +705,10 @@ function wrapDB(env) {
   };
 }
 /** 1분 크론: 아직 암호화되지 않은 옛 좌표를 한 번에 150행까지 옮긴다(다 옮기면 조회 한 번으로 끝). 읽은 뒤 그 사이 값이 바뀌었으면(조건 불일치) 건드리지 않는다. */
+let encNextAt = 0;
 async function encMigrate(env) {
   const kp = encKey(env);
-  if (!kp) return;
+  if (!kp || Date.now() < encNextAt) return;
   const RAW = env.DB;
   let budget = 150;
   for (const t of Object.keys(LOC_TABLES)) {
@@ -726,6 +727,7 @@ async function encMigrate(env) {
     for (let i = 0; i < st.length; i += 50) await RAW.batch(st.slice(i, i + 50));
     budget -= rows.length;
   }
+  encNextAt = budget === 150 ? Date.now() + 30 * 60000 : 0;      // 옮길 게 없었으면 30분 뒤에 다시 살펴본다(조회 8번을 매분 하지 않는다)
 }
 
 let ready = false;
