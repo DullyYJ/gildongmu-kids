@@ -188,7 +188,8 @@ async function strangeStop(env, DB, cid, c, name, now) {
   const atPlace = pls.some((q) => hav(la, lo, q.la, q.lo) <= HERE_M);
   const first = (await DB.prepare('SELECT MIN(t) m FROM stops WHERE cid=?').bind(cid).first() || {}).m || 0;
   const dLa = STRANGE_M / 111320, dLo = STRANGE_M / (111320 * Math.max(0.2, Math.cos((la * Math.PI) / 180)));
-  const known = (await DB.prepare('SELECT COUNT(DISTINCT d) n FROM stops WHERE cid=? AND t>? AND la BETWEEN ? AND ? AND lo BETWEEN ? AND ?').bind(cid, now - STRANGE_KEEP, la - dLa, la + dLa, lo - dLo, lo + dLo).first() || { n: 0 }).n;
+  const kr = ((await DB.prepare('SELECT la,lo,d FROM stops WHERE cid=? AND t>?').bind(cid, now - STRANGE_KEEP).all()).results) || [];      // 좌표는 암호화되어 있어 SQL 범위 비교 대신 풀어서 가린다
+  const known = new Set(kr.filter((q) => q.la >= la - dLa && q.la <= la + dLa && q.lo >= lo - dLo && q.lo <= lo + dLo).map((q) => q.d)).size;
   await DB.batch([
     DB.prepare('INSERT INTO stops(cid,la,lo,t,d) VALUES(?,?,?,?,?)').bind(cid, la, lo, c.t1, day),
     DB.prepare('DELETE FROM stops WHERE cid=? AND (t<? OR id NOT IN (SELECT id FROM stops WHERE cid=? ORDER BY id DESC LIMIT ?))').bind(cid, now - STRANGE_KEEP, cid, MAX_STOPS),
@@ -562,10 +563,11 @@ async function pruneOld(DB, now) {
   await DB.batch([DB.prepare('DELETE FROM calls WHERE t<?').bind(now - CALL_KEEP), DB.prepare('DELETE FROM subs WHERE exp<?').bind(now - 400 * DAY), DB.prepare('DELETE FROM routes WHERE t1<?').bind(now - RT_MAX_AGE), DB.prepare('DELETE FROM stops WHERE t<?').bind(now - STRANGE_KEEP), DB.prepare('DELETE FROM zt WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM drafts WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM lbs WHERE t<?').bind(now - LBS_KEEP), DB.prepare('DELETE FROM cons WHERE t<?').bind(now - 2 * LBS_KEEP)]);          // 쓰다 만 장소 등록 · 고치기 임시본(주소 검색어 포함)은 하루 뒤 지운다
 }
 async function cron(env) {
-  const DB = env.DB, now = Date.now();
+  const DB = wrapDB(env), now = Date.now();
   await init(DB);
   await tripsCron(env, DB, now);
   try { await pruneOld(DB, now); } catch (e) { /* 정리가 알림을 막지 않는다 */ }
+  try { await encMigrate(env); } catch (e) { /* 옛 좌표 암호화 옮기기는 알림을 막지 않는다 */ }
   try { await mxSnap(DB, now); } catch (e) { /* 지표 점검이 알림을 막지 않는다 */ }
   try { await safetyCron(env, DB, now, (u) => fetch(u)); } catch (e) { /* 안전 점검이 일정 알림을 막지 않는다 */ }
 }
@@ -588,6 +590,142 @@ async function tripsCron(env, DB, now) {
     if (!(r.pn & 8) && !r.tc && !r.ta && now >= eta + MISS_AFTER && now <= eta + STAY && (await once(DB, r.id, 8)))
       await notifyParents(env, DB, r.cid, (nm) => ({ k: 'miss', title: '길동무', body: who(nm) + ' ' + r.name + '에 ' + (r.st === 'go' ? '가고 있어요 · 약속 시각(' + clock(eta) + ')이 지났어요' : '도착하지 않았어요 (' + clock(eta) + ' 약속)'), tag: 'trip' + r.id }));
   });
+}
+
+// ── 위치정보 암호화 저장(s444) ──
+// 좌표가 들어가는 모든 칸(COORD)은 D1 에 쓰기 전에 AES-256-GCM 으로 암호화하고, 읽은 뒤에 풀어서 쓴다. 키는 워커 비밀값 LOC_KEY 에서만 나온다(코드 · D1 어디에도 없다).
+// 비밀값이 없으면 예전 그대로(암호화하지 않고 읽고 쓴다). 있으면 새로 쓰는 값부터 암호화하고, 이미 쌓인 값은 1분 크론이 조금씩 옮긴다. 읽을 때는 암호문과 옛 숫자를 둘 다 받는다.
+// 암호문 모양: 'e1:' + base64(무작위 12바이트 + 암호문 + 인증 태그). 같은 좌표도 쓸 때마다 다르게 보인다.
+const COORD = new Set(['la', 'lo', 'pla', 'plo', 'dla', 'dlo', 'rsa', 'rso', 'mva', 'mvo', 'ha', 'hb', 'pts', 'dn']);
+const TXT = new Set(['pts', 'dn']);      // 글로 된 칸(지난 경로 · 동네 이름) — 나머지는 숫자
+const ENC_P = 'e1:';
+const LOC_TABLES = { loc: ['la', 'lo', 'pla', 'plo', 'mva', 'mvo', 'ha', 'hb', 'dn'], locs: ['la', 'lo'], stops: ['la', 'lo'], places: ['la', 'lo'], calls: ['la', 'lo'], drafts: ['la', 'lo'], rtst: ['dla', 'dlo', 'rsa', 'rso'], routes: ['pts'] };
+let encKeyP = null, encKeySrc = '';
+const decCache = new Map();
+function encKey(env) {
+  const s = env && env.LOC_KEY ? String(env.LOC_KEY) : '';
+  if (!s) return null;
+  if (!encKeyP || encKeySrc !== s) {
+    encKeySrc = s; decCache.clear();
+    encKeyP = crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)).then((h) => crypto.subtle.importKey('raw', h, 'AES-GCM', false, ['encrypt', 'decrypt']));
+  }
+  return encKeyP;
+}
+async function encVal(kp, v) {
+  if (v === null || v === undefined || v === 0 || v === '') return v;
+  if (typeof v === 'string' && v.startsWith(ENC_P)) return v;
+  if (typeof v !== 'number' && typeof v !== 'string') return v;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await kp, new TextEncoder().encode(String(v))));
+  const o = new Uint8Array(12 + ct.length); o.set(iv); o.set(ct, 12);
+  let s = ''; for (let i = 0; i < o.length; i++) s += String.fromCharCode(o[i]);
+  return ENC_P + btoa(s);
+}
+async function decVal(kp, c, k) {
+  const hit = decCache.get(c);
+  if (hit !== undefined) return hit;
+  const bin = atob(c.slice(ENC_P.length)), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  const pt = new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, await kp, u.slice(12)));
+  const r = TXT.has(k) ? pt : +pt;
+  if (decCache.size > 8000) decCache.clear();
+  decCache.set(c, r);
+  return r;
+}
+async function decRow(kp, row) {
+  if (!row || typeof row !== 'object') return row;
+  for (const k in row) {
+    const v = row[k];
+    if (typeof v === 'string' && v.startsWith(ENC_P) && COORD.has(k)) row[k] = await decVal(kp, v, k);
+  }
+  return row;
+}
+const coordPosCache = new Map();
+/** SQL 문장에서 '?' 자리 가운데 좌표 칸에 들어가는 것의 순번(0부터)을 찾는다. INSERT … VALUES(…) 와 SET 칸=? 두 모양을 본다. */
+function coordPos(sql) {
+  const hit = coordPosCache.get(sql);
+  if (hit) return hit;
+  const out = [];
+  let rest = sql, base = 0;
+  const m = /^\s*INSERT\s+(?:OR\s+\w+\s+)?INTO\s+\w+\s*\(([^)]*)\)\s*VALUES\s*\(/i.exec(sql);
+  if (m) {
+    const cols = m[1].split(',').map((s) => s.trim());
+    const toks = [];
+    let tok = '', depth = 1, q = false, i = m[0].length;
+    for (; i < sql.length; i++) {
+      const ch = sql[i];
+      if (q) { tok += ch; if (ch === "'") q = false; continue; }
+      if (ch === "'") { q = true; tok += ch; continue; }
+      if (ch === '(') depth++;
+      else if (ch === ')') { depth--; if (depth === 0) break; }
+      if (ch === ',' && depth === 1) { toks.push(tok.trim()); tok = ''; continue; }
+      tok += ch;
+    }
+    toks.push(tok.trim());
+    let n = 0;
+    toks.forEach((t, j) => { if (t === '?') { if (COORD.has(cols[j])) out.push(n); n++; } else n += (t.match(/\?/g) || []).length; });
+    rest = sql.slice(i + 1); base = n;
+  }
+  const re = /\b(\w+)\s*=\s*\?/g;
+  let mm;
+  while ((mm = re.exec(rest))) if (COORD.has(mm[1])) out.push(base + (rest.slice(0, mm.index).match(/\?/g) || []).length);
+  if (coordPosCache.size > 400) coordPosCache.clear();
+  coordPosCache.set(sql, out);
+  return out;
+}
+/** env.DB 를 감싼다 — 쓸 때 좌표 칸을 암호화하고 읽을 때 푼다. LOC_KEY 가 없으면 env.DB 를 그대로 돌려준다. */
+function wrapDB(env) {
+  const DB = env.DB, kp = encKey(env);
+  if (!kp) return DB;
+  const mk = (sql, args) => {
+    const s = {
+      __s: 1,
+      bind: (...a) => mk(sql, a),
+      real: async () => {
+        const pos = coordPos(sql);
+        let a = args;
+        if (pos.length) { a = args.slice(); for (const p of pos) a[p] = await encVal(kp, a[p]); }
+        return DB.prepare(sql).bind(...a);
+      },
+      first: async (c) => { const r = await decRow(kp, await (await s.real()).first()); return c ? (r ? r[c] : null) : r; },
+      all: async () => { const r = await (await s.real()).all(); if (r && r.results) await Promise.all(r.results.map((x) => decRow(kp, x))); return r; },
+      run: async () => (await s.real()).run(),
+    };
+    return s;
+  };
+  return {
+    prepare: (sql) => mk(sql, []),
+    batch: async (arr) => {
+      const reals = await Promise.all(arr.map((x) => (x && x.__s ? x.real() : x)));
+      const rs = await DB.batch(reals);
+      for (const r of rs) if (r && r.results) await Promise.all(r.results.map((x) => decRow(kp, x)));
+      return rs;
+    },
+    exec: (q) => DB.exec(q),
+  };
+}
+/** 1분 크론: 아직 암호화되지 않은 옛 좌표를 한 번에 150행까지 옮긴다(다 옮기면 조회 한 번으로 끝). 읽은 뒤 그 사이 값이 바뀌었으면(조건 불일치) 건드리지 않는다. */
+async function encMigrate(env) {
+  const kp = encKey(env);
+  if (!kp) return;
+  const RAW = env.DB;
+  let budget = 150;
+  for (const t of Object.keys(LOC_TABLES)) {
+    if (budget <= 0) break;
+    const cols = LOC_TABLES[t];
+    const cond = cols.map((c) => (TXT.has(c) ? '(' + c + " IS NOT NULL AND " + c + "<>'' AND " + c + " NOT LIKE 'e1:%')" : '(typeof(' + c + ")IN('real','integer') AND " + c + '<>0)')).join(' OR ');
+    const rows = ((await RAW.prepare('SELECT rowid AS rid,' + cols.join(',') + ' FROM ' + t + ' WHERE ' + cond + ' LIMIT ?').bind(budget).all()).results) || [];
+    const st = [];
+    for (const r of rows) {
+      const use = cols.filter((c) => (TXT.has(c) ? typeof r[c] === 'string' && r[c] !== '' && !r[c].startsWith(ENC_P) : typeof r[c] === 'number' && r[c] !== 0));
+      if (!use.length) continue;
+      const vals = [];
+      for (const c of use) vals.push(await encVal(kp, r[c]));
+      st.push(RAW.prepare('UPDATE ' + t + ' SET ' + use.map((c) => c + '=?').join(',') + ' WHERE rowid=? AND ' + use[0] + '=?').bind(...vals, r.rid, r[use[0]]));
+    }
+    for (let i = 0; i < st.length; i += 50) await RAW.batch(st.slice(i, i + 50));
+    budget -= rows.length;
+  }
 }
 
 let ready = false;
@@ -1596,7 +1734,7 @@ function legalPage(url, env) {
   return page(kind === 'privacy' ? '개인정보 처리방침' : '위치기반서비스 이용약관', warn + mdHtml(md) + '<p style="margin-top:28px"><a href="/legal/' + (kind === 'privacy' ? 'terms' : 'privacy') + '">' + (kind === 'privacy' ? '위치기반서비스 이용약관 보기' : '개인정보 처리방침 보기') + '</a></p>');
 }
 async function handle(req, env, url) {
-  const DB = env.DB, now = Date.now(), p = url.pathname, m = req.method;
+  const DB = wrapDB(env), now = Date.now(), p = url.pathname, m = req.method;
   if (m === 'GET' && (p === '/legal' || p.startsWith('/legal/'))) return legalPage(url, env);          // s430: 공개 쪽(DB 를 건드리지 않는다)
   await init(DB);
   billInit(env);
