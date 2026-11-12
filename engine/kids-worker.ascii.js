@@ -188,7 +188,8 @@ async function strangeStop(env, DB, cid, c, name, now) {
   const atPlace = pls.some((q) => hav(la, lo, q.la, q.lo) <= HERE_M);
   const first = (await DB.prepare('SELECT MIN(t) m FROM stops WHERE cid=?').bind(cid).first() || {}).m || 0;
   const dLa = STRANGE_M / 111320, dLo = STRANGE_M / (111320 * Math.max(0.2, Math.cos((la * Math.PI) / 180)));
-  const known = (await DB.prepare('SELECT COUNT(DISTINCT d) n FROM stops WHERE cid=? AND t>? AND la BETWEEN ? AND ? AND lo BETWEEN ? AND ?').bind(cid, now - STRANGE_KEEP, la - dLa, la + dLa, lo - dLo, lo + dLo).first() || { n: 0 }).n;
+  const kr = ((await DB.prepare('SELECT la,lo,d FROM stops WHERE cid=? AND t>?').bind(cid, now - STRANGE_KEEP).all()).results) || [];      // \uc88c\ud45c\ub294 \uc554\ud638\ud654\ub418\uc5b4 \uc788\uc5b4 SQL \ubc94\uc704 \ube44\uad50 \ub300\uc2e0 \ud480\uc5b4\uc11c \uac00\ub9b0\ub2e4
+  const known = new Set(kr.filter((q) => q.la >= la - dLa && q.la <= la + dLa && q.lo >= lo - dLo && q.lo <= lo + dLo).map((q) => q.d)).size;
   await DB.batch([
     DB.prepare('INSERT INTO stops(cid,la,lo,t,d) VALUES(?,?,?,?,?)').bind(cid, la, lo, c.t1, day),
     DB.prepare('DELETE FROM stops WHERE cid=? AND (t<? OR id NOT IN (SELECT id FROM stops WHERE cid=? ORDER BY id DESC LIMIT ?))').bind(cid, now - STRANGE_KEEP, cid, MAX_STOPS),
@@ -562,10 +563,11 @@ async function pruneOld(DB, now) {
   await DB.batch([DB.prepare('DELETE FROM calls WHERE t<?').bind(now - CALL_KEEP), DB.prepare('DELETE FROM subs WHERE exp<?').bind(now - 400 * DAY), DB.prepare('DELETE FROM routes WHERE t1<?').bind(now - RT_MAX_AGE), DB.prepare('DELETE FROM stops WHERE t<?').bind(now - STRANGE_KEEP), DB.prepare('DELETE FROM zt WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM drafts WHERE t<?').bind(now - DAY), DB.prepare('DELETE FROM lbs WHERE t<?').bind(now - LBS_KEEP), DB.prepare('DELETE FROM cons WHERE t<?').bind(now - 2 * LBS_KEEP)]);          // \uc4f0\ub2e4 \ub9cc \uc7a5\uc18c \ub4f1\ub85d \u00b7 \uace0\uce58\uae30 \uc784\uc2dc\ubcf8(\uc8fc\uc18c \uac80\uc0c9\uc5b4 \ud3ec\ud568)\uc740 \ud558\ub8e8 \ub4a4 \uc9c0\uc6b4\ub2e4
 }
 async function cron(env) {
-  const DB = env.DB, now = Date.now();
+  const DB = wrapDB(env), now = Date.now();
   await init(DB);
   await tripsCron(env, DB, now);
   try { await pruneOld(DB, now); } catch (e) { /* \uc815\ub9ac\uac00 \uc54c\ub9bc\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ }
+  try { await encMigrate(env); } catch (e) { /* \uc61b \uc88c\ud45c \uc554\ud638\ud654 \uc62e\uae30\uae30\ub294 \uc54c\ub9bc\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ }
   try { await mxSnap(DB, now); } catch (e) { /* \uc9c0\ud45c \uc810\uac80\uc774 \uc54c\ub9bc\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ }
   try { await safetyCron(env, DB, now, (u) => fetch(u)); } catch (e) { /* \uc548\uc804 \uc810\uac80\uc774 \uc77c\uc815 \uc54c\ub9bc\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ }
 }
@@ -588,6 +590,142 @@ async function tripsCron(env, DB, now) {
     if (!(r.pn & 8) && !r.tc && !r.ta && now >= eta + MISS_AFTER && now <= eta + STAY && (await once(DB, r.id, 8)))
       await notifyParents(env, DB, r.cid, (nm) => ({ k: 'miss', title: '\uae38\ub3d9\ubb34', body: who(nm) + ' ' + r.name + '\uc5d0 ' + (r.st === 'go' ? '\uac00\uace0 \uc788\uc5b4\uc694 \u00b7 \uc57d\uc18d \uc2dc\uac01(' + clock(eta) + ')\uc774 \uc9c0\ub0ac\uc5b4\uc694' : '\ub3c4\ucc29\ud558\uc9c0 \uc54a\uc558\uc5b4\uc694 (' + clock(eta) + ' \uc57d\uc18d)'), tag: 'trip' + r.id }));
   });
+}
+
+// \u2500\u2500 \uc704\uce58\uc815\ubcf4 \uc554\ud638\ud654 \uc800\uc7a5(s444) \u2500\u2500
+// \uc88c\ud45c\uac00 \ub4e4\uc5b4\uac00\ub294 \ubaa8\ub4e0 \uce78(COORD)\uc740 D1 \uc5d0 \uc4f0\uae30 \uc804\uc5d0 AES-256-GCM \uc73c\ub85c \uc554\ud638\ud654\ud558\uace0, \uc77d\uc740 \ub4a4\uc5d0 \ud480\uc5b4\uc11c \uc4f4\ub2e4. \ud0a4\ub294 \uc6cc\ucee4 \ube44\ubc00\uac12 LOC_KEY \uc5d0\uc11c\ub9cc \ub098\uc628\ub2e4(\ucf54\ub4dc \u00b7 D1 \uc5b4\ub514\uc5d0\ub3c4 \uc5c6\ub2e4).
+// \ube44\ubc00\uac12\uc774 \uc5c6\uc73c\uba74 \uc608\uc804 \uadf8\ub300\ub85c(\uc554\ud638\ud654\ud558\uc9c0 \uc54a\uace0 \uc77d\uace0 \uc4f4\ub2e4). \uc788\uc73c\uba74 \uc0c8\ub85c \uc4f0\ub294 \uac12\ubd80\ud130 \uc554\ud638\ud654\ud558\uace0, \uc774\ubbf8 \uc313\uc778 \uac12\uc740 1\ubd84 \ud06c\ub860\uc774 \uc870\uae08\uc529 \uc62e\uae34\ub2e4. \uc77d\uc744 \ub54c\ub294 \uc554\ud638\ubb38\uacfc \uc61b \uc22b\uc790\ub97c \ub458 \ub2e4 \ubc1b\ub294\ub2e4.
+// \uc554\ud638\ubb38 \ubaa8\uc591: 'e1:' + base64(\ubb34\uc791\uc704 12\ubc14\uc774\ud2b8 + \uc554\ud638\ubb38 + \uc778\uc99d \ud0dc\uadf8). \uac19\uc740 \uc88c\ud45c\ub3c4 \uc4f8 \ub54c\ub9c8\ub2e4 \ub2e4\ub974\uac8c \ubcf4\uc778\ub2e4.
+const COORD = new Set(['la', 'lo', 'pla', 'plo', 'dla', 'dlo', 'rsa', 'rso', 'mva', 'mvo', 'ha', 'hb', 'pts', 'dn']);
+const TXT = new Set(['pts', 'dn']);      // \uae00\ub85c \ub41c \uce78(\uc9c0\ub09c \uacbd\ub85c \u00b7 \ub3d9\ub124 \uc774\ub984) \u2014 \ub098\uba38\uc9c0\ub294 \uc22b\uc790
+const ENC_P = 'e1:';
+const LOC_TABLES = { loc: ['la', 'lo', 'pla', 'plo', 'mva', 'mvo', 'ha', 'hb', 'dn'], locs: ['la', 'lo'], stops: ['la', 'lo'], places: ['la', 'lo'], calls: ['la', 'lo'], drafts: ['la', 'lo'], rtst: ['dla', 'dlo', 'rsa', 'rso'], routes: ['pts'] };
+let encKeyP = null, encKeySrc = '';
+const decCache = new Map();
+function encKey(env) {
+  const s = env && env.LOC_KEY ? String(env.LOC_KEY) : '';
+  if (!s) return null;
+  if (!encKeyP || encKeySrc !== s) {
+    encKeySrc = s; decCache.clear();
+    encKeyP = crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)).then((h) => crypto.subtle.importKey('raw', h, 'AES-GCM', false, ['encrypt', 'decrypt']));
+  }
+  return encKeyP;
+}
+async function encVal(kp, v) {
+  if (v === null || v === undefined || v === 0 || v === '') return v;
+  if (typeof v === 'string' && v.startsWith(ENC_P)) return v;
+  if (typeof v !== 'number' && typeof v !== 'string') return v;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await kp, new TextEncoder().encode(String(v))));
+  const o = new Uint8Array(12 + ct.length); o.set(iv); o.set(ct, 12);
+  let s = ''; for (let i = 0; i < o.length; i++) s += String.fromCharCode(o[i]);
+  return ENC_P + btoa(s);
+}
+async function decVal(kp, c, k) {
+  const hit = decCache.get(c);
+  if (hit !== undefined) return hit;
+  const bin = atob(c.slice(ENC_P.length)), u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  const pt = new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, await kp, u.slice(12)));
+  const r = TXT.has(k) ? pt : +pt;
+  if (decCache.size > 8000) decCache.clear();
+  decCache.set(c, r);
+  return r;
+}
+async function decRow(kp, row) {
+  if (!row || typeof row !== 'object') return row;
+  for (const k in row) {
+    const v = row[k];
+    if (typeof v === 'string' && v.startsWith(ENC_P) && COORD.has(k)) row[k] = await decVal(kp, v, k);
+  }
+  return row;
+}
+const coordPosCache = new Map();
+/** SQL \ubb38\uc7a5\uc5d0\uc11c '?' \uc790\ub9ac \uac00\uc6b4\ub370 \uc88c\ud45c \uce78\uc5d0 \ub4e4\uc5b4\uac00\ub294 \uac83\uc758 \uc21c\ubc88(0\ubd80\ud130)\uc744 \ucc3e\ub294\ub2e4. INSERT \u2026 VALUES(\u2026) \uc640 SET \uce78=? \ub450 \ubaa8\uc591\uc744 \ubcf8\ub2e4. */
+function coordPos(sql) {
+  const hit = coordPosCache.get(sql);
+  if (hit) return hit;
+  const out = [];
+  let rest = sql, base = 0;
+  const m = /^\s*INSERT\s+(?:OR\s+\w+\s+)?INTO\s+\w+\s*\(([^)]*)\)\s*VALUES\s*\(/i.exec(sql);
+  if (m) {
+    const cols = m[1].split(',').map((s) => s.trim());
+    const toks = [];
+    let tok = '', depth = 1, q = false, i = m[0].length;
+    for (; i < sql.length; i++) {
+      const ch = sql[i];
+      if (q) { tok += ch; if (ch === "'") q = false; continue; }
+      if (ch === "'") { q = true; tok += ch; continue; }
+      if (ch === '(') depth++;
+      else if (ch === ')') { depth--; if (depth === 0) break; }
+      if (ch === ',' && depth === 1) { toks.push(tok.trim()); tok = ''; continue; }
+      tok += ch;
+    }
+    toks.push(tok.trim());
+    let n = 0;
+    toks.forEach((t, j) => { if (t === '?') { if (COORD.has(cols[j])) out.push(n); n++; } else n += (t.match(/\?/g) || []).length; });
+    rest = sql.slice(i + 1); base = n;
+  }
+  const re = /\b(\w+)\s*=\s*\?/g;
+  let mm;
+  while ((mm = re.exec(rest))) if (COORD.has(mm[1])) out.push(base + (rest.slice(0, mm.index).match(/\?/g) || []).length);
+  if (coordPosCache.size > 400) coordPosCache.clear();
+  coordPosCache.set(sql, out);
+  return out;
+}
+/** env.DB \ub97c \uac10\uc2fc\ub2e4 \u2014 \uc4f8 \ub54c \uc88c\ud45c \uce78\uc744 \uc554\ud638\ud654\ud558\uace0 \uc77d\uc744 \ub54c \ud47c\ub2e4. LOC_KEY \uac00 \uc5c6\uc73c\uba74 env.DB \ub97c \uadf8\ub300\ub85c \ub3cc\ub824\uc900\ub2e4. */
+function wrapDB(env) {
+  const DB = env.DB, kp = encKey(env);
+  if (!kp) return DB;
+  const mk = (sql, args) => {
+    const s = {
+      __s: 1,
+      bind: (...a) => mk(sql, a),
+      real: async () => {
+        const pos = coordPos(sql);
+        let a = args;
+        if (pos.length) { a = args.slice(); for (const p of pos) a[p] = await encVal(kp, a[p]); }
+        return DB.prepare(sql).bind(...a);
+      },
+      first: async (c) => { const r = await decRow(kp, await (await s.real()).first()); return c ? (r ? r[c] : null) : r; },
+      all: async () => { const r = await (await s.real()).all(); if (r && r.results) await Promise.all(r.results.map((x) => decRow(kp, x))); return r; },
+      run: async () => (await s.real()).run(),
+    };
+    return s;
+  };
+  return {
+    prepare: (sql) => mk(sql, []),
+    batch: async (arr) => {
+      const reals = await Promise.all(arr.map((x) => (x && x.__s ? x.real() : x)));
+      const rs = await DB.batch(reals);
+      for (const r of rs) if (r && r.results) await Promise.all(r.results.map((x) => decRow(kp, x)));
+      return rs;
+    },
+    exec: (q) => DB.exec(q),
+  };
+}
+/** 1\ubd84 \ud06c\ub860: \uc544\uc9c1 \uc554\ud638\ud654\ub418\uc9c0 \uc54a\uc740 \uc61b \uc88c\ud45c\ub97c \ud55c \ubc88\uc5d0 150\ud589\uae4c\uc9c0 \uc62e\uae34\ub2e4(\ub2e4 \uc62e\uae30\uba74 \uc870\ud68c \ud55c \ubc88\uc73c\ub85c \ub05d). \uc77d\uc740 \ub4a4 \uadf8 \uc0ac\uc774 \uac12\uc774 \ubc14\ub00c\uc5c8\uc73c\uba74(\uc870\uac74 \ubd88\uc77c\uce58) \uac74\ub4dc\ub9ac\uc9c0 \uc54a\ub294\ub2e4. */
+async function encMigrate(env) {
+  const kp = encKey(env);
+  if (!kp) return;
+  const RAW = env.DB;
+  let budget = 150;
+  for (const t of Object.keys(LOC_TABLES)) {
+    if (budget <= 0) break;
+    const cols = LOC_TABLES[t];
+    const cond = cols.map((c) => (TXT.has(c) ? '(' + c + " IS NOT NULL AND " + c + "<>'' AND " + c + " NOT LIKE 'e1:%')" : '(typeof(' + c + ")IN('real','integer') AND " + c + '<>0)')).join(' OR ');
+    const rows = ((await RAW.prepare('SELECT rowid AS rid,' + cols.join(',') + ' FROM ' + t + ' WHERE ' + cond + ' LIMIT ?').bind(budget).all()).results) || [];
+    const st = [];
+    for (const r of rows) {
+      const use = cols.filter((c) => (TXT.has(c) ? typeof r[c] === 'string' && r[c] !== '' && !r[c].startsWith(ENC_P) : typeof r[c] === 'number' && r[c] !== 0));
+      if (!use.length) continue;
+      const vals = [];
+      for (const c of use) vals.push(await encVal(kp, r[c]));
+      st.push(RAW.prepare('UPDATE ' + t + ' SET ' + use.map((c) => c + '=?').join(',') + ' WHERE rowid=? AND ' + use[0] + '=?').bind(...vals, r.rid, r[use[0]]));
+    }
+    for (let i = 0; i < st.length; i += 50) await RAW.batch(st.slice(i, i + 50));
+    budget -= rows.length;
+  }
 }
 
 let ready = false;
@@ -1596,7 +1734,7 @@ function legalPage(url, env) {
   return page(kind === 'privacy' ? '\uac1c\uc778\uc815\ubcf4 \ucc98\ub9ac\ubc29\uce68' : '\uc704\uce58\uae30\ubc18\uc11c\ube44\uc2a4 \uc774\uc6a9\uc57d\uad00', warn + mdHtml(md) + '<p style="margin-top:28px"><a href="/legal/' + (kind === 'privacy' ? 'terms' : 'privacy') + '">' + (kind === 'privacy' ? '\uc704\uce58\uae30\ubc18\uc11c\ube44\uc2a4 \uc774\uc6a9\uc57d\uad00 \ubcf4\uae30' : '\uac1c\uc778\uc815\ubcf4 \ucc98\ub9ac\ubc29\uce68 \ubcf4\uae30') + '</a></p>');
 }
 async function handle(req, env, url) {
-  const DB = env.DB, now = Date.now(), p = url.pathname, m = req.method;
+  const DB = wrapDB(env), now = Date.now(), p = url.pathname, m = req.method;
   if (m === 'GET' && (p === '/legal' || p.startsWith('/legal/'))) return legalPage(url, env);          // s430: \uacf5\uac1c \ucabd(DB \ub97c \uac74\ub4dc\ub9ac\uc9c0 \uc54a\ub294\ub2e4)
   await init(DB);
   billInit(env);
