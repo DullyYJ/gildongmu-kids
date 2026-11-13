@@ -1,4 +1,4 @@
-// 지난 경로 보관 시험(s391): 30분 정지 → 길 저장 · 가족구성원당 10개(11번째부터 오래된 것 삭제) · 150m 미만 제외 · 보고 끊김은 정지가 아님 · 지난 경로 보기 화면 · 연결 해제 시 삭제
+// 지난 경로 보관 시험(s391 · s453 개정: 10분·50m): 10분 정지 → 길 저장 · 가족구성원당 10개(11번째부터 오래된 것 삭제) · 150m 미만 제외 · 보고 끊김은 정지가 아님 · 지난 경로 보기 화면 · 연결 해제 시 삭제
 // 실행: node --no-warnings test/route_keep.test.mjs   (Node 22+ 의 node:sqlite 로 가짜 D1 을 만들어 워커를 그대로 돌린다)
 import fs from 'fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -24,22 +24,27 @@ const MIN = 60000;
   step(37.5, 127, 0, 0);
   step(37.5, 127, 5 * MIN, t);
   chk(!close, '5분 머문 것으로는 길을 닫지 않는다');
-  step(37.5, 127, 29 * MIN, t + 24 * MIN);
-  chk(!close, '29분에도 닫지 않는다');
-  step(37.5, 127, 30 * MIN, t + 29 * MIN);
-  chk(!!close && close.t1 === t, '30분이 되면 닫는다(정지가 시작된 시각 t1)');
+  step(37.5, 127, 9 * MIN, t + 5 * MIN);
+  chk(!close, '9분에도 닫지 않는다');
+  step(37.5, 127, 10 * MIN, t + 9 * MIN);
+  chk(!!close && close.t1 === t, '10분이 되면 닫는다(정지가 시작된 시각 t1) — s453');
   const c1 = close; close = null;
-  step(37.5, 127, 40 * MIN, t + 30 * MIN);
-  chk(!close, '이미 닫은 정지에서 계속 있어도 다시 닫지 않는다');
+  let od = null;
+  { const r = step(37.5, 127, 20 * MIN, t + 10 * MIN); od = r.odd; }
+  chk(!close && !od, '닫은 뒤 20분째에는 길도 낯선 곳 판정도 없다');
+  { const r = step(37.5, 127, 30 * MIN, t + 20 * MIN); od = r.odd; }
+  chk(!close && od && od.t1 === t && st.od === 1, '30분 넘게 머무르면 낯선 곳 판정(odd)이 한 번 나온다(예전 30분 규칙 그대로)');
+  { const r = step(37.5, 127, 35 * MIN, t + 30 * MIN); chk(!r.odd && !r.close, '낯선 곳 판정은 한 번뿐이다'); }
+  { const r = step(37.5 + 40 * M, 127, 36 * MIN, t + 35 * MIN); chk(r.st.cl === 1, '50m 안(40m)에서 움직이는 것은 출발이 아니다'); st = r.st; }
   step(37.5 + 150 * M, 127, 45 * MIN, t + 40 * MIN);
-  chk(st.cl === 0 && st.rte === t + 40 * MIN && st.rsa === 37.5, '100m 넘게 벗어나면 출발 — 새 길은 바로 앞 보고 이후부터, 출발 자리를 기억');
+  chk(st.cl === 0 && st.od === 0 && st.rte === t + 40 * MIN && st.rsa === 37.5, '50m 넘게 벗어나면 출발 — 새 길은 바로 앞 보고 이후부터, 출발 자리를 기억');
   chk(st.sn === '집', '출발지 이름은 닫을 때의 이름');
 }
 { // 보고가 20분 넘게 끊기면 센 시간이 이어지지 않는다
   let st = P.rtNext(null, 37.5, 127, 1e12, 0, '', hv).st;
-  let r = P.rtNext(st, 37.5, 127, 1e12 + 10 * MIN, 1e12, '', hv); st = r.st;
-  r = P.rtNext(st, 37.5, 127, 1e12 + 45 * MIN, 1e12 + 10 * MIN, '', hv);          // 35분 만에 다시 보고 — 사이가 끊겼다
-  chk(!r.close && r.st.dt === 1e12 + 45 * MIN, '35분 동안 끊겼다 돌아온 보고는 정지로 치지 않고 여기서 새로 센다');
+  let r = P.rtNext(st, 37.5, 127, 1e12 + 5 * MIN, 1e12, '', hv); st = r.st;
+  r = P.rtNext(st, 37.5, 127, 1e12 + 45 * MIN, 1e12 + 5 * MIN, '', hv);          // 40분 만에 다시 보고 — 사이가 끊겼다
+  chk(!r.close && r.st.dt === 1e12 + 45 * MIN, '40분 동안 끊겼다 돌아온 보고는 정지로 치지 않고 여기서 새로 센다');
 }
 { // 점 간추리기
   const line = []; for (let i = 0; i < 2000; i++) line.push([37.5 + i * 5 * M, 127 + Math.sin(i / 40) * 30 * M * 1.3]);
@@ -108,17 +113,22 @@ const pts0 = rt[0] ? JSON.parse(rt[0].pts) : [];
 chk(pts0.length >= 2 && pts0.length <= P.RT_PTS, '점 ' + pts0.length + '개(≤' + P.RT_PTS + ')');
 chk(rt[0] && rt[0].t1 > rt[0].t0, '시작·끝 시각 순서');
 
-await trip(150, 35);                                  // 150m 만 가서 머묾 → 150m 이상이라 저장한다
+const trailOf = async () => { const h = await req('GET', '/p/screen?v=hub&cid=' + CID, 'p'); const tm = JSON.stringify(h.screen).match(/"t":"tmap"[^}]*?"line":(\[\[[^"]*?\]\])/); return tm ? JSON.parse(tm[1]).length : 0; };
+chk((await trailOf()) === 0, '길을 닫은 정지에 머무는 동안은 흔적 줄이 없다(s453)');
+await walk(150);                                       // 150m 만 가서
+chk((await trailOf()) >= 2, '출발하면 출발 자리부터 흔적 줄이 새로 그려진다(s453) — ' + (await trailOf()) + '점');
+await stay(35);                                        // 머묾 → 150m 이상이라 저장한다
+chk((await trailOf()) === 0, '10분 넘게 머물러 길이 저장되면 흔적 줄이 지워진다(s453)');
 chk(rows('SELECT * FROM routes').length === 2, '250m 이동 뒤 정지는 저장한다(150m 이상)');
-{ const before = rows('SELECT * FROM routes').length; await walk(60, 60); await stay(35); chk(rows('SELECT * FROM routes').length === before, '반경(100m) 안에서 60m 만 움직이면 출발로 치지 않아 새 길이 생기지 않는다'); }
+{ const before = rows('SELECT * FROM routes').length; await walk(40, 40); await stay(35); chk(rows('SELECT * FROM routes').length === before, '반경(50m) 안에서 40m 만 움직이면 출발로 치지 않아 새 길이 생기지 않는다'); }
 
 // 보고가 25분 끊겼다 돌아온 경우: 가짜 정지를 만들지 않는다
 await walk(1000);
 NOW += 60 * MIN;                                       // 폰이 꺼져 있던 1시간
-await stay(20);                                        // 돌아와서 20분만 보고(센 시간이 새로 시작)
-chk(rows('SELECT * FROM routes').length === 2, '끊겼다 돌아온 뒤 20분만으로는 정지로 치지 않는다');
-await stay(20);                                        // 합쳐 40분 — 이제 새로 센 30분이 넘는다
-chk(rows('SELECT * FROM routes').length === 3, '돌아온 뒤 30분을 다시 채우면 저장된다');
+await stay(5);                                         // 돌아와서 5분만 보고(센 시간이 새로 시작)
+chk(rows('SELECT * FROM routes').length === 2, '끊겼다 돌아온 뒤 5분만으로는 정지로 치지 않는다');
+await stay(10);                                        // 합쳐 15분 — 이제 새로 센 10분이 넘는다
+chk(rows('SELECT * FROM routes').length === 3, '돌아온 뒤 10분을 다시 채우면 저장된다');
 
 // 11번째부터는 오래된 것 삭제
 for (let i = 0; i < 11; i++) await trip(700 + i * 10);
