@@ -88,20 +88,23 @@ const EV_KEEP = 3 * DAY, MAX_EV = 150;
 // 이동 이력(p-kids65): 가족구성원이 보낸 위치를 CRUMB_M(40m, 오차가 더 크면 오차) 넘게 움직였을 때마다 한 점씩 쌓아 3일 보관하고, 부모 가족 탭 지도에 지난 TRAIL_MS 의 경로(line)로 그린다.
 // 활동 줄 'mv'(이동 중 · 동네 · 거리)는 마지막 줄을 남긴 자리에서 MV_EV_M(200m) 넘게, 그리고 MV_EV_GAP(2.8분) 넘게 지났을 때만 남긴다.
 const TRAIL_KEEP = 3 * DAY, TRAIL_MS = 6 * 3600000, MAX_TRAIL = 1500, TRAIL_PTS = 400, CRUMB_M = 40, MV_EV_M = 200, MV_EV_GAP = 170000;
-// ───────── 지난 경로 보관(s391): 한 곳에 30분 넘게 머물면 그 전까지 이동한 길을 한 건으로 닫아 가족구성원당 10개까지 둔다(11번째부터 가장 오래된 것을 지운다) ─────────
-// 정지 = 위치가 이어서 들어오는 동안 반경 RT_DWELL_M(100m) 안에 RT_DWELL_MS(30분) 넘게. 보고가 RT_GAP_MS(20분) 넘게 끊기면 '정지'로 치지 않는다(꺼졌던 폰으로 가짜 경로를 만들지 않게).
+// ───────── 지난 경로 보관(s391 · s453 개정): 한 곳에 10분 넘게 머물면 그 전까지 이동한 길을 한 건으로 닫아 가족구성원당 10개까지 둔다(11번째부터 가장 오래된 것을 지운다) — 닫으면 지도의 실시간 흔적 줄은 지우고 새로 그린다 ─────────
+// 정지 = 위치가 이어서 들어오는 동안 반경 RT_DWELL_M(50m) 안에 RT_DWELL_MS(10분) 넘게(s453, YJ: 10분 이상 주변 50m 안이면 흔적을 지우고 저장). 낯선 곳 알림(strangeStop)은 예전 그대로 30분(RT_ODD_MS) 넘게 머물 때만. 보고가 RT_GAP_MS(20분) 넘게 끊기면 '정지'로 치지 않는다(꺼졌던 폰으로 가짜 경로를 만들지 않게).
 // 이동 거리가 RT_MIN_M(150m) 미만이면 저장하지 않는다(집 안 · GPS 흔들림이 10칸을 채우지 않게). 점은 RT_PTS(300)개 이하로 간추려 둔다(화면 지도가 400점까지 받는다).
-const RT_KEEP = 10, RT_MIN_M = 150, RT_DWELL_M = 100, RT_DWELL_MS = 30 * 60000, RT_GAP_MS = 20 * 60000, RT_PTS = 300, RT_VIEW_MS = 10 * 60000;
+const RT_KEEP = 10, RT_MIN_M = 150, RT_DWELL_M = 50, RT_DWELL_MS = 10 * 60000, RT_ODD_MS = 30 * 60000, RT_GAP_MS = 20 * 60000, RT_PTS = 300, RT_VIEW_MS = 10 * 60000;
 // 지난 경로는 10개이면서 7일(RT_MAX_AGE)이 지나면 지운다(개인정보: 오래 쌓아 두지 않는다 — DESIGN.md 9장 11번). 머문 곳은 30일(STRANGE_KEEP) · 도착/출발 알림 시각은 하루.
 const RT_MAX_AGE = 7 * 24 * 3600000;
 // ── routes:begin (순수 계산 — 시험이 이 구간을 떼어 돌린다) ──
 /** 정지 상태 한 걸음. st = {dla,dlo,dt,cl,rte,rsa,rso,sn,en}(없으면 null) · lastT = 바로 앞 보고 시각(0 이면 없음) · name = 지금 있는 곳 이름.
  *  돌려주는 값 {st, close} — close = {t1, from:[la,lo]|null, since, sn, en} 이면 '지금까지의 길'을 한 건으로 닫으라는 뜻(점은 호출한 쪽이 since 이후 · t1 이전 기록에서 읽는다). */
 function rtNext(st, la, lo, now, lastT, name, hav) {
-  if (!st) return { st: { dla: la, dlo: lo, dt: now, cl: 0, rte: 0, rsa: null, rso: null, sn: '', en: '' }, close: null };
+  if (!st) return { st: { dla: la, dlo: lo, dt: now, cl: 0, od: 0, rte: 0, rsa: null, rso: null, sn: '', en: '' }, close: null };
   const n = Object.assign({}, st), d = hav(st.dla, st.dlo, la, lo);
   if (d <= RT_DWELL_M) {
-    if (st.cl) return { st: n, close: null };                                   // 이미 닫은 정지 — 가만히 있는 동안은 아무 일 없다
+    if (st.cl) {                                                                // 이미 닫은 정지 — 가만히 있는 동안은 길을 또 닫지 않는다
+      if (!st.od && !(lastT && now - lastT > RT_GAP_MS) && now - st.dt >= RT_ODD_MS) { n.od = 1; return { st: n, close: null, odd: { t1: st.dt, to: [st.dla, st.dlo] } }; }      // s453: 30분 넘게 머무르면 낯선 곳 알림 판정(예전 30분 정지 때 하던 일)
+      return { st: n, close: null };
+    }
     if (lastT && now - lastT > RT_GAP_MS) { n.dla = la; n.dlo = lo; n.dt = now; return { st: n, close: null }; }    // 보고가 끊겼다 → 여기서 새로 센다
     if (now - st.dt >= RT_DWELL_MS) {
       n.cl = 1; n.en = name || '';
@@ -110,7 +113,7 @@ function rtNext(st, la, lo, now, lastT, name, hav) {
     return { st: n, close: null };
   }
   if (st.cl) {                                                                  // 닫힌 정지에서 벗어났다 = 출발: 새 길은 바로 앞 보고 이후의 기록부터
-    return { st: { dla: la, dlo: lo, dt: now, cl: 0, rte: lastT || st.dt, rsa: st.dla, rso: st.dlo, sn: st.en || '', en: '' }, close: null };
+    return { st: { dla: la, dlo: lo, dt: now, cl: 0, od: 0, rte: lastT || st.dt, rsa: st.dla, rso: st.dlo, sn: st.en || '', en: '' }, close: null };
   }
   n.dla = la; n.dlo = lo; n.dt = now;                                           // 움직이는 중 — 기준점을 따라 옮긴다
   return { st: n, close: null };
@@ -203,12 +206,11 @@ async function strangeStop(env, DB, cid, c, name, now) {
 }
 /** 보고가 올 때마다 부른다: 정지 판정 상태를 한 걸음 옮기고, 30분 정지가 확인되면 지금까지의 길을 한 건으로 저장한다. 저장했으면 true. */
 async function routeStep(env, DB, cid, la, lo, now, lastT, name) {
-  const row = await DB.prepare('SELECT dla,dlo,dt,cl,rte,rsa,rso,sn,en FROM rtst WHERE cid=?').bind(cid).first();
+  const row = await DB.prepare('SELECT dla,dlo,dt,cl,od,rte,rsa,rso,sn,en FROM rtst WHERE cid=?').bind(cid).first();
   const r = rtNext(row || null, la, lo, now, lastT, name, hav);
   let saved = false;
   if (r.close) {
     const c = r.close;
-    try { await strangeStop(env, DB, cid, c, name, now); } catch (e) { /* 알림이 길 저장을 막지 않는다 */ }
     const rows = ((await DB.prepare('SELECT la,lo FROM locs WHERE cid=? AND t>? AND t<=? ORDER BY id ASC LIMIT 1500').bind(cid, c.since || 0, c.t1).all()).results || []);
     const b = rtBuild(rows, c, hav);
     if (b) {
@@ -221,10 +223,11 @@ async function routeStep(env, DB, cid, la, lo, now, lastT, name) {
       saved = true;
     }
   }
+  if (r.odd) { try { await strangeStop(env, DB, cid, r.odd, name, now); } catch (e) { /* 알림이 길 저장을 막지 않는다 */ } }      // s453: 낯선 곳 판정은 30분 넘게 머문 때(길은 10분에 이미 저장)
   const o = r.st;
-  if (!row || row.dla !== o.dla || row.dlo !== o.dlo || row.dt !== o.dt || row.cl !== o.cl || row.rte !== o.rte || row.rsa !== o.rsa || row.rso !== o.rso || row.sn !== o.sn || row.en !== o.en)
-    await DB.prepare('INSERT INTO rtst(cid,dla,dlo,dt,cl,rte,rsa,rso,sn,en) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET dla=excluded.dla,dlo=excluded.dlo,dt=excluded.dt,cl=excluded.cl,rte=excluded.rte,rsa=excluded.rsa,rso=excluded.rso,sn=excluded.sn,en=excluded.en')
-      .bind(cid, o.dla, o.dlo, o.dt, o.cl, o.rte, o.rsa == null ? null : o.rsa, o.rso == null ? null : o.rso, o.sn || '', o.en || '').run();
+  if (!row || row.dla !== o.dla || row.dlo !== o.dlo || row.dt !== o.dt || row.cl !== o.cl || (row.od || 0) !== (o.od || 0) || row.rte !== o.rte || row.rsa !== o.rsa || row.rso !== o.rso || row.sn !== o.sn || row.en !== o.en)
+    await DB.prepare('INSERT INTO rtst(cid,dla,dlo,dt,cl,od,rte,rsa,rso,sn,en) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET dla=excluded.dla,dlo=excluded.dlo,dt=excluded.dt,cl=excluded.cl,od=excluded.od,rte=excluded.rte,rsa=excluded.rsa,rso=excluded.rso,sn=excluded.sn,en=excluded.en')
+      .bind(cid, o.dla, o.dlo, o.dt, o.cl, o.od || 0, o.rte, o.rsa == null ? null : o.rsa, o.rso == null ? null : o.rso, o.sn || '', o.en || '').run();
   return saved;
 }
 const EVK = new Set(['feed', 'clean', 'drop', 'dress', 'psleep', 'pstudy', 'pplay']);       // 가족구성원 앱이 알려 주는 활동 — 가족구성원이 직접 한 일만(친구들 스스로의 놀기·공부·잠·응가는 기록하지 않는다)
@@ -737,7 +740,7 @@ async function addCol(DB, table, col, ddl) {              // 옛 표에 열을 �
   try { await DB.prepare('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + ddl).run(); } catch (e) { /* 다른 요청이 먼저 덧붙였다 */ }
 }
 // s424: 서버가 새로 뜰 때마다 표 · 열 확인(약 70번)을 하던 것을 '버전 한 줄 확인'으로 바꿨다. 표 · 열을 고치면(아래 migrate) SCHEMA_V 도 올려야 새 서버가 다시 준비한다(시험이 지켜 준다).
-const SCHEMA_V = 's431-2';
+const SCHEMA_V = 's453-1';
 async function init(DB) {
   if (ready) return;
   try {
@@ -793,6 +796,8 @@ async function migrate(DB) {
   ]);
   await addCol(DB, 'loc', 'bt', 'INTEGER NOT NULL DEFAULT -1');          // 가족구성원 폰 배터리 %(모르면 -1)
   await addCol(DB, 'loc', 'ch', 'INTEGER NOT NULL DEFAULT 0');           // 충전 중이면 1
+  await addCol(DB, 'rtst', 'od', 'INTEGER NOT NULL DEFAULT 0');            // s453: 30분 넘게 머물러 낯선 곳 판정을 마쳤으면 1
+  await DB.prepare('UPDATE rtst SET od=1 WHERE cl=1 AND od=0').run();     // s453: 이미 닫힌 정지는 예전 30분 규칙으로 낯선 곳 판정을 끝낸 것 — 배포 직후 같은 알림이 한 번 더 나가지 않게
   await addCol(DB, 'drafts', 'q', "TEXT NOT NULL DEFAULT ''");           // 장소 등록: 찾아 본 주소 글
   await addCol(DB, 'devices', 'rv', 'INTEGER NOT NULL DEFAULT 0');         // 부모가 지도에서 보는 지난 경로 번호(0 = 실시간) — 10분 지나면 실시간으로 돌아간다
   await addCol(DB, 'devices', 'rvt', 'INTEGER NOT NULL DEFAULT 0');
@@ -1249,7 +1254,7 @@ async function hubScreen(DB, pid, cid, now) {
   const nm = nmOf(cur);
   // s421: 서로 기대지 않는 조회는 한꺼번에 묻는다(예전엔 16번을 줄줄이 기다려 지난 경로를 고를 때마다 1~2초가 걸렸다). 법정대리인 확인이 안 된 사람에게는 읽은 값을 쓰지 않고 돌려보낸다.
   const ALL = (q) => q.all().then((r) => (r && r.results) || []);
-  const [gok, sok, loc, wch, cs0, pls, calls, trailRows, rts, vs, qs, msgs0, rd, sync0] = await Promise.all([
+  const [gok, sok, loc, wch, cs0, pls, calls, trailRows0, rts, vs, qs, msgs0, rd, rst, sync0] = await Promise.all([
     gdOk(DB, pid),
     subOk(DB, pid, now),
     DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch,hd,hdt,mt FROM loc WHERE cid=?').bind(cid).first(),
@@ -1257,12 +1262,13 @@ async function hubScreen(DB, pid, cid, now) {
     DB.prepare('SELECT sh FROM cst WHERE cid=?').bind(cid).first(),
     ALL(DB.prepare('SELECT id,name,la,lo,hh,mm,days FROM places WHERE cid=? ORDER BY hh,mm LIMIT ?').bind(cid, MAX_PLACES)),
     ALL(DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS)),
-    ALL(DB.prepare('SELECT la,lo FROM locs WHERE cid=? AND t>=? ORDER BY id ASC LIMIT 1500').bind(cid, now - TRAIL_MS)),
+    ALL(DB.prepare('SELECT la,lo,t FROM locs WHERE cid=? AND t>=? ORDER BY id ASC LIMIT 1500').bind(cid, now - TRAIL_MS)),
     ALL(DB.prepare('SELECT id,t0,t1,m,sn,en FROM routes WHERE cid=? ORDER BY id DESC LIMIT ?').bind(cid, RT_KEEP)),
     DB.prepare('SELECT rv,rvt FROM devices WHERE id=?').bind(pid).first(),
     ALL(DB.prepare('SELECT k,s FROM quests WHERE cid=?').bind(cid)),
     ALL(DB.prepare('SELECT id,f,x,t FROM chat WHERE cid=? AND t>=? ORDER BY id DESC LIMIT ?').bind(cid, now - CHAT_KEEP, HUB_CHAT)),
     rdMap(DB, cid),
+    DB.prepare('SELECT cl,rte,rsa,rso FROM rtst WHERE cid=?').bind(cid).first(),
     tripsSync(DB, cid, now).then(() => Promise.all([todayTrips(DB, cid, now), ALL(DB.prepare('SELECT k,x,t FROM evs WHERE cid=? AND t>=? AND k NOT IN ' + EV_HIDE + ' ORDER BY id DESC LIMIT ?').bind(cid, now - EV_KEEP, EV_SHOW + 1))])),
   ]);
   if (!gok) return gdScreen(nm);                                   // 법정대리인 확인 전에는 가족구성원 위치를 보여 주지 않는다
@@ -1279,7 +1285,10 @@ async function hubScreen(DB, pid, cid, now) {
   const noLoc = !pins.length;
   if (noLoc) pins.push({ la: 37.5665, lo: 126.978, k: 's', n: '', l: '' });
   // 이동 경로: 지난 TRAIL_MS 동안 쌓인 점(최대 TRAIL_PTS 개로 솎음) + 지금 위치
-  let trail = trailRows.map((r) => [+r.la.toFixed(5), +r.lo.toFixed(5)]);
+  // s453 (YJ: 10분 넘게 50m 안에 머물면 흔적을 지우고 저장): 길을 닫은 정지에 머무는 동안은 흔적 줄이 없고, 출발하면 그 출발 자리(rsa·rso)부터 새로 그린다
+  const trailRows = rst ? (rst.cl ? [] : trailRows0.filter((r) => r.t >= (rst.rte || 0))) : trailRows0;
+  const trailOrigin = rst && !rst.cl && rst.rsa != null && rst.rso != null && trailRows.length ? [[+rst.rsa.toFixed(5), +rst.rso.toFixed(5)]] : [];
+  let trail = trailOrigin.concat(trailRows.map((r) => [+r.la.toFixed(5), +r.lo.toFixed(5)]));
   if (loc && trail.length && hav(trail[trail.length - 1][0], trail[trail.length - 1][1], loc.la, loc.lo) >= 15) trail.push([+loc.la.toFixed(5), +loc.lo.toFixed(5)]);
   if (trail.length > TRAIL_PTS) { const st2 = (trail.length - 1) / (TRAIL_PTS - 1); trail = Array.from({ length: TRAIL_PTS }, (_, i) => trail[Math.round(i * st2)]); }
   // 지난 경로 보기(s391): 부모가 고른 경로가 있고 10분이 안 지났으면 지도에 그 경로를(출발 · 도착 핀) 그린다 — 고르는 것도 그리는 것도 엔진, 앱은 받은 선과 핀을 그릴 뿐
@@ -1298,7 +1307,7 @@ async function hubScreen(DB, pid, cid, now) {
   const mapH = Math.max(150, 250 - (topCall ? HUB_CARD_H : 0) - (kids.length > 1 ? 44 : 0));
   const head = [
     viewing ? { t: 'lth', s: nm + ' 지난 경로', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '가족구성원 위치', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
-    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: mapH, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '가족구성원 위치를 아직 받지 못했어요' : follow ? '실시간으로 따라가는 중 · 지도를 밀면 잠시 멈춰요' : '지도를 3초 누르면 장소를 등록해요', lp: 'kpl.new', fp: 40, fz: 16 },
+    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: mapH, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '지난 경로 · 아래 단추로 실시간으로 돌아가요' : noLoc ? '가족구성원 위치를 아직 받지 못했어요' : follow ? '따라가는 중 · 3초 꾹 누르면 장소 등록' : '3초 꾹 누르면 장소 등록 · 두 번 탭하면 위치로', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
   for (const c of topCall ? [topCall] : []) head.unshift(panel([          // s415: 호출 내용은 가운데 팝업으로 뜬다 — 허브에는 한 줄만 남겨 눌러서 다시 열 수 있게
     tx((c.k === 'sos' ? '🚨 ' + nm + ' 긴급 호출' : '🚗 ' + nm + ' 데리러 와 달라고 해요') + (c.st === 1 ? ' · 확인함' : '') + '  ›', { size: 13.5, bold: true, color: 'orange', lines: 1, align: 'center' }),
@@ -1378,7 +1387,7 @@ function rtSub(r) { const mi = Math.max(1, Math.round((r.t1 - r.t0) / 60000)); r
 async function rtSheet(DB, pid, cid, now, notice) {
   const cur = (await childrenOf(DB, pid)).find((k) => k.cid === cid), nm = nmOf(cur);
   const rows = (await DB.prepare('SELECT id,t0,t1,m,sn,en FROM routes WHERE cid=? ORDER BY id DESC LIMIT ?').bind(cid, RT_KEEP).all()).results || [];
-  const body = [tx(nm + ' 지난 경로', { size: 15, bold: true, pad: [16, 14, 16, 4] }), tx('한 곳에 30분 넘게 머물면 그 전까지의 길이 저장돼요 · 최대 ' + RT_KEEP + '개 · ' + RT_MIN_M + 'm 미만은 저장하지 않아요', { size: 11, color: 'sub', pad: [16, 0, 16, 8] })];
+  const body = [tx(nm + ' 지난 경로', { size: 15, bold: true, pad: [16, 14, 16, 4] }), tx('한 곳에 10분 넘게 머물면 그 전까지의 길이 저장돼요 · 최대 ' + RT_KEEP + '개 · ' + RT_MIN_M + 'm 미만은 저장하지 않아요', { size: 11, color: 'sub', pad: [16, 0, 16, 8] })];
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 0, 16, 6] }));
   if (!rows.length) body.push(tx('아직 저장된 경로가 없어요', { size: 12.5, color: 'sub', pad: [16, 12, 16, 12] }));
   if (rows.length) body.push(panel(rows.map((r) => ({ t: 'navrow', title: rtTitle(r, now), sub: rtSub(r), act: call('kr.' + r.id), size: 13, vp: 8 })), { pad: [12, 0, 12, 0], ip: [14, 6, 14, 6] }));

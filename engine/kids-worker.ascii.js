@@ -88,20 +88,23 @@ const EV_KEEP = 3 * DAY, MAX_EV = 150;
 // \uc774\ub3d9 \uc774\ub825(p-kids65): \uac00\uc871\uad6c\uc131\uc6d0\uc774 \ubcf4\ub0b8 \uc704\uce58\ub97c CRUMB_M(40m, \uc624\ucc28\uac00 \ub354 \ud06c\uba74 \uc624\ucc28) \ub118\uac8c \uc6c0\uc9c1\uc600\uc744 \ub54c\ub9c8\ub2e4 \ud55c \uc810\uc529 \uc313\uc544 3\uc77c \ubcf4\uad00\ud558\uace0, \ubd80\ubaa8 \uac00\uc871 \ud0ed \uc9c0\ub3c4\uc5d0 \uc9c0\ub09c TRAIL_MS \uc758 \uacbd\ub85c(line)\ub85c \uadf8\ub9b0\ub2e4.
 // \ud65c\ub3d9 \uc904 'mv'(\uc774\ub3d9 \uc911 \u00b7 \ub3d9\ub124 \u00b7 \uac70\ub9ac)\ub294 \ub9c8\uc9c0\ub9c9 \uc904\uc744 \ub0a8\uae34 \uc790\ub9ac\uc5d0\uc11c MV_EV_M(200m) \ub118\uac8c, \uadf8\ub9ac\uace0 MV_EV_GAP(2.8\ubd84) \ub118\uac8c \uc9c0\ub0ac\uc744 \ub54c\ub9cc \ub0a8\uae34\ub2e4.
 const TRAIL_KEEP = 3 * DAY, TRAIL_MS = 6 * 3600000, MAX_TRAIL = 1500, TRAIL_PTS = 400, CRUMB_M = 40, MV_EV_M = 200, MV_EV_GAP = 170000;
-// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \uc9c0\ub09c \uacbd\ub85c \ubcf4\uad00(s391): \ud55c \uacf3\uc5d0 30\ubd84 \ub118\uac8c \uba38\ubb3c\uba74 \uadf8 \uc804\uae4c\uc9c0 \uc774\ub3d9\ud55c \uae38\uc744 \ud55c \uac74\uc73c\ub85c \ub2eb\uc544 \uac00\uc871\uad6c\uc131\uc6d0\ub2f9 10\uac1c\uae4c\uc9c0 \ub454\ub2e4(11\ubc88\uc9f8\ubd80\ud130 \uac00\uc7a5 \uc624\ub798\ub41c \uac83\uc744 \uc9c0\uc6b4\ub2e4) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-// \uc815\uc9c0 = \uc704\uce58\uac00 \uc774\uc5b4\uc11c \ub4e4\uc5b4\uc624\ub294 \ub3d9\uc548 \ubc18\uacbd RT_DWELL_M(100m) \uc548\uc5d0 RT_DWELL_MS(30\ubd84) \ub118\uac8c. \ubcf4\uace0\uac00 RT_GAP_MS(20\ubd84) \ub118\uac8c \ub04a\uae30\uba74 '\uc815\uc9c0'\ub85c \uce58\uc9c0 \uc54a\ub294\ub2e4(\uaebc\uc84c\ub358 \ud3f0\uc73c\ub85c \uac00\uc9dc \uacbd\ub85c\ub97c \ub9cc\ub4e4\uc9c0 \uc54a\uac8c).
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 \uc9c0\ub09c \uacbd\ub85c \ubcf4\uad00(s391 \u00b7 s453 \uac1c\uc815): \ud55c \uacf3\uc5d0 10\ubd84 \ub118\uac8c \uba38\ubb3c\uba74 \uadf8 \uc804\uae4c\uc9c0 \uc774\ub3d9\ud55c \uae38\uc744 \ud55c \uac74\uc73c\ub85c \ub2eb\uc544 \uac00\uc871\uad6c\uc131\uc6d0\ub2f9 10\uac1c\uae4c\uc9c0 \ub454\ub2e4(11\ubc88\uc9f8\ubd80\ud130 \uac00\uc7a5 \uc624\ub798\ub41c \uac83\uc744 \uc9c0\uc6b4\ub2e4) \u2014 \ub2eb\uc73c\uba74 \uc9c0\ub3c4\uc758 \uc2e4\uc2dc\uac04 \ud754\uc801 \uc904\uc740 \uc9c0\uc6b0\uace0 \uc0c8\ub85c \uadf8\ub9b0\ub2e4 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// \uc815\uc9c0 = \uc704\uce58\uac00 \uc774\uc5b4\uc11c \ub4e4\uc5b4\uc624\ub294 \ub3d9\uc548 \ubc18\uacbd RT_DWELL_M(50m) \uc548\uc5d0 RT_DWELL_MS(10\ubd84) \ub118\uac8c(s453, YJ: 10\ubd84 \uc774\uc0c1 \uc8fc\ubcc0 50m \uc548\uc774\uba74 \ud754\uc801\uc744 \uc9c0\uc6b0\uace0 \uc800\uc7a5). \ub0af\uc120 \uacf3 \uc54c\ub9bc(strangeStop)\uc740 \uc608\uc804 \uadf8\ub300\ub85c 30\ubd84(RT_ODD_MS) \ub118\uac8c \uba38\ubb3c \ub54c\ub9cc. \ubcf4\uace0\uac00 RT_GAP_MS(20\ubd84) \ub118\uac8c \ub04a\uae30\uba74 '\uc815\uc9c0'\ub85c \uce58\uc9c0 \uc54a\ub294\ub2e4(\uaebc\uc84c\ub358 \ud3f0\uc73c\ub85c \uac00\uc9dc \uacbd\ub85c\ub97c \ub9cc\ub4e4\uc9c0 \uc54a\uac8c).
 // \uc774\ub3d9 \uac70\ub9ac\uac00 RT_MIN_M(150m) \ubbf8\ub9cc\uc774\uba74 \uc800\uc7a5\ud558\uc9c0 \uc54a\ub294\ub2e4(\uc9d1 \uc548 \u00b7 GPS \ud754\ub4e4\ub9bc\uc774 10\uce78\uc744 \ucc44\uc6b0\uc9c0 \uc54a\uac8c). \uc810\uc740 RT_PTS(300)\uac1c \uc774\ud558\ub85c \uac04\ucd94\ub824 \ub454\ub2e4(\ud654\uba74 \uc9c0\ub3c4\uac00 400\uc810\uae4c\uc9c0 \ubc1b\ub294\ub2e4).
-const RT_KEEP = 10, RT_MIN_M = 150, RT_DWELL_M = 100, RT_DWELL_MS = 30 * 60000, RT_GAP_MS = 20 * 60000, RT_PTS = 300, RT_VIEW_MS = 10 * 60000;
+const RT_KEEP = 10, RT_MIN_M = 150, RT_DWELL_M = 50, RT_DWELL_MS = 10 * 60000, RT_ODD_MS = 30 * 60000, RT_GAP_MS = 20 * 60000, RT_PTS = 300, RT_VIEW_MS = 10 * 60000;
 // \uc9c0\ub09c \uacbd\ub85c\ub294 10\uac1c\uc774\uba74\uc11c 7\uc77c(RT_MAX_AGE)\uc774 \uc9c0\ub098\uba74 \uc9c0\uc6b4\ub2e4(\uac1c\uc778\uc815\ubcf4: \uc624\ub798 \uc313\uc544 \ub450\uc9c0 \uc54a\ub294\ub2e4 \u2014 DESIGN.md 9\uc7a5 11\ubc88). \uba38\ubb38 \uacf3\uc740 30\uc77c(STRANGE_KEEP) \u00b7 \ub3c4\ucc29/\ucd9c\ubc1c \uc54c\ub9bc \uc2dc\uac01\uc740 \ud558\ub8e8.
 const RT_MAX_AGE = 7 * 24 * 3600000;
 // \u2500\u2500 routes:begin (\uc21c\uc218 \uacc4\uc0b0 \u2014 \uc2dc\ud5d8\uc774 \uc774 \uad6c\uac04\uc744 \ub5bc\uc5b4 \ub3cc\ub9b0\ub2e4) \u2500\u2500
 /** \uc815\uc9c0 \uc0c1\ud0dc \ud55c \uac78\uc74c. st = {dla,dlo,dt,cl,rte,rsa,rso,sn,en}(\uc5c6\uc73c\uba74 null) \u00b7 lastT = \ubc14\ub85c \uc55e \ubcf4\uace0 \uc2dc\uac01(0 \uc774\uba74 \uc5c6\uc74c) \u00b7 name = \uc9c0\uae08 \uc788\ub294 \uacf3 \uc774\ub984.
  *  \ub3cc\ub824\uc8fc\ub294 \uac12 {st, close} \u2014 close = {t1, from:[la,lo]|null, since, sn, en} \uc774\uba74 '\uc9c0\uae08\uae4c\uc9c0\uc758 \uae38'\uc744 \ud55c \uac74\uc73c\ub85c \ub2eb\uc73c\ub77c\ub294 \ub73b(\uc810\uc740 \ud638\ucd9c\ud55c \ucabd\uc774 since \uc774\ud6c4 \u00b7 t1 \uc774\uc804 \uae30\ub85d\uc5d0\uc11c \uc77d\ub294\ub2e4). */
 function rtNext(st, la, lo, now, lastT, name, hav) {
-  if (!st) return { st: { dla: la, dlo: lo, dt: now, cl: 0, rte: 0, rsa: null, rso: null, sn: '', en: '' }, close: null };
+  if (!st) return { st: { dla: la, dlo: lo, dt: now, cl: 0, od: 0, rte: 0, rsa: null, rso: null, sn: '', en: '' }, close: null };
   const n = Object.assign({}, st), d = hav(st.dla, st.dlo, la, lo);
   if (d <= RT_DWELL_M) {
-    if (st.cl) return { st: n, close: null };                                   // \uc774\ubbf8 \ub2eb\uc740 \uc815\uc9c0 \u2014 \uac00\ub9cc\ud788 \uc788\ub294 \ub3d9\uc548\uc740 \uc544\ubb34 \uc77c \uc5c6\ub2e4
+    if (st.cl) {                                                                // \uc774\ubbf8 \ub2eb\uc740 \uc815\uc9c0 \u2014 \uac00\ub9cc\ud788 \uc788\ub294 \ub3d9\uc548\uc740 \uae38\uc744 \ub610 \ub2eb\uc9c0 \uc54a\ub294\ub2e4
+      if (!st.od && !(lastT && now - lastT > RT_GAP_MS) && now - st.dt >= RT_ODD_MS) { n.od = 1; return { st: n, close: null, odd: { t1: st.dt, to: [st.dla, st.dlo] } }; }      // s453: 30\ubd84 \ub118\uac8c \uba38\ubb34\ub974\uba74 \ub0af\uc120 \uacf3 \uc54c\ub9bc \ud310\uc815(\uc608\uc804 30\ubd84 \uc815\uc9c0 \ub54c \ud558\ub358 \uc77c)
+      return { st: n, close: null };
+    }
     if (lastT && now - lastT > RT_GAP_MS) { n.dla = la; n.dlo = lo; n.dt = now; return { st: n, close: null }; }    // \ubcf4\uace0\uac00 \ub04a\uacbc\ub2e4 \u2192 \uc5ec\uae30\uc11c \uc0c8\ub85c \uc13c\ub2e4
     if (now - st.dt >= RT_DWELL_MS) {
       n.cl = 1; n.en = name || '';
@@ -110,7 +113,7 @@ function rtNext(st, la, lo, now, lastT, name, hav) {
     return { st: n, close: null };
   }
   if (st.cl) {                                                                  // \ub2eb\ud78c \uc815\uc9c0\uc5d0\uc11c \ubc97\uc5b4\ub0ac\ub2e4 = \ucd9c\ubc1c: \uc0c8 \uae38\uc740 \ubc14\ub85c \uc55e \ubcf4\uace0 \uc774\ud6c4\uc758 \uae30\ub85d\ubd80\ud130
-    return { st: { dla: la, dlo: lo, dt: now, cl: 0, rte: lastT || st.dt, rsa: st.dla, rso: st.dlo, sn: st.en || '', en: '' }, close: null };
+    return { st: { dla: la, dlo: lo, dt: now, cl: 0, od: 0, rte: lastT || st.dt, rsa: st.dla, rso: st.dlo, sn: st.en || '', en: '' }, close: null };
   }
   n.dla = la; n.dlo = lo; n.dt = now;                                           // \uc6c0\uc9c1\uc774\ub294 \uc911 \u2014 \uae30\uc900\uc810\uc744 \ub530\ub77c \uc62e\uae34\ub2e4
   return { st: n, close: null };
@@ -203,12 +206,11 @@ async function strangeStop(env, DB, cid, c, name, now) {
 }
 /** \ubcf4\uace0\uac00 \uc62c \ub54c\ub9c8\ub2e4 \ubd80\ub978\ub2e4: \uc815\uc9c0 \ud310\uc815 \uc0c1\ud0dc\ub97c \ud55c \uac78\uc74c \uc62e\uae30\uace0, 30\ubd84 \uc815\uc9c0\uac00 \ud655\uc778\ub418\uba74 \uc9c0\uae08\uae4c\uc9c0\uc758 \uae38\uc744 \ud55c \uac74\uc73c\ub85c \uc800\uc7a5\ud55c\ub2e4. \uc800\uc7a5\ud588\uc73c\uba74 true. */
 async function routeStep(env, DB, cid, la, lo, now, lastT, name) {
-  const row = await DB.prepare('SELECT dla,dlo,dt,cl,rte,rsa,rso,sn,en FROM rtst WHERE cid=?').bind(cid).first();
+  const row = await DB.prepare('SELECT dla,dlo,dt,cl,od,rte,rsa,rso,sn,en FROM rtst WHERE cid=?').bind(cid).first();
   const r = rtNext(row || null, la, lo, now, lastT, name, hav);
   let saved = false;
   if (r.close) {
     const c = r.close;
-    try { await strangeStop(env, DB, cid, c, name, now); } catch (e) { /* \uc54c\ub9bc\uc774 \uae38 \uc800\uc7a5\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ }
     const rows = ((await DB.prepare('SELECT la,lo FROM locs WHERE cid=? AND t>? AND t<=? ORDER BY id ASC LIMIT 1500').bind(cid, c.since || 0, c.t1).all()).results || []);
     const b = rtBuild(rows, c, hav);
     if (b) {
@@ -221,10 +223,11 @@ async function routeStep(env, DB, cid, la, lo, now, lastT, name) {
       saved = true;
     }
   }
+  if (r.odd) { try { await strangeStop(env, DB, cid, r.odd, name, now); } catch (e) { /* \uc54c\ub9bc\uc774 \uae38 \uc800\uc7a5\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ } }      // s453: \ub0af\uc120 \uacf3 \ud310\uc815\uc740 30\ubd84 \ub118\uac8c \uba38\ubb38 \ub54c(\uae38\uc740 10\ubd84\uc5d0 \uc774\ubbf8 \uc800\uc7a5)
   const o = r.st;
-  if (!row || row.dla !== o.dla || row.dlo !== o.dlo || row.dt !== o.dt || row.cl !== o.cl || row.rte !== o.rte || row.rsa !== o.rsa || row.rso !== o.rso || row.sn !== o.sn || row.en !== o.en)
-    await DB.prepare('INSERT INTO rtst(cid,dla,dlo,dt,cl,rte,rsa,rso,sn,en) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET dla=excluded.dla,dlo=excluded.dlo,dt=excluded.dt,cl=excluded.cl,rte=excluded.rte,rsa=excluded.rsa,rso=excluded.rso,sn=excluded.sn,en=excluded.en')
-      .bind(cid, o.dla, o.dlo, o.dt, o.cl, o.rte, o.rsa == null ? null : o.rsa, o.rso == null ? null : o.rso, o.sn || '', o.en || '').run();
+  if (!row || row.dla !== o.dla || row.dlo !== o.dlo || row.dt !== o.dt || row.cl !== o.cl || (row.od || 0) !== (o.od || 0) || row.rte !== o.rte || row.rsa !== o.rsa || row.rso !== o.rso || row.sn !== o.sn || row.en !== o.en)
+    await DB.prepare('INSERT INTO rtst(cid,dla,dlo,dt,cl,od,rte,rsa,rso,sn,en) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET dla=excluded.dla,dlo=excluded.dlo,dt=excluded.dt,cl=excluded.cl,od=excluded.od,rte=excluded.rte,rsa=excluded.rsa,rso=excluded.rso,sn=excluded.sn,en=excluded.en')
+      .bind(cid, o.dla, o.dlo, o.dt, o.cl, o.od || 0, o.rte, o.rsa == null ? null : o.rsa, o.rso == null ? null : o.rso, o.sn || '', o.en || '').run();
   return saved;
 }
 const EVK = new Set(['feed', 'clean', 'drop', 'dress', 'psleep', 'pstudy', 'pplay']);       // \uac00\uc871\uad6c\uc131\uc6d0 \uc571\uc774 \uc54c\ub824 \uc8fc\ub294 \ud65c\ub3d9 \u2014 \uac00\uc871\uad6c\uc131\uc6d0\uc774 \uc9c1\uc811 \ud55c \uc77c\ub9cc(\uce5c\uad6c\ub4e4 \uc2a4\uc2a4\ub85c\uc758 \ub180\uae30\u00b7\uacf5\ubd80\u00b7\uc7a0\u00b7\uc751\uac00\ub294 \uae30\ub85d\ud558\uc9c0 \uc54a\ub294\ub2e4)
@@ -737,7 +740,7 @@ async function addCol(DB, table, col, ddl) {              // \uc61b \ud45c\uc5d0
   try { await DB.prepare('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + ddl).run(); } catch (e) { /* \ub2e4\ub978 \uc694\uccad\uc774 \uba3c\uc800 \ub367\ubd99\uc600\ub2e4 */ }
 }
 // s424: \uc11c\ubc84\uac00 \uc0c8\ub85c \ub730 \ub54c\ub9c8\ub2e4 \ud45c \u00b7 \uc5f4 \ud655\uc778(\uc57d 70\ubc88)\uc744 \ud558\ub358 \uac83\uc744 '\ubc84\uc804 \ud55c \uc904 \ud655\uc778'\uc73c\ub85c \ubc14\uafe8\ub2e4. \ud45c \u00b7 \uc5f4\uc744 \uace0\uce58\uba74(\uc544\ub798 migrate) SCHEMA_V \ub3c4 \uc62c\ub824\uc57c \uc0c8 \uc11c\ubc84\uac00 \ub2e4\uc2dc \uc900\ube44\ud55c\ub2e4(\uc2dc\ud5d8\uc774 \uc9c0\ucf1c \uc900\ub2e4).
-const SCHEMA_V = 's431-2';
+const SCHEMA_V = 's453-1';
 async function init(DB) {
   if (ready) return;
   try {
@@ -793,6 +796,8 @@ async function migrate(DB) {
   ]);
   await addCol(DB, 'loc', 'bt', 'INTEGER NOT NULL DEFAULT -1');          // \uac00\uc871\uad6c\uc131\uc6d0 \ud3f0 \ubc30\ud130\ub9ac %(\ubaa8\ub974\uba74 -1)
   await addCol(DB, 'loc', 'ch', 'INTEGER NOT NULL DEFAULT 0');           // \ucda9\uc804 \uc911\uc774\uba74 1
+  await addCol(DB, 'rtst', 'od', 'INTEGER NOT NULL DEFAULT 0');            // s453: 30\ubd84 \ub118\uac8c \uba38\ubb3c\ub7ec \ub0af\uc120 \uacf3 \ud310\uc815\uc744 \ub9c8\ucce4\uc73c\uba74 1
+  await DB.prepare('UPDATE rtst SET od=1 WHERE cl=1 AND od=0').run();     // s453: \uc774\ubbf8 \ub2eb\ud78c \uc815\uc9c0\ub294 \uc608\uc804 30\ubd84 \uaddc\uce59\uc73c\ub85c \ub0af\uc120 \uacf3 \ud310\uc815\uc744 \ub05d\ub0b8 \uac83 \u2014 \ubc30\ud3ec \uc9c1\ud6c4 \uac19\uc740 \uc54c\ub9bc\uc774 \ud55c \ubc88 \ub354 \ub098\uac00\uc9c0 \uc54a\uac8c
   await addCol(DB, 'drafts', 'q', "TEXT NOT NULL DEFAULT ''");           // \uc7a5\uc18c \ub4f1\ub85d: \ucc3e\uc544 \ubcf8 \uc8fc\uc18c \uae00
   await addCol(DB, 'devices', 'rv', 'INTEGER NOT NULL DEFAULT 0');         // \ubd80\ubaa8\uac00 \uc9c0\ub3c4\uc5d0\uc11c \ubcf4\ub294 \uc9c0\ub09c \uacbd\ub85c \ubc88\ud638(0 = \uc2e4\uc2dc\uac04) \u2014 10\ubd84 \uc9c0\ub098\uba74 \uc2e4\uc2dc\uac04\uc73c\ub85c \ub3cc\uc544\uac04\ub2e4
   await addCol(DB, 'devices', 'rvt', 'INTEGER NOT NULL DEFAULT 0');
@@ -1249,7 +1254,7 @@ async function hubScreen(DB, pid, cid, now) {
   const nm = nmOf(cur);
   // s421: \uc11c\ub85c \uae30\ub300\uc9c0 \uc54a\ub294 \uc870\ud68c\ub294 \ud55c\uaebc\ubc88\uc5d0 \ubb3b\ub294\ub2e4(\uc608\uc804\uc5d4 16\ubc88\uc744 \uc904\uc904\uc774 \uae30\ub2e4\ub824 \uc9c0\ub09c \uacbd\ub85c\ub97c \uace0\ub97c \ub54c\ub9c8\ub2e4 1~2\ucd08\uac00 \uac78\ub838\ub2e4). \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778\uc774 \uc548 \ub41c \uc0ac\ub78c\uc5d0\uac8c\ub294 \uc77d\uc740 \uac12\uc744 \uc4f0\uc9c0 \uc54a\uace0 \ub3cc\ub824\ubcf4\ub0b8\ub2e4.
   const ALL = (q) => q.all().then((r) => (r && r.results) || []);
-  const [gok, sok, loc, wch, cs0, pls, calls, trailRows, rts, vs, qs, msgs0, rd, sync0] = await Promise.all([
+  const [gok, sok, loc, wch, cs0, pls, calls, trailRows0, rts, vs, qs, msgs0, rd, rst, sync0] = await Promise.all([
     gdOk(DB, pid),
     subOk(DB, pid, now),
     DB.prepare('SELECT la,lo,acc,t,pla,plo,plt,dn,bt,ch,hd,hdt,mt FROM loc WHERE cid=?').bind(cid).first(),
@@ -1257,12 +1262,13 @@ async function hubScreen(DB, pid, cid, now) {
     DB.prepare('SELECT sh FROM cst WHERE cid=?').bind(cid).first(),
     ALL(DB.prepare('SELECT id,name,la,lo,hh,mm,days FROM places WHERE cid=? ORDER BY hh,mm LIMIT ?').bind(cid, MAX_PLACES)),
     ALL(DB.prepare("SELECT id,k,t,la,lo,pl,st FROM calls WHERE cid=? AND k IN ('sos','pick') AND st IN (0,1) AND t>? ORDER BY t DESC LIMIT 2").bind(cid, now - CALL_OPEN_MS)),
-    ALL(DB.prepare('SELECT la,lo FROM locs WHERE cid=? AND t>=? ORDER BY id ASC LIMIT 1500').bind(cid, now - TRAIL_MS)),
+    ALL(DB.prepare('SELECT la,lo,t FROM locs WHERE cid=? AND t>=? ORDER BY id ASC LIMIT 1500').bind(cid, now - TRAIL_MS)),
     ALL(DB.prepare('SELECT id,t0,t1,m,sn,en FROM routes WHERE cid=? ORDER BY id DESC LIMIT ?').bind(cid, RT_KEEP)),
     DB.prepare('SELECT rv,rvt FROM devices WHERE id=?').bind(pid).first(),
     ALL(DB.prepare('SELECT k,s FROM quests WHERE cid=?').bind(cid)),
     ALL(DB.prepare('SELECT id,f,x,t FROM chat WHERE cid=? AND t>=? ORDER BY id DESC LIMIT ?').bind(cid, now - CHAT_KEEP, HUB_CHAT)),
     rdMap(DB, cid),
+    DB.prepare('SELECT cl,rte,rsa,rso FROM rtst WHERE cid=?').bind(cid).first(),
     tripsSync(DB, cid, now).then(() => Promise.all([todayTrips(DB, cid, now), ALL(DB.prepare('SELECT k,x,t FROM evs WHERE cid=? AND t>=? AND k NOT IN ' + EV_HIDE + ' ORDER BY id DESC LIMIT ?').bind(cid, now - EV_KEEP, EV_SHOW + 1))])),
   ]);
   if (!gok) return gdScreen(nm);                                   // \ubc95\uc815\ub300\ub9ac\uc778 \ud655\uc778 \uc804\uc5d0\ub294 \uac00\uc871\uad6c\uc131\uc6d0 \uc704\uce58\ub97c \ubcf4\uc5ec \uc8fc\uc9c0 \uc54a\ub294\ub2e4
@@ -1279,7 +1285,10 @@ async function hubScreen(DB, pid, cid, now) {
   const noLoc = !pins.length;
   if (noLoc) pins.push({ la: 37.5665, lo: 126.978, k: 's', n: '', l: '' });
   // \uc774\ub3d9 \uacbd\ub85c: \uc9c0\ub09c TRAIL_MS \ub3d9\uc548 \uc313\uc778 \uc810(\ucd5c\ub300 TRAIL_PTS \uac1c\ub85c \uc18e\uc74c) + \uc9c0\uae08 \uc704\uce58
-  let trail = trailRows.map((r) => [+r.la.toFixed(5), +r.lo.toFixed(5)]);
+  // s453 (YJ: 10\ubd84 \ub118\uac8c 50m \uc548\uc5d0 \uba38\ubb3c\uba74 \ud754\uc801\uc744 \uc9c0\uc6b0\uace0 \uc800\uc7a5): \uae38\uc744 \ub2eb\uc740 \uc815\uc9c0\uc5d0 \uba38\ubb34\ub294 \ub3d9\uc548\uc740 \ud754\uc801 \uc904\uc774 \uc5c6\uace0, \ucd9c\ubc1c\ud558\uba74 \uadf8 \ucd9c\ubc1c \uc790\ub9ac(rsa\u00b7rso)\ubd80\ud130 \uc0c8\ub85c \uadf8\ub9b0\ub2e4
+  const trailRows = rst ? (rst.cl ? [] : trailRows0.filter((r) => r.t >= (rst.rte || 0))) : trailRows0;
+  const trailOrigin = rst && !rst.cl && rst.rsa != null && rst.rso != null && trailRows.length ? [[+rst.rsa.toFixed(5), +rst.rso.toFixed(5)]] : [];
+  let trail = trailOrigin.concat(trailRows.map((r) => [+r.la.toFixed(5), +r.lo.toFixed(5)]));
   if (loc && trail.length && hav(trail[trail.length - 1][0], trail[trail.length - 1][1], loc.la, loc.lo) >= 15) trail.push([+loc.la.toFixed(5), +loc.lo.toFixed(5)]);
   if (trail.length > TRAIL_PTS) { const st2 = (trail.length - 1) / (TRAIL_PTS - 1); trail = Array.from({ length: TRAIL_PTS }, (_, i) => trail[Math.round(i * st2)]); }
   // \uc9c0\ub09c \uacbd\ub85c \ubcf4\uae30(s391): \ubd80\ubaa8\uac00 \uace0\ub978 \uacbd\ub85c\uac00 \uc788\uace0 10\ubd84\uc774 \uc548 \uc9c0\ub0ac\uc73c\uba74 \uc9c0\ub3c4\uc5d0 \uadf8 \uacbd\ub85c\ub97c(\ucd9c\ubc1c \u00b7 \ub3c4\ucc29 \ud540) \uadf8\ub9b0\ub2e4 \u2014 \uace0\ub974\ub294 \uac83\ub3c4 \uadf8\ub9ac\ub294 \uac83\ub3c4 \uc5d4\uc9c4, \uc571\uc740 \ubc1b\uc740 \uc120\uacfc \ud540\uc744 \uadf8\ub9b4 \ubfd0
@@ -1298,7 +1307,7 @@ async function hubScreen(DB, pid, cid, now) {
   const mapH = Math.max(150, 250 - (topCall ? HUB_CARD_H : 0) - (kids.length > 1 ? 44 : 0));
   const head = [
     viewing ? { t: 'lth', s: nm + ' \uc9c0\ub09c \uacbd\ub85c', dot: '#8e8e93', live: false, pad: [16, 8, 16, 6] } : { t: 'lth', s: '\uac00\uc871\uad6c\uc131\uc6d0 \uc704\uce58', dot: '#111111', live: true, pad: [16, 8, 16, 6] },
-    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: mapH, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '\uc9c0\ub09c \uacbd\ub85c \u00b7 \uc544\ub798 \ub2e8\ucd94\ub85c \uc2e4\uc2dc\uac04\uc73c\ub85c \ub3cc\uc544\uac00\uc694' : noLoc ? '\uac00\uc871\uad6c\uc131\uc6d0 \uc704\uce58\ub97c \uc544\uc9c1 \ubc1b\uc9c0 \ubabb\ud588\uc5b4\uc694' : follow ? '\uc2e4\uc2dc\uac04\uc73c\ub85c \ub530\ub77c\uac00\ub294 \uc911 \u00b7 \uc9c0\ub3c4\ub97c \ubc00\uba74 \uc7a0\uc2dc \uba48\ucdb0\uc694' : '\uc9c0\ub3c4\ub97c 3\ucd08 \ub204\ub974\uba74 \uc7a5\uc18c\ub97c \ub4f1\ub85d\ud574\uc694', lp: 'kpl.new', fp: 40, fz: 16 },
+    { t: 'tmap', ...(trail.length >= 2 ? { line: trail } : {}), live: 1, h: mapH, r: 14, pad: [12, 0, 12, 0], pts: pins, foc: viewing ? -1 : cpin >= 0 ? cpin : loc ? 0 : -1, ...(follow ? { fol: 1 } : {}), hint: viewing ? '\uc9c0\ub09c \uacbd\ub85c \u00b7 \uc544\ub798 \ub2e8\ucd94\ub85c \uc2e4\uc2dc\uac04\uc73c\ub85c \ub3cc\uc544\uac00\uc694' : noLoc ? '\uac00\uc871\uad6c\uc131\uc6d0 \uc704\uce58\ub97c \uc544\uc9c1 \ubc1b\uc9c0 \ubabb\ud588\uc5b4\uc694' : follow ? '\ub530\ub77c\uac00\ub294 \uc911 \u00b7 3\ucd08 \uafb9 \ub204\ub974\uba74 \uc7a5\uc18c \ub4f1\ub85d' : '3\ucd08 \uafb9 \ub204\ub974\uba74 \uc7a5\uc18c \ub4f1\ub85d \u00b7 \ub450 \ubc88 \ud0ed\ud558\uba74 \uc704\uce58\ub85c', lp: 'kpl.new', fp: 40, fz: 16 },
   ];
   for (const c of topCall ? [topCall] : []) head.unshift(panel([          // s415: \ud638\ucd9c \ub0b4\uc6a9\uc740 \uac00\uc6b4\ub370 \ud31d\uc5c5\uc73c\ub85c \ub72c\ub2e4 \u2014 \ud5c8\ube0c\uc5d0\ub294 \ud55c \uc904\ub9cc \ub0a8\uaca8 \ub20c\ub7ec\uc11c \ub2e4\uc2dc \uc5f4 \uc218 \uc788\uac8c
     tx((c.k === 'sos' ? '\ud83d\udea8 ' + nm + ' \uae34\uae09 \ud638\ucd9c' : '\ud83d\ude97 ' + nm + ' \ub370\ub9ac\ub7ec \uc640 \ub2ec\ub77c\uace0 \ud574\uc694') + (c.st === 1 ? ' \u00b7 \ud655\uc778\ud568' : '') + '  \u203a', { size: 13.5, bold: true, color: 'orange', lines: 1, align: 'center' }),
@@ -1378,7 +1387,7 @@ function rtSub(r) { const mi = Math.max(1, Math.round((r.t1 - r.t0) / 60000)); r
 async function rtSheet(DB, pid, cid, now, notice) {
   const cur = (await childrenOf(DB, pid)).find((k) => k.cid === cid), nm = nmOf(cur);
   const rows = (await DB.prepare('SELECT id,t0,t1,m,sn,en FROM routes WHERE cid=? ORDER BY id DESC LIMIT ?').bind(cid, RT_KEEP).all()).results || [];
-  const body = [tx(nm + ' \uc9c0\ub09c \uacbd\ub85c', { size: 15, bold: true, pad: [16, 14, 16, 4] }), tx('\ud55c \uacf3\uc5d0 30\ubd84 \ub118\uac8c \uba38\ubb3c\uba74 \uadf8 \uc804\uae4c\uc9c0\uc758 \uae38\uc774 \uc800\uc7a5\ub3fc\uc694 \u00b7 \ucd5c\ub300 ' + RT_KEEP + '\uac1c \u00b7 ' + RT_MIN_M + 'm \ubbf8\ub9cc\uc740 \uc800\uc7a5\ud558\uc9c0 \uc54a\uc544\uc694', { size: 11, color: 'sub', pad: [16, 0, 16, 8] })];
+  const body = [tx(nm + ' \uc9c0\ub09c \uacbd\ub85c', { size: 15, bold: true, pad: [16, 14, 16, 4] }), tx('\ud55c \uacf3\uc5d0 10\ubd84 \ub118\uac8c \uba38\ubb3c\uba74 \uadf8 \uc804\uae4c\uc9c0\uc758 \uae38\uc774 \uc800\uc7a5\ub3fc\uc694 \u00b7 \ucd5c\ub300 ' + RT_KEEP + '\uac1c \u00b7 ' + RT_MIN_M + 'm \ubbf8\ub9cc\uc740 \uc800\uc7a5\ud558\uc9c0 \uc54a\uc544\uc694', { size: 11, color: 'sub', pad: [16, 0, 16, 8] })];
   if (notice) body.push(tx(notice, { size: 12, bold: true, color: 'orange', pad: [16, 0, 16, 6] }));
   if (!rows.length) body.push(tx('\uc544\uc9c1 \uc800\uc7a5\ub41c \uacbd\ub85c\uac00 \uc5c6\uc5b4\uc694', { size: 12.5, color: 'sub', pad: [16, 12, 16, 12] }));
   if (rows.length) body.push(panel(rows.map((r) => ({ t: 'navrow', title: rtTitle(r, now), sub: rtSub(r), act: call('kr.' + r.id), size: 13, vp: 8 })), { pad: [12, 0, 12, 0], ip: [14, 6, 14, 6] }));
