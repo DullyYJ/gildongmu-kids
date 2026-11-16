@@ -223,11 +223,11 @@ async function routeStep(env, DB, cid, la, lo, now, lastT, name) {
       saved = true;
     }
   }
-  if (r.odd) { try { await strangeStop(env, DB, cid, r.odd, name, now); } catch (e) { /* \uc54c\ub9bc\uc774 \uae38 \uc800\uc7a5\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ } }      // s453: \ub0af\uc120 \uacf3 \ud310\uc815\uc740 30\ubd84 \ub118\uac8c \uba38\ubb38 \ub54c(\uae38\uc740 10\ubd84\uc5d0 \uc774\ubbf8 \uc800\uc7a5)
   const o = r.st;
   if (!row || row.dla !== o.dla || row.dlo !== o.dlo || row.dt !== o.dt || row.cl !== o.cl || (row.od || 0) !== (o.od || 0) || row.rte !== o.rte || row.rsa !== o.rsa || row.rso !== o.rso || row.sn !== o.sn || row.en !== o.en)
     await DB.prepare('INSERT INTO rtst(cid,dla,dlo,dt,cl,od,rte,rsa,rso,sn,en) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET dla=excluded.dla,dlo=excluded.dlo,dt=excluded.dt,cl=excluded.cl,od=excluded.od,rte=excluded.rte,rsa=excluded.rsa,rso=excluded.rso,sn=excluded.sn,en=excluded.en')
       .bind(cid, o.dla, o.dlo, o.dt, o.cl, o.od || 0, o.rte, o.rsa == null ? null : o.rsa, o.rso == null ? null : o.rso, o.sn || '', o.en || '').run();
+  if (r.odd) { try { await strangeStop(env, DB, cid, r.odd, name, now); } catch (e) { /* \uc54c\ub9bc\uc774 \uae38 \uc800\uc7a5\uc744 \ub9c9\uc9c0 \uc54a\ub294\ub2e4 */ } }      // s453: \ub0af\uc120 \uacf3 \ud310\uc815\uc740 30\ubd84 \ub118\uac8c \uba38\ubb38 \ub54c(\uae38\uc740 10\ubd84\uc5d0 \uc774\ubbf8 \uc800\uc7a5). \uc0c1\ud0dc(od=1)\ub97c \uba3c\uc800 \uc800\uc7a5\ud55c \ub4a4\uc5d0 \uc54c\ub9b0\ub2e4 \u2014 \uc800\uc7a5\uc774 \uc2e4\ud328\ud558\uba74 \uc54c\ub9ac\uc9c0 \uc54a\uace0 \ub2e4\uc74c \ubcf4\uace0\uc5d0\uc11c \ub2e4\uc2dc \ud310\uc815\ud55c\ub2e4(\uc54c\ub9bc \ubc18\ubcf5 \ubc29\uc9c0)
   return saved;
 }
 const EVK = new Set(['feed', 'clean', 'drop', 'dress', 'psleep', 'pstudy', 'pplay']);       // \uac00\uc871\uad6c\uc131\uc6d0 \uc571\uc774 \uc54c\ub824 \uc8fc\ub294 \ud65c\ub3d9 \u2014 \uac00\uc871\uad6c\uc131\uc6d0\uc774 \uc9c1\uc811 \ud55c \uc77c\ub9cc(\uce5c\uad6c\ub4e4 \uc2a4\uc2a4\ub85c\uc758 \ub180\uae30\u00b7\uacf5\ubd80\u00b7\uc7a0\u00b7\uc751\uac00\ub294 \uae30\ub85d\ud558\uc9c0 \uc54a\ub294\ub2e4)
@@ -288,7 +288,7 @@ const GD_VER = 1, LBS_KEEP = 200 * 86400000;      // 6\uac1c\uc6d4(\uc57d 183\uc
 async function gdOk(DB, pid) { const r = await DB.prepare('SELECT v FROM gd WHERE pid=?').bind(pid).first(); return !!r && r.v >= GD_VER; }
 /** \uc774\uc6a9 \u00b7 \uc81c\uacf5 \uc0ac\uc2e4 \ud55c \uc904(\uac19\uc740 \ubd80\ubaa8 \u00b7 \uac00\uc871\uad6c\uc131\uc6d0 \u00b7 \uc885\ub958\ub294 gapMs \uc548\uc5d0\ub294 \ud55c \ubc88\ub9cc) */
 async function lbsLog(DB, cid, pid, k, now, gapMs) {
-  await DB.prepare('INSERT INTO lbs(t,cid,pid,k) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM lbs WHERE cid=? AND pid=? AND k=? AND t>?)').bind(now, cid, pid, k, cid, pid, k, now - (gapMs || 0)).run();
+  await DB.prepare('INSERT INTO lbs(t,cid,pid,k,src) SELECT ?,?,?,?,\'g\' WHERE NOT EXISTS (SELECT 1 FROM lbs WHERE cid=? AND pid=? AND k=? AND t>?)').bind(now, cid, pid, k, cid, pid, k, now - (gapMs || 0)).run();
 }
 const LEGAL_BASE = 'https://gildongmu-kids.phg0643.workers.dev';          // \uc571\uc774 \uc4f0\ub294 \uc8fc\uc18c\uc640 \uac19\ub2e4(\uc571 \uc548 \ub9c1\ud06c\uc6a9)
 function gdScreen(nm) {
@@ -403,7 +403,7 @@ async function notifyParents(env, DB, cid, mk, all) {      // all: \ubc95\uc815\
     ? await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.ft<>''").bind(cid).all()
     : await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>''").bind(GD_VER, cid).all()).results || [];
   const now = Date.now();
-  if (rs.length) await DB.batch(rs.map((r) => DB.prepare("INSERT INTO lbs(t,cid,pid,k) VALUES(?,?,?,'n')").bind(now, cid, r.id)));
+  if (rs.length) await DB.batch(rs.map((r) => DB.prepare("INSERT INTO lbs(t,cid,pid,k,src) VALUES(?,?,?,'n','g')").bind(now, cid, r.id)));
   await pushRows(env, DB, rs.map((r) => ({ id: r.id, ft: r.ft, data: Object.assign({ cid }, mk(r.nm || '')) })));
 }
 const who = (nm) => (nm ? ga(nm) : '\uac00\uc871\uad6c\uc131\uc6d0\uc774');
@@ -740,7 +740,7 @@ async function addCol(DB, table, col, ddl) {              // \uc61b \ud45c\uc5d0
   try { await DB.prepare('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + ddl).run(); } catch (e) { /* \ub2e4\ub978 \uc694\uccad\uc774 \uba3c\uc800 \ub367\ubd99\uc600\ub2e4 */ }
 }
 // s424: \uc11c\ubc84\uac00 \uc0c8\ub85c \ub730 \ub54c\ub9c8\ub2e4 \ud45c \u00b7 \uc5f4 \ud655\uc778(\uc57d 70\ubc88)\uc744 \ud558\ub358 \uac83\uc744 '\ubc84\uc804 \ud55c \uc904 \ud655\uc778'\uc73c\ub85c \ubc14\uafe8\ub2e4. \ud45c \u00b7 \uc5f4\uc744 \uace0\uce58\uba74(\uc544\ub798 migrate) SCHEMA_V \ub3c4 \uc62c\ub824\uc57c \uc0c8 \uc11c\ubc84\uac00 \ub2e4\uc2dc \uc900\ube44\ud55c\ub2e4(\uc2dc\ud5d8\uc774 \uc9c0\ucf1c \uc900\ub2e4).
-const SCHEMA_V = 's453-1';
+const SCHEMA_V = 's460-2';
 async function init(DB) {
   if (ready) return;
   try {
@@ -794,7 +794,7 @@ async function migrate(DB) {
     DB.prepare('CREATE TABLE IF NOT EXISTS rtst(cid TEXT PRIMARY KEY, dla REAL NOT NULL, dlo REAL NOT NULL, dt INTEGER NOT NULL, cl INTEGER NOT NULL DEFAULT 0, rte INTEGER NOT NULL DEFAULT 0, rsa REAL, rso REAL, sn TEXT NOT NULL DEFAULT \'\', en TEXT NOT NULL DEFAULT \'\')'),      // \uc815\uc9c0 \ud310\uc815 \uc0c1\ud0dc
     DB.prepare('CREATE TABLE IF NOT EXISTS drafts(pid TEXT PRIMARY KEY, cid TEXT NOT NULL, pl TEXT NOT NULL DEFAULT \'\', la REAL NOT NULL, lo REAL NOT NULL, name TEXT NOT NULL DEFAULT \'\', hh INTEGER NOT NULL, mm INTEGER NOT NULL, days INTEGER NOT NULL, t INTEGER NOT NULL)'),
   ]);
-  await addCol(DB, 'loc', 'bt', 'INTEGER NOT NULL DEFAULT -1');          // \uac00\uc871\uad6c\uc131\uc6d0 \ud3f0 \ubc30\ud130\ub9ac %(\ubaa8\ub974\uba74 -1)
+  await addCol(DB, 'loc', 'bt', 'INTEGER NOT NULL DEFAULT -1'); await addCol(DB, 'lbs', 'src', "TEXT NOT NULL DEFAULT 'g'");          // \uac00\uc871\uad6c\uc131\uc6d0 \ud3f0 \ubc30\ud130\ub9ac %(\ubaa8\ub974\uba74 -1)
   await addCol(DB, 'loc', 'ch', 'INTEGER NOT NULL DEFAULT 0');           // \ucda9\uc804 \uc911\uc774\uba74 1
   await addCol(DB, 'rtst', 'od', 'INTEGER NOT NULL DEFAULT 0');            // s453: 30\ubd84 \ub118\uac8c \uba38\ubb3c\ub7ec \ub0af\uc120 \uacf3 \ud310\uc815\uc744 \ub9c8\ucce4\uc73c\uba74 1
   await DB.prepare('UPDATE rtst SET od=1 WHERE cl=1 AND od=0').run();     // s453: \uc774\ubbf8 \ub2eb\ud78c \uc815\uc9c0\ub294 \uc608\uc804 30\ubd84 \uaddc\uce59\uc73c\ub85c \ub0af\uc120 \uacf3 \ud310\uc815\uc744 \ub05d\ub0b8 \uac83 \u2014 \ubc30\ud3ec \uc9c1\ud6c4 \uac19\uc740 \uc54c\ub9bc\uc774 \ud55c \ubc88 \ub354 \ub098\uac00\uc9c0 \uc54a\uac8c
