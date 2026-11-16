@@ -828,7 +828,6 @@ public final class Wardrobe {
      */
     public static boolean floatAt(int ci, int sheet, int cell, long tMs, float[] out) {
         if (ci < 0 || ci >= 8 || sheet < 0 || sheet > 2 || cell < 0) return false;
-        if (sheet == 1 && cell == 1) return false;
         int[] m = MET[ci][sheet];
         int b = cell * 5;
         if (b + 4 >= m.length || m[b + 2] <= 0) return false;
@@ -887,7 +886,6 @@ public final class Wardrobe {
      */
     public static boolean place(int ci, int sheet, int cell, int slot, float[] out) {
         if (ci < 0 || ci >= 8 || sheet < 0 || sheet > 2 || slot < 0 || slot > 2) return false;
-        if (sheet == 1 && cell == 1) return false;                // 자는 모습엔 입히지 않는다
         int[] m = MET[ci][sheet];
         int b = cell * 5;
         if (cell < 0 || b + 4 >= m.length) return false;

@@ -223,11 +223,11 @@ async function routeStep(env, DB, cid, la, lo, now, lastT, name) {
       saved = true;
     }
   }
-  if (r.odd) { try { await strangeStop(env, DB, cid, r.odd, name, now); } catch (e) { /* 알림이 길 저장을 막지 않는다 */ } }      // s453: 낯선 곳 판정은 30분 넘게 머문 때(길은 10분에 이미 저장)
   const o = r.st;
   if (!row || row.dla !== o.dla || row.dlo !== o.dlo || row.dt !== o.dt || row.cl !== o.cl || (row.od || 0) !== (o.od || 0) || row.rte !== o.rte || row.rsa !== o.rsa || row.rso !== o.rso || row.sn !== o.sn || row.en !== o.en)
     await DB.prepare('INSERT INTO rtst(cid,dla,dlo,dt,cl,od,rte,rsa,rso,sn,en) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cid) DO UPDATE SET dla=excluded.dla,dlo=excluded.dlo,dt=excluded.dt,cl=excluded.cl,od=excluded.od,rte=excluded.rte,rsa=excluded.rsa,rso=excluded.rso,sn=excluded.sn,en=excluded.en')
       .bind(cid, o.dla, o.dlo, o.dt, o.cl, o.od || 0, o.rte, o.rsa == null ? null : o.rsa, o.rso == null ? null : o.rso, o.sn || '', o.en || '').run();
+  if (r.odd) { try { await strangeStop(env, DB, cid, r.odd, name, now); } catch (e) { /* 알림이 길 저장을 막지 않는다 */ } }      // s453: 낯선 곳 판정은 30분 넘게 머문 때(길은 10분에 이미 저장). 상태(od=1)를 먼저 저장한 뒤에 알린다 — 저장이 실패하면 알리지 않고 다음 보고에서 다시 판정한다(알림 반복 방지)
   return saved;
 }
 const EVK = new Set(['feed', 'clean', 'drop', 'dress', 'psleep', 'pstudy', 'pplay']);       // 가족구성원 앱이 알려 주는 활동 — 가족구성원이 직접 한 일만(친구들 스스로의 놀기·공부·잠·응가는 기록하지 않는다)
@@ -288,7 +288,7 @@ const GD_VER = 1, LBS_KEEP = 200 * 86400000;      // 6개월(약 183일)보다 �
 async function gdOk(DB, pid) { const r = await DB.prepare('SELECT v FROM gd WHERE pid=?').bind(pid).first(); return !!r && r.v >= GD_VER; }
 /** 이용 · 제공 사실 한 줄(같은 부모 · 가족구성원 · 종류는 gapMs 안에는 한 번만) */
 async function lbsLog(DB, cid, pid, k, now, gapMs) {
-  await DB.prepare('INSERT INTO lbs(t,cid,pid,k) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM lbs WHERE cid=? AND pid=? AND k=? AND t>?)').bind(now, cid, pid, k, cid, pid, k, now - (gapMs || 0)).run();
+  await DB.prepare('INSERT INTO lbs(t,cid,pid,k,src) SELECT ?,?,?,?,\'g\' WHERE NOT EXISTS (SELECT 1 FROM lbs WHERE cid=? AND pid=? AND k=? AND t>?)').bind(now, cid, pid, k, cid, pid, k, now - (gapMs || 0)).run();
 }
 const LEGAL_BASE = 'https://gildongmu-kids.phg0643.workers.dev';          // 앱이 쓰는 주소와 같다(앱 안 링크용)
 function gdScreen(nm) {
@@ -403,7 +403,7 @@ async function notifyParents(env, DB, cid, mk, all) {      // all: 법정대리�
     ? await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid WHERE l.cid=? AND d.ft<>''").bind(cid).all()
     : await DB.prepare("SELECT d.id id,d.ft ft,l.nm nm FROM links l JOIN devices d ON d.id=l.pid JOIN gd g ON g.pid=l.pid AND g.v>=? WHERE l.cid=? AND d.ft<>''").bind(GD_VER, cid).all()).results || [];
   const now = Date.now();
-  if (rs.length) await DB.batch(rs.map((r) => DB.prepare("INSERT INTO lbs(t,cid,pid,k) VALUES(?,?,?,'n')").bind(now, cid, r.id)));
+  if (rs.length) await DB.batch(rs.map((r) => DB.prepare("INSERT INTO lbs(t,cid,pid,k,src) VALUES(?,?,?,'n','g')").bind(now, cid, r.id)));
   await pushRows(env, DB, rs.map((r) => ({ id: r.id, ft: r.ft, data: Object.assign({ cid }, mk(r.nm || '')) })));
 }
 const who = (nm) => (nm ? ga(nm) : '가족구성원이');
@@ -740,7 +740,7 @@ async function addCol(DB, table, col, ddl) {              // 옛 표에 열을 �
   try { await DB.prepare('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + ddl).run(); } catch (e) { /* 다른 요청이 먼저 덧붙였다 */ }
 }
 // s424: 서버가 새로 뜰 때마다 표 · 열 확인(약 70번)을 하던 것을 '버전 한 줄 확인'으로 바꿨다. 표 · 열을 고치면(아래 migrate) SCHEMA_V 도 올려야 새 서버가 다시 준비한다(시험이 지켜 준다).
-const SCHEMA_V = 's453-1';
+const SCHEMA_V = 's460-2';
 async function init(DB) {
   if (ready) return;
   try {
@@ -794,7 +794,7 @@ async function migrate(DB) {
     DB.prepare('CREATE TABLE IF NOT EXISTS rtst(cid TEXT PRIMARY KEY, dla REAL NOT NULL, dlo REAL NOT NULL, dt INTEGER NOT NULL, cl INTEGER NOT NULL DEFAULT 0, rte INTEGER NOT NULL DEFAULT 0, rsa REAL, rso REAL, sn TEXT NOT NULL DEFAULT \'\', en TEXT NOT NULL DEFAULT \'\')'),      // 정지 판정 상태
     DB.prepare('CREATE TABLE IF NOT EXISTS drafts(pid TEXT PRIMARY KEY, cid TEXT NOT NULL, pl TEXT NOT NULL DEFAULT \'\', la REAL NOT NULL, lo REAL NOT NULL, name TEXT NOT NULL DEFAULT \'\', hh INTEGER NOT NULL, mm INTEGER NOT NULL, days INTEGER NOT NULL, t INTEGER NOT NULL)'),
   ]);
-  await addCol(DB, 'loc', 'bt', 'INTEGER NOT NULL DEFAULT -1');          // 가족구성원 폰 배터리 %(모르면 -1)
+  await addCol(DB, 'loc', 'bt', 'INTEGER NOT NULL DEFAULT -1'); await addCol(DB, 'lbs', 'src', "TEXT NOT NULL DEFAULT 'g'");          // 가족구성원 폰 배터리 %(모르면 -1)
   await addCol(DB, 'loc', 'ch', 'INTEGER NOT NULL DEFAULT 0');           // 충전 중이면 1
   await addCol(DB, 'rtst', 'od', 'INTEGER NOT NULL DEFAULT 0');            // s453: 30분 넘게 머물러 낯선 곳 판정을 마쳤으면 1
   await DB.prepare('UPDATE rtst SET od=1 WHERE cl=1 AND od=0').run();     // s453: 이미 닫힌 정지는 예전 30분 규칙으로 낯선 곳 판정을 끝낸 것 — 배포 직후 같은 알림이 한 번 더 나가지 않게
